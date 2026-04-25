@@ -45,6 +45,7 @@ export default function Dashboard() {
   const [searchResults, setSearchResults] = useState([])
   const [searching, setSearching] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [quickSyncing, setQuickSyncing] = useState(false)
   const [syncReport, setSyncReport] = useState(null)
   const [error, setError] = useState(null)
   const debounceRef = useRef(null)
@@ -175,6 +176,20 @@ export default function Dashboard() {
     }
   }
 
+  async function handleQuickSync() {
+    setQuickSyncing(true)
+    setSyncReport(null)
+    try {
+      const { data } = await axios.post('/api/sync/all/quick')
+      setSyncReport({ upcoming: data.results, tier: 'all' })
+      await loadUpcoming()
+    } catch (e) {
+      alert('Quick sync failed: ' + e.message)
+    } finally {
+      setQuickSyncing(false)
+    }
+  }
+
   async function handleSync() {
     setSyncing(true)
     setSyncReport(null)
@@ -223,8 +238,12 @@ export default function Dashboard() {
             </button>
             <button onClick={() => { setView('backtest'); sessionStorage.setItem('ss_view', 'backtest') }} style={tabBtnStyle(view === 'backtest')}>Test Model</button>
             <Link to="/betslip" style={{ ...btnStyle('#276749'), marginLeft: '6px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>⚡ Bet Slip</Link>
-            <button onClick={handleSync} disabled={syncing} style={{ ...btnStyle('#2b6cb0'), marginLeft: '6px' }}>
-              {syncing ? 'Syncing...' : 'Sync Data'}
+            <Link to="/bet-builder" style={{ ...btnStyle('#744210'), marginLeft: '4px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>🎯 Bet Builder</Link>
+            <button onClick={handleQuickSync} disabled={quickSyncing || syncing} style={{ ...btnStyle('#276749'), marginLeft: '6px' }}>
+              {quickSyncing ? 'Syncing...' : 'Sync Fixtures'}
+            </button>
+            <button onClick={handleSync} disabled={syncing || quickSyncing} style={{ ...btnStyle('#2b6cb0') }}>
+              {syncing ? 'Syncing...' : 'Sync + xG'}
             </button>
           </div>
         </div>

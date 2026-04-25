@@ -53,9 +53,11 @@ function OUStrip({ ou }) {
 export default function PredictionCard({ fixture, prediction, onPredict, computing }) {
   const [expanded, setExpanded] = useState(false)
 
+  const blended    = prediction?.blended ?? null
   const activeData = prediction
-    ? (prediction.activeMode === 'B' ? prediction.modeB : prediction.modeA)
+    ? (blended || (prediction.activeMode === 'B' ? prediction.modeB : prediction.modeA))
     : null
+  const isBlended = !!blended
   const claude = prediction?.claudeAnalysis ?? null
   const news   = prediction?.newsAnalysis ?? null
 
@@ -116,8 +118,11 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
 
             {/* Model column */}
             <div style={{ flex: 1, padding: '0.75rem 1.25rem', borderRight: '1px solid #2d3748', minWidth: 0 }}>
-              <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px' }}>
-                Model · Mode {prediction.activeMode}
+              <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '6px', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                {isBlended ? 'Blended' : `Model · Mode ${prediction.activeMode}`}
+                {isBlended && blended.bookmaker && (
+                  <span style={{ color: '#553c9a', fontSize: '0.58rem' }}>+ {blended.bookmaker}</span>
+                )}
               </div>
               <VerdictPill verdict={modelVerdict} />
               {modelProb != null && (
@@ -173,8 +178,13 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
                       Best bet: {claude.bestBet}
                     </div>
                   )}
+                  {claude.oddsAlignment && claude.oddsAlignment !== 'N/A' && (
+                    <div style={{ marginTop: '4px', fontSize: '0.65rem', color: claude.oddsAlignment === 'Agree' ? '#68d391' : '#f6e05e' }}>
+                      Odds: {claude.oddsAlignment} {claude.oddsAlignment === 'Disagree' ? '⚠' : '✓'}
+                    </div>
+                  )}
                   {news && (
-                    <div style={{ marginTop: '6px', fontSize: '0.68rem', color: news.agreesWithModel ? '#68d391' : '#fc8181' }}>
+                    <div style={{ marginTop: '4px', fontSize: '0.68rem', color: news.agreesWithModel ? '#68d391' : '#fc8181' }}>
                       {news.agreesWithModel ? '↑ News confirms' : '↓ News conflicts'} · {news.mediaSentiment}
                     </div>
                   )}
@@ -201,9 +211,47 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
             </button>
           </div>
 
-          {/* Expanded: double chance + HT */}
+          {/* Expanded: blended breakdown + double chance + HT + analysis */}
           {expanded && (
             <div style={{ borderTop: '1px solid #2d3748', padding: '0.75rem 1.25rem' }}>
+
+              {/* Blended component comparison */}
+              {isBlended && blended.result1X2 && (
+                <div style={{ marginBottom: '1rem' }}>
+                  <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>
+                    Blend breakdown
+                    {blended.weights && (
+                      <span style={{ marginLeft: 6, color: '#4a5568' }}>
+                        Poisson {Math.round((blended.weights.poisson ?? 0) * 100)}% · ELO {Math.round((blended.weights.elo ?? 0) * 100)}% · Odds {Math.round((blended.weights.odds ?? 0) * 100)}%
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ fontSize: '0.68rem', borderCollapse: 'collapse', width: '100%' }}>
+                      <thead>
+                        <tr>
+                          {['', 'Poisson', 'ELO', blended.oddsProbs ? 'Odds' : null, blended.rawOdds ? 'Raw' : null, 'Blended'].filter(Boolean).map(h => (
+                            <th key={h} style={{ color: h === 'Blended' ? '#68d391' : h === 'Odds' ? '#d6bcfa' : h === 'ELO' ? '#fbd38d' : '#718096', fontWeight: 600, padding: '3px 8px', textAlign: h === '' ? 'left' : 'right', borderBottom: '1px solid #2d3748' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[['Home', 'home'], ['Draw', 'draw'], ['Away', 'away']].map(([label, key]) => (
+                          <tr key={key}>
+                            <td style={{ padding: '4px 8px', color: '#a0aec0' }}>{label}</td>
+                            <td style={{ padding: '4px 8px', textAlign: 'right', color: '#bee3f8' }}>{pct(blended.poissonProbs?.[key])}</td>
+                            <td style={{ padding: '4px 8px', textAlign: 'right', color: '#fbd38d' }}>{pct(blended.eloProbs?.[key])}</td>
+                            {blended.oddsProbs && <td style={{ padding: '4px 8px', textAlign: 'right', color: '#d6bcfa' }}>{pct(blended.oddsProbs?.[key])}</td>}
+                            {blended.rawOdds && <td style={{ padding: '4px 8px', textAlign: 'right', color: '#718096' }}>{blended.rawOdds?.[key]?.toFixed(2) ?? '—'}</td>}
+                            <td style={{ padding: '4px 8px', textAlign: 'right', color: '#68d391', fontWeight: 700 }}>{pct(blended.result1X2?.[key])}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
                 {activeData.doubleChance && (
                   <div>
@@ -249,6 +297,9 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
                   <div style={{ flex: 1, minWidth: '200px' }}>
                     <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '5px' }}>Analysis</div>
                     <p style={{ fontSize: '0.72rem', color: '#a0aec0', lineHeight: 1.5, margin: 0 }}>{claude.analysis}</p>
+                    {claude.oddsAlignmentNote && (
+                      <p style={{ fontSize: '0.65rem', color: '#d6bcfa', marginTop: '4px', marginBottom: 0 }}>{claude.oddsAlignmentNote}</p>
+                    )}
                     {claude.riskFactor && (
                       <p style={{ fontSize: '0.68rem', color: '#fc8181', marginTop: '4px', marginBottom: 0 }}>
                         Risk: {claude.riskFactor}

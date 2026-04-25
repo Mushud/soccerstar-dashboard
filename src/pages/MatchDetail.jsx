@@ -30,8 +30,17 @@ export default function MatchDetail() {
   if (!data) return <div className="container" style={{ paddingTop: '2rem', color: '#fc8181' }}>Fixture not found.</div>
 
   const { fixture, prediction } = data
+  const blended = prediction?.blended ?? null
+
+  // 'active' = initial state; resolve to best available: blended > modeB > modeA
+  const resolvedMode = activeMode === 'active'
+    ? (blended ? 'blended' : prediction?.modeB ? 'B' : 'A')
+    : activeMode
+
   const modeData = prediction
-    ? (activeMode === 'B' && prediction.modeB ? prediction.modeB : prediction.modeA)
+    ? (resolvedMode === 'blended' && blended ? blended
+      : resolvedMode === 'B' && prediction.modeB ? prediction.modeB
+      : prediction.modeA)
     : null
 
   const date = new Date(fixture.date).toLocaleDateString('en-GB', {
@@ -62,42 +71,54 @@ export default function MatchDetail() {
           <>
             {/* Model comparison strip */}
             {prediction.modeA && prediction.modeB && (
-              <ModelComparison modeA={prediction.modeA} modeB={prediction.modeB} fixture={fixture} claudeAnalysis={prediction.claudeAnalysis} />
+              <ModelComparison modeA={prediction.modeA} modeB={prediction.modeB} blended={blended} fixture={fixture} claudeAnalysis={prediction.claudeAnalysis} />
             )}
 
             <div style={{ display: 'flex', gap: '8px', marginBottom: '1rem', flexWrap: 'wrap' }}>
-              <button onClick={() => setActiveMode('A')} style={tabBtn(activeMode === 'A')}>
-                Mode A — Pure Poisson
-              </button>
-              <button onClick={() => setActiveMode('B')} style={tabBtn(activeMode === 'B' || activeMode === 'active')}>
+              {blended && (
+                <button onClick={() => setActiveMode('blended')} style={tabBtn(resolvedMode === 'blended')}>
+                  Blended
+                  <span style={{ marginLeft: 4, fontSize: '0.6rem', background: '#553c9a', padding: '1px 5px', borderRadius: '3px' }}>ELO+Odds</span>
+                </button>
+              )}
+              <button onClick={() => setActiveMode('B')} style={tabBtn(resolvedMode === 'B')}>
                 Mode B — Dixon-Coles{prediction.modeB?.xgDataUsed ? ' + xG' : ''}
                 {prediction.modeB?.xgDataUsed && (
                   <span style={{ marginLeft: 4, fontSize: '0.6rem', background: '#276749', padding: '1px 5px', borderRadius: '3px' }}>xG</span>
                 )}
               </button>
+              <button onClick={() => setActiveMode('A')} style={tabBtn(resolvedMode === 'A')}>
+                Mode A — Pure Poisson
+              </button>
             </div>
 
             {modeData && (
               <>
-                <div style={s.card}>
-                  <div style={s.title}>
-                    Expected Goals (λ)
-                    {modeData.dixonColesApplied && <span style={{ marginLeft: 8, fontSize: '0.65rem', color: '#68d391' }}>Dixon-Coles applied</span>}
-                    {modeData.xgDataUsed && <span style={{ marginLeft: 8, fontSize: '0.65rem', color: '#bee3f8' }}>using xG strengths</span>}
-                  </div>
-                  <div style={s.row}>
-                    <div style={s.stat}>
-                      <div style={s.statLabel}>{fixture.homeTeamName} (λ home)</div>
-                      <div style={s.statValue}>{modeData.lambdaHome?.toFixed(3)}</div>
+                {resolvedMode !== 'blended' && (
+                  <div style={s.card}>
+                    <div style={s.title}>
+                      Expected Goals (λ)
+                      {modeData.dixonColesApplied && <span style={{ marginLeft: 8, fontSize: '0.65rem', color: '#68d391' }}>Dixon-Coles applied</span>}
+                      {modeData.xgDataUsed && <span style={{ marginLeft: 8, fontSize: '0.65rem', color: '#bee3f8' }}>using xG strengths</span>}
                     </div>
-                    <div style={s.stat}>
-                      <div style={s.statLabel}>{fixture.awayTeamName} (λ away)</div>
-                      <div style={s.statValue}>{modeData.lambdaAway?.toFixed(3)}</div>
+                    <div style={s.row}>
+                      <div style={s.stat}>
+                        <div style={s.statLabel}>{fixture.homeTeamName} (λ home)</div>
+                        <div style={s.statValue}>{modeData.lambdaHome?.toFixed(3)}</div>
+                      </div>
+                      <div style={s.stat}>
+                        <div style={s.statLabel}>{fixture.awayTeamName} (λ away)</div>
+                        <div style={s.statValue}>{modeData.lambdaAway?.toFixed(3)}</div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
 
-                {modeData.halfTime && (
+                {resolvedMode === 'blended' && blended && (
+                  <BlendedBreakdown blended={blended} fixture={fixture} />
+                )}
+
+                {resolvedMode !== 'blended' && modeData.halfTime && (
                   <HalfTimePrediction ht={modeData.halfTime} fixture={fixture} />
                 )}
 
@@ -125,10 +146,12 @@ export default function MatchDetail() {
                   <ProbabilityBar label="Under 3.5" value={modeData.overUnder.under35} colorKey="under" />
                 </div>
 
-                <div style={s.card}>
-                  <div style={s.title}>Score Probability Matrix (Home rows × Away cols)</div>
-                  <ScoreMatrix matrix={modeData.scoreMatrix} />
-                </div>
+                {resolvedMode !== 'blended' && modeData.scoreMatrix && (
+                  <div style={s.card}>
+                    <div style={s.title}>Score Probability Matrix (Home rows × Away cols)</div>
+                    <ScoreMatrix matrix={modeData.scoreMatrix} />
+                  </div>
+                )}
               </>
             )}
           </>
@@ -209,26 +232,134 @@ function HalfTimePrediction({ ht, fixture }) {
   )
 }
 
-function ModelComparison({ modeA, modeB, fixture, claudeAnalysis }) {
+function BlendedBreakdown({ blended, fixture }) {
+  const w = blended.weights ?? {}
+  const outcomes = [
+    { label: fixture.homeTeamName, key: 'home', color: '#276749' },
+    { label: 'Draw',               key: 'draw', color: '#744210' },
+    { label: fixture.awayTeamName, key: 'away', color: '#2b6cb0' },
+  ]
+  const topKey = Object.entries(blended.result1X2 ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0]
+
+  return (
+    <>
+      {/* Weights strip */}
+      {(w.poisson || w.elo || w.odds) && (
+        <div style={{ ...s.card, padding: '0.75rem 1.25rem' }}>
+          <div style={s.title}>Blend Weights</div>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {[['Poisson', w.poisson, '#bee3f8'], ['ELO', w.elo, '#fbd38d'], ['Bookmaker', w.odds, '#d6bcfa']].map(([label, val, color]) => val != null && (
+              <div key={label} style={{ background: '#2d3748', borderRadius: '8px', padding: '6px 14px', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.6rem', color: '#718096' }}>{label}</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color }}>{Math.round(val * 100)}%</div>
+              </div>
+            ))}
+            {blended.bookmaker && (
+              <div style={{ background: '#2d3748', borderRadius: '8px', padding: '6px 14px', display: 'flex', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: '0.6rem', color: '#718096' }}>Bookmaker</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#e2e8f0' }}>{blended.bookmaker}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Probability comparison table */}
+      {blended.result1X2 && (
+        <div style={s.card}>
+          <div style={s.title}>1X2 — All Models</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', color: '#718096', padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Outcome</th>
+                  <th style={{ textAlign: 'right', color: '#bee3f8', padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Poisson</th>
+                  <th style={{ textAlign: 'right', color: '#fbd38d', padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>ELO</th>
+                  {blended.oddsProbs && <th style={{ textAlign: 'right', color: '#d6bcfa', padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Odds (devigged)</th>}
+                  {blended.rawOdds && <th style={{ textAlign: 'right', color: '#718096', padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Raw Odds</th>}
+                  <th style={{ textAlign: 'right', color: '#68d391', padding: '4px 8px', borderBottom: '1px solid #2d3748', fontWeight: 700 }}>Blended</th>
+                </tr>
+              </thead>
+              <tbody>
+                {outcomes.map(({ label, key, color }) => (
+                  <tr key={key} style={{ borderBottom: '1px solid #1a1f2e', background: key === topKey ? '#1e2a1e' : 'transparent' }}>
+                    <td style={{ padding: '7px 8px', color, fontWeight: key === topKey ? 700 : 400 }}>{label}</td>
+                    <td style={{ padding: '7px 8px', textAlign: 'right', color: '#bee3f8' }}>{pct(blended.poissonProbs?.[key])}</td>
+                    <td style={{ padding: '7px 8px', textAlign: 'right', color: '#fbd38d' }}>{pct(blended.eloProbs?.[key])}</td>
+                    {blended.oddsProbs && <td style={{ padding: '7px 8px', textAlign: 'right', color: '#d6bcfa' }}>{pct(blended.oddsProbs?.[key])}</td>}
+                    {blended.rawOdds && <td style={{ padding: '7px 8px', textAlign: 'right', color: '#718096' }}>{blended.rawOdds?.[key]?.toFixed(2) ?? '—'}</td>}
+                    <td style={{ padding: '7px 8px', textAlign: 'right', color: '#68d391', fontWeight: 700 }}>{pct(blended.result1X2?.[key])}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* O/U + BTTS */}
+      {(blended.overUnder || blended.bothTeamsToScore != null) && (
+        <div style={s.card}>
+          <div style={s.title}>Goals Markets (Blended)</div>
+          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
+            {blended.overUnder && (
+              <div style={{ flex: 2, minWidth: '200px' }}>
+                <ProbabilityBar label="Over 1.5" value={blended.overUnder.over15} colorKey="over" />
+                <ProbabilityBar label="Under 1.5" value={blended.overUnder.under15} colorKey="under" />
+                <ProbabilityBar label="Over 2.5" value={blended.overUnder.over25} colorKey="over" />
+                <ProbabilityBar label="Under 2.5" value={blended.overUnder.under25} colorKey="under" />
+                <ProbabilityBar label="Over 3.5" value={blended.overUnder.over35} colorKey="over" />
+                <ProbabilityBar label="Under 3.5" value={blended.overUnder.under35} colorKey="under" />
+              </div>
+            )}
+            {blended.bothTeamsToScore != null && (
+              <div style={{ flex: 1, minWidth: '140px' }}>
+                <div style={{ fontSize: '0.7rem', color: '#718096', marginBottom: '8px' }}>Both Teams to Score</div>
+                <ProbabilityBar label="BTTS Yes" value={blended.bothTeamsToScore} colorKey="over" />
+                <ProbabilityBar label="BTTS No"  value={1 - blended.bothTeamsToScore} colorKey="under" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Double Chance */}
+      {blended.doubleChance && (
+        <div style={s.card}>
+          <div style={s.title}>Double Chance (Blended)</div>
+          <ProbabilityBar label="1X (H or D)" value={blended.doubleChance.homeOrDraw} colorKey="dc" />
+          <ProbabilityBar label="X2 (A or D)" value={blended.doubleChance.awayOrDraw} colorKey="dc" />
+          <ProbabilityBar label="12 (H or A)" value={blended.doubleChance.homeOrAway} colorKey="dc" />
+        </div>
+      )}
+    </>
+  )
+}
+
+function ModelComparison({ modeA, modeB, blended, fixture, claudeAnalysis }) {
   const rows = [
-    { label: 'Home win',    a: modeA.result1X2?.home,           b: modeB.result1X2?.home },
-    { label: 'Draw',        a: modeA.result1X2?.draw,           b: modeB.result1X2?.draw },
-    { label: 'Away win',    a: modeA.result1X2?.away,           b: modeB.result1X2?.away },
-    { label: 'Over 2.5',    a: modeA.overUnder?.over25,         b: modeB.overUnder?.over25 },
-    { label: 'Over 1.5',    a: modeA.overUnder?.over15,         b: modeB.overUnder?.over15 },
-    { label: '1X',          a: modeA.doubleChance?.homeOrDraw,  b: modeB.doubleChance?.homeOrDraw },
-    { label: 'X2',          a: modeA.doubleChance?.awayOrDraw,  b: modeB.doubleChance?.awayOrDraw },
-    { label: '─', a: null, b: null },
-    { label: 'HT Home',     a: modeA.halfTime?.result1X2?.home, b: modeB.halfTime?.result1X2?.home },
-    { label: 'HT Draw',     a: modeA.halfTime?.result1X2?.draw, b: modeB.halfTime?.result1X2?.draw },
-    { label: 'HT Away',     a: modeA.halfTime?.result1X2?.away, b: modeB.halfTime?.result1X2?.away },
-    { label: 'HT Over 0.5', a: modeA.halfTime?.overUnder?.over05, b: modeB.halfTime?.overUnder?.over05 },
-    { label: 'HT Over 1.5', a: modeA.halfTime?.overUnder?.over15, b: modeB.halfTime?.overUnder?.over15 },
+    { label: 'Home win',    a: modeA.result1X2?.home,              b: modeB.result1X2?.home,              bl: blended?.result1X2?.home },
+    { label: 'Draw',        a: modeA.result1X2?.draw,              b: modeB.result1X2?.draw,              bl: blended?.result1X2?.draw },
+    { label: 'Away win',    a: modeA.result1X2?.away,              b: modeB.result1X2?.away,              bl: blended?.result1X2?.away },
+    { label: 'Over 2.5',    a: modeA.overUnder?.over25,            b: modeB.overUnder?.over25,            bl: blended?.overUnder?.over25 },
+    { label: 'Over 1.5',    a: modeA.overUnder?.over15,            b: modeB.overUnder?.over15,            bl: blended?.overUnder?.over15 },
+    { label: 'BTTS',        a: null,                               b: modeB.bothTeamsToScore,             bl: blended?.bothTeamsToScore },
+    { label: '1X',          a: modeA.doubleChance?.homeOrDraw,     b: modeB.doubleChance?.homeOrDraw,     bl: blended?.doubleChance?.homeOrDraw },
+    { label: 'X2',          a: modeA.doubleChance?.awayOrDraw,     b: modeB.doubleChance?.awayOrDraw,     bl: blended?.doubleChance?.awayOrDraw },
+    { label: '─', a: null, b: null, bl: null },
+    { label: 'HT Home',     a: modeA.halfTime?.result1X2?.home,    b: modeB.halfTime?.result1X2?.home,    bl: null },
+    { label: 'HT Draw',     a: modeA.halfTime?.result1X2?.draw,    b: modeB.halfTime?.result1X2?.draw,    bl: null },
+    { label: 'HT Away',     a: modeA.halfTime?.result1X2?.away,    b: modeB.halfTime?.result1X2?.away,    bl: null },
+    { label: 'HT Over 0.5', a: modeA.halfTime?.overUnder?.over05,  b: modeB.halfTime?.overUnder?.over05,  bl: null },
+    { label: 'HT Over 1.5', a: modeA.halfTime?.overUnder?.over15,  b: modeB.halfTime?.overUnder?.over15,  bl: null },
   ]
 
-  const modeBLabel = modeB.xgDataUsed ? 'Mode B (xG + DC)' : 'Mode B (DC)'
+  const modeBLabel = modeB.xgDataUsed ? 'Mode B (xG+DC)' : 'Mode B (DC)'
   const agreementColor = claudeAnalysis?.modelAgreement === 'Strong' ? '#68d391'
     : claudeAnalysis?.modelAgreement === 'Conflicting' ? '#fc8181' : '#f6e05e'
+  const hasBlended = blended != null
 
   return (
     <div style={{ ...s.card, marginBottom: '1rem' }}>
@@ -241,7 +372,12 @@ function ModelComparison({ modeA, modeB, fixture, claudeAnalysis }) {
         )}
         {claudeAnalysis?.preferredModel && (
           <span style={{ fontSize: '0.68rem', color: '#bee3f8', background: '#2d3748', padding: '2px 8px', borderRadius: '4px' }}>
-            Claude prefers Mode {claudeAnalysis.preferredModel}
+            Claude prefers: {claudeAnalysis.preferredModel}
+          </span>
+        )}
+        {blended?.bookmaker && (
+          <span style={{ fontSize: '0.62rem', color: '#718096', background: '#2d3748', padding: '2px 6px', borderRadius: '4px' }}>
+            Odds: {blended.bookmaker}
           </span>
         )}
       </div>
@@ -251,28 +387,32 @@ function ModelComparison({ modeA, modeB, fixture, claudeAnalysis }) {
           <thead>
             <tr>
               <th style={{ textAlign: 'left', color: '#718096', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Market</th>
-              <th style={{ textAlign: 'right', color: '#a0aec0', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Mode A (Poisson)</th>
+              <th style={{ textAlign: 'right', color: '#a0aec0', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Mode A</th>
               <th style={{ textAlign: 'right', color: modeB.xgDataUsed ? '#bee3f8' : '#a0aec0', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>{modeBLabel}</th>
-              <th style={{ textAlign: 'right', color: '#718096', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Δ</th>
+              {hasBlended && <th style={{ textAlign: 'right', color: '#d6bcfa', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Blended</th>}
+              <th style={{ textAlign: 'right', color: '#718096', fontWeight: 600, padding: '4px 8px', borderBottom: '1px solid #2d3748' }}>Δ B→Bl</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, i) => {
-              if (row.a === null && row.b === null) {
+              if (row.a === null && row.b === null && row.bl === null) {
                 return (
                   <tr key={i}>
-                    <td colSpan={4} style={{ padding: '4px 8px', borderTop: '1px solid #2d3748' }}>
+                    <td colSpan={hasBlended ? 5 : 4} style={{ padding: '4px 8px', borderTop: '1px solid #2d3748' }}>
                       <span style={{ fontSize: '0.62rem', color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Half-Time</span>
                     </td>
                   </tr>
                 )
               }
+              const refVal = hasBlended ? row.b : row.a
+              const cmpVal = hasBlended ? row.bl : row.b
               return (
                 <tr key={i} style={{ borderBottom: '1px solid #1a1f2e' }}>
                   <td style={{ padding: '6px 8px', color: '#a0aec0' }}>{row.label}</td>
                   <td style={{ padding: '6px 8px', textAlign: 'right', color: '#e2e8f0' }}>{pct(row.a)}</td>
                   <td style={{ padding: '6px 8px', textAlign: 'right', color: modeB.xgDataUsed ? '#bee3f8' : '#e2e8f0', fontWeight: 600 }}>{pct(row.b)}</td>
-                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>{row.a != null && row.b != null ? diff(row.b, row.a) : null}</td>
+                  {hasBlended && <td style={{ padding: '6px 8px', textAlign: 'right', color: '#d6bcfa', fontWeight: 700 }}>{pct(row.bl)}</td>}
+                  <td style={{ padding: '6px 8px', textAlign: 'right' }}>{refVal != null && cmpVal != null ? diff(cmpVal, refVal) : null}</td>
                 </tr>
               )
             })}
@@ -450,6 +590,14 @@ function ClaudeAnalysis({ analysis, fixture }) {
             <div style={{ ...s.statValue, color: '#e2e8f0' }}>{analysis.predictedScore}</div>
           </div>
         )}
+        {analysis.oddsAlignment && analysis.oddsAlignment !== 'N/A' && (
+          <div style={s.stat}>
+            <div style={s.statLabel}>Odds Alignment</div>
+            <div style={{ fontSize: '0.9rem', fontWeight: 600, color: analysis.oddsAlignment === 'Agree' ? '#68d391' : '#f6e05e' }}>
+              {analysis.oddsAlignment}
+            </div>
+          </div>
+        )}
         {analysis.formEdge && (
           <div style={s.stat}>
             <div style={s.statLabel}>Form Edge</div>
@@ -467,6 +615,12 @@ function ClaudeAnalysis({ analysis, fixture }) {
           </div>
         )}
       </div>
+
+      {analysis.oddsAlignmentNote && (
+        <div style={{ background: '#2d3748', borderRadius: '8px', padding: '0.6rem 0.9rem', marginBottom: '0.75rem', fontSize: '0.8rem', color: '#d6bcfa' }}>
+          {analysis.oddsAlignmentNote}
+        </div>
+      )}
 
       {/* Half-time prediction from Claude */}
       {analysis.htVerdict && (

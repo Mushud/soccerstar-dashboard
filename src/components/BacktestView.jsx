@@ -112,18 +112,19 @@ export default function BacktestView() {
             Historical accuracy · last 60 days · {accuracy.total} tested
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <AccBadge label="1X2" data={accuracy.result1X2} />
-            <AccBadge label="Over 1.5" data={accuracy.over15} />
-            <AccBadge label="Over 2.5" data={accuracy.over25} />
-            <AccBadge label="Over 3.5" data={accuracy.over35} />
-            <AccBadge label="DC 1X"   data={accuracy.dc_homeOrDraw} />
-            <AccBadge label="DC X2"   data={accuracy.dc_awayOrDraw} />
-            <AccBadge label="DC 12"   data={accuracy.dc_homeOrAway} />
+            <AccBadge label="Blended 1X2"  data={accuracy.blended?.result1X2} />
+            <AccBadge label="Poisson 1X2"  data={accuracy.poisson?.result1X2} />
+            <AccBadge label="ELO 1X2"      data={accuracy.elo?.result1X2} />
+            <AccBadge label="Odds 1X2"     data={accuracy.odds?.result1X2} />
+            <AccBadge label="Over 1.5"     data={accuracy.poisson?.over15} />
+            <AccBadge label="Over 2.5"     data={accuracy.blended?.over25 || accuracy.poisson?.over25} />
+            <AccBadge label="Over 3.5"     data={accuracy.poisson?.over35} />
+            <AccBadge label="DC 1X"        data={accuracy.poisson?.dc_homeOrDraw} />
             {accuracy.claude && <AccBadge label="Claude" data={accuracy.claude} highlight />}
           </div>
-          {accuracy.byOutcome && (
+          {(accuracy.blended?.byOutcome || accuracy.poisson?.byOutcome) && (
             <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-              {Object.entries(accuracy.byOutcome).map(([o, s]) => s.total > 0 && (
+              {Object.entries(accuracy.blended?.byOutcome || accuracy.poisson?.byOutcome || {}).map(([o, s]) => s.total > 0 && (
                 <div key={o} style={{ background: '#2d3748', borderRadius: '6px', padding: '3px 8px', fontSize: '0.7rem' }}>
                   <span style={{ color: '#e2e8f0', fontWeight: 700, textTransform: 'capitalize' }}>{o}</span>
                   <span style={{ color: '#718096', marginLeft: 5 }}>{s.correct}/{s.total} ({Math.round(s.correct / s.total * 100)}%)</span>
@@ -201,7 +202,7 @@ function FixtureCard({ item, result, running, onRun }) {
 
   const actual1X2  = fixture.goalsHome > fixture.goalsAway ? 'home' : fixture.goalsHome < fixture.goalsAway ? 'away' : 'draw'
   const actualLabel = actual1X2 === 'home' ? fixture.homeTeamName : actual1X2 === 'away' ? fixture.awayTeamName : 'Draw'
-  const m          = result?.markets
+  const m          = result?.models?.blended || result?.models?.poisson || result?.markets
   // Suppress correctness for live matches — the score isn't final
   const correct1X2 = isLive ? undefined : m?.result1X2?.correct
 
@@ -298,113 +299,77 @@ function FixtureCard({ item, result, running, onRun }) {
         </div>
       </div>
 
-      {/* Expanded market detail */}
-      {expanded && result && m && (
+      {/* Expanded detail */}
+      {expanded && result && (
         <div style={{ borderTop: '1px solid #2d3748', padding: '1rem 1.25rem' }}>
-          <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
 
-            {/* 1X2 boxes */}
-            {m.result1X2 && (
-              <div style={{ minWidth: '150px' }}>
-                <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>1X2</div>
-                <div style={{ display: 'flex', gap: '5px' }}>
-                  {[{ label: 'H', key: 'home' }, { label: 'D', key: 'draw' }, { label: 'A', key: 'away' }].map(({ label, key }) => {
-                    const prob   = m.result1X2.probs?.[key]
-                    const isPred = m.result1X2.predicted === key
-                    const isAct  = actual1X2 === key
-                    const boxCorrect = isPred && isAct
-                    const boxWrong   = isPred && !isAct
-                    return (
-                      <div key={key} style={{
-                        flex: 1, textAlign: 'center', borderRadius: '6px', padding: '5px 4px',
-                        background: isPred ? (boxCorrect ? '#1c4532' : '#2d2020') : isAct ? '#2a2d3a' : '#2d3748',
-                        border: `1px solid ${isPred ? (boxCorrect ? '#276749' : '#742a2a') : isAct ? '#4a5568' : 'transparent'}`
-                      }}>
-                        <div style={{ fontSize: '0.6rem', color: '#718096' }}>{label}</div>
-                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: isPred ? (boxCorrect ? CORRECT : WRONG) : '#a0aec0' }}>{pct(prob)}</div>
-                        <div style={{ fontSize: '0.58rem', color: '#4a5568' }}>{isPred && '↑'}{isAct && '★'}</div>
-                      </div>
-                    )
-                  })}
-                </div>
-                <div style={{ fontSize: '0.6rem', color: '#4a5568', marginTop: 3 }}>↑ predicted · ★ actual</div>
+          {/* ── All-models comparison table ── */}
+          <ModelsTable result={result} actual1X2={actual1X2} fixture={fixture} isLive={isLive} />
+
+          {/* ── Primary model full market detail ── */}
+          {m && (
+            <div style={{ marginTop: '1rem' }}>
+              <div style={{ fontSize: '0.62rem', color: '#553c9a', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '8px', fontWeight: 600 }}>
+                {result.models?.blended ? 'Blended' : 'Poisson'} — Market Detail
+                {m.bookmaker && <span style={{ marginLeft: 6, color: '#718096', fontWeight: 400 }}>· {m.bookmaker}</span>}
+                {result.confidence != null && <span style={{ marginLeft: 6, color: '#4a5568', fontWeight: 400 }}>· Conf {result.confidence}/100</span>}
               </div>
-            )}
+              <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
 
-            {/* Over/Under */}
-            {(m.over15 || m.over25 || m.over35) && (
-              <MarketTable title="Over / Under" rows={[
-                m.over15 && { label: 'Over 1.5', prob: m.over15.predicted === 'over' ? m.over15.prob : 1 - m.over15.prob, correct: m.over15.correct, actual: m.over15.actual, predicted: m.over15.predicted },
-                m.over25 && { label: 'Over 2.5', prob: m.over25.predicted === 'over' ? m.over25.prob : 1 - m.over25.prob, correct: m.over25.correct, actual: m.over25.actual, predicted: m.over25.predicted },
-                m.over35 && { label: 'Over 3.5', prob: m.over35.predicted === 'over' ? m.over35.prob : 1 - m.over35.prob, correct: m.over35.correct, actual: m.over35.actual, predicted: m.over35.predicted }
-              ].filter(Boolean)} />
-            )}
+                {/* 1X2 boxes */}
+                {m.result1X2 && (
+                  <Boxes1X2 m={m} actual1X2={actual1X2} fixture={fixture} isLive={isLive} />
+                )}
 
-            {/* Double Chance */}
-            {m.doubleChance && (
-              <MarketTable title="Double Chance" rows={[
-                { label: '1X (H or D)', prob: m.doubleChance.homeOrDraw.prob, correct: m.doubleChance.homeOrDraw.correct, dcCovered: m.doubleChance.homeOrDraw.covered },
-                { label: 'X2 (D or A)', prob: m.doubleChance.awayOrDraw.prob, correct: m.doubleChance.awayOrDraw.correct, dcCovered: m.doubleChance.awayOrDraw.covered },
-                { label: '12 (H or A)', prob: m.doubleChance.homeOrAway.prob, correct: m.doubleChance.homeOrAway.correct, dcCovered: m.doubleChance.homeOrAway.covered }
-              ]} dcMode />
-            )}
+                {/* Over/Under */}
+                {(m.over15 || m.over25 || m.over35) && (
+                  <MarketTable title="Over / Under" rows={[
+                    m.over15 && { label: 'Over 1.5', prob: m.over15.predicted === 'over' ? m.over15.prob : 1 - m.over15.prob, correct: m.over15.correct, actual: m.over15.actual, predicted: m.over15.predicted },
+                    m.over25 && { label: 'Over 2.5', prob: m.over25.predicted === 'over' ? m.over25.prob : 1 - m.over25.prob, correct: m.over25.correct, actual: m.over25.actual, predicted: m.over25.predicted },
+                    m.over35 && { label: 'Over 3.5', prob: m.over35.predicted === 'over' ? m.over35.prob : 1 - m.over35.prob, correct: m.over35.correct, actual: m.over35.actual, predicted: m.over35.predicted }
+                  ].filter(Boolean)} isLive={isLive} />
+                )}
 
-            {/* HT */}
-            {m.halfTime && (
-              <div style={{ minWidth: '130px' }}>
-                <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Half-Time (model)</div>
-                <div style={{ fontSize: '0.78rem', color: '#a0aec0' }}>
-                  <span style={{ color: outcomeColor(m.halfTime.predicted), fontWeight: 600, textTransform: 'capitalize' }}>{m.halfTime.predicted}</span>
-                  <span style={{ color: '#718096' }}> ({pct(m.halfTime.prob)})</span>
-                </div>
-                {m.halfTime.over05 != null && <div style={{ fontSize: '0.7rem', color: '#718096', marginTop: 2 }}>HT Over 0.5: {pct(m.halfTime.over05)}</div>}
-              </div>
-            )}
-          </div>
+                {/* BTTS */}
+                {m.btts && (
+                  <MarketTable title="BTTS" rows={[
+                    { label: 'Both Score', prob: m.btts.prob, correct: m.btts.correct, predicted: m.btts.predicted ? 'yes' : 'no', actual: m.btts.actual ? 'yes' : 'no' }
+                  ]} isLive={isLive} />
+                )}
 
-          {/* Claude strip */}
-          {result.claude && (
-            <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #2d3748' }}>
-              {/* FT */}
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '4px' }}>
-                <span style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude FT</span>
-                <span style={{ fontSize: '0.78rem', fontWeight: 600, color: result.claude.correct ? CORRECT : WRONG }}>
-                  {result.claude.verdict} · {result.claude.confidence} {result.claude.correct ? '✓' : '✗'}
-                </span>
-                {result.claude.bestBet && <span style={{ fontSize: '0.72rem', color: '#bee3f8' }}>Best bet: {result.claude.bestBet}</span>}
-                {result.claude.newsVerdict && (
-                  <span style={{ fontSize: '0.72rem', color: '#718096' }}>
-                    News: <span style={{ color: result.claude.newsAgrees ? CORRECT : '#f6e05e' }}>{result.claude.newsVerdict}</span>
-                    {!result.claude.newsAgrees && ' (conflicts model)'}
-                  </span>
+                {/* Double Chance */}
+                {m.doubleChance && (
+                  <MarketTable title="Double Chance" rows={[
+                    { label: '1X (H or D)', prob: m.doubleChance.homeOrDraw?.prob, correct: m.doubleChance.homeOrDraw?.correct },
+                    { label: 'X2 (D or A)', prob: m.doubleChance.awayOrDraw?.prob, correct: m.doubleChance.awayOrDraw?.correct },
+                    { label: '12 (H or A)', prob: m.doubleChance.homeOrAway?.prob, correct: m.doubleChance.homeOrAway?.correct }
+                  ]} dcMode isLive={isLive} />
+                )}
+
+                {/* HT */}
+                {m.halfTime && (
+                  <div style={{ minWidth: '130px' }}>
+                    <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Half-Time</div>
+                    <div style={{ fontSize: '0.78rem', color: '#a0aec0' }}>
+                      <span style={{ color: outcomeColor(m.halfTime.predicted), fontWeight: 600, textTransform: 'capitalize' }}>{m.halfTime.predicted}</span>
+                      <span style={{ color: '#718096' }}> ({pct(m.halfTime.prob)})</span>
+                    </div>
+                    {m.halfTime.over05 != null && <div style={{ fontSize: '0.7rem', color: '#718096', marginTop: 2 }}>HT O0.5: {pct(m.halfTime.over05)}</div>}
+                  </div>
                 )}
               </div>
-              {/* HT */}
-              {result.claude.ht && (
-                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '4px' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude HT</span>
-                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#e2e8f0' }}>
-                    {result.claude.ht.verdict} · {result.claude.ht.confidence}
-                    {result.claude.ht.predictedScore && <span style={{ color: '#718096', fontWeight: 400 }}> ({result.claude.ht.predictedScore})</span>}
-                  </span>
-                  {result.claude.ht.over05 != null && (
-                    <span style={{ fontSize: '0.7rem', color: '#718096' }}>O0.5: <span style={{ color: result.claude.ht.over05 ? CORRECT : NEUTRAL }}>{result.claude.ht.over05 ? 'Yes' : 'No'}</span></span>
-                  )}
-                  {result.claude.ht.over15 != null && (
-                    <span style={{ fontSize: '0.7rem', color: '#718096' }}>O1.5: <span style={{ color: result.claude.ht.over15 ? CORRECT : NEUTRAL }}>{result.claude.ht.over15 ? 'Yes' : 'No'}</span></span>
-                  )}
-                  {result.fixture.htGoalsHome != null && (
-                    <span style={{ fontSize: '0.7rem', color: '#718096' }}>
-                      Actual HT: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{result.fixture.htGoalsHome}–{result.fixture.htGoalsAway}</span>
-                    </span>
-                  )}
-                </div>
+
+              {/* Blended component breakdown */}
+              {m.poissonProbs && (
+                <BlendBreakdown m={m} isLive={isLive} />
               )}
-              {result.historicalAccuracy && (
-                <div style={{ fontSize: '0.65rem', color: '#4a5568', marginTop: 2 }}>
-                  Calibrated from {result.historicalAccuracy.sample} {result.historicalAccuracy.league} matches
-                </div>
-              )}
+            </div>
+          )}
+
+          {/* ── Claude analysis ── */}
+          {result.claude && (
+            <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid #2d3748' }}>
+              <ClaudeStrip claude={result.claude} fixture={fixture} result={result} isLive={isLive} />
             </div>
           )}
         </div>
@@ -419,7 +384,35 @@ function outcomeColor(outcome) {
   return '#bee3f8'
 }
 
-function MarketTable({ title, rows, dcMode }) {
+function Boxes1X2({ m, actual1X2, fixture, isLive }) {
+  return (
+    <div style={{ minWidth: '150px' }}>
+      <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>1X2</div>
+      <div style={{ display: 'flex', gap: '5px' }}>
+        {[{ label: 'H', key: 'home' }, { label: 'D', key: 'draw' }, { label: 'A', key: 'away' }].map(({ label, key }) => {
+          const prob = m.result1X2.probs?.[key]
+          const isPred = m.result1X2.predicted === key
+          const isAct  = actual1X2 === key
+          const boxCorrect = isPred && isAct
+          return (
+            <div key={key} style={{
+              flex: 1, textAlign: 'center', borderRadius: '6px', padding: '5px 4px',
+              background: isLive ? '#2d3748' : isPred ? (boxCorrect ? '#1c4532' : '#2d2020') : isAct ? '#2a2d3a' : '#2d3748',
+              border: `1px solid ${isLive ? '#4a5568' : isPred ? (boxCorrect ? '#276749' : '#742a2a') : isAct ? '#4a5568' : 'transparent'}`
+            }}>
+              <div style={{ fontSize: '0.6rem', color: '#718096' }}>{label}</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: isLive ? '#a0aec0' : isPred ? (boxCorrect ? CORRECT : WRONG) : '#a0aec0' }}>{pct(prob)}</div>
+              <div style={{ fontSize: '0.58rem', color: '#4a5568' }}>{isPred && '↑'}{isAct && '★'}</div>
+            </div>
+          )
+        })}
+      </div>
+      <div style={{ fontSize: '0.6rem', color: '#4a5568', marginTop: 3 }}>↑ predicted · ★ actual</div>
+    </div>
+  )
+}
+
+function MarketTable({ title, rows, dcMode, isLive }) {
   return (
     <div style={{ minWidth: '160px' }}>
       <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>{title}</div>
@@ -428,11 +421,203 @@ function MarketTable({ title, rows, dcMode }) {
           <span style={{ color: '#a0aec0' }}>{row.label}</span>
           <span style={{ color: '#718096' }}>{pct(row.prob)}</span>
           {!dcMode && <span style={{ fontSize: '0.68rem', color: '#718096' }}>{row.predicted}</span>}
-          <span style={{ fontWeight: 600, fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', background: row.correct ? '#1c4532' : '#2d2020', color: row.correct ? '#68d391' : '#fc8181' }}>
-            {dcMode ? (row.dcCovered ? 'Covered ✓' : 'Missed ✗') : (row.correct ? '✓' : '✗')}
-          </span>
+          {!isLive && (
+            <span style={{ fontWeight: 600, fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', background: row.correct ? '#1c4532' : '#2d2020', color: row.correct ? '#68d391' : '#fc8181' }}>
+              {dcMode ? (row.correct ? 'Covered ✓' : 'Missed ✗') : (row.correct ? '✓' : '✗')}
+            </span>
+          )}
         </div>
       ))}
+    </div>
+  )
+}
+
+// All-models comparison: Poisson | ELO | Blended | Odds
+function ModelsTable({ result, actual1X2, fixture, isLive }) {
+  const models = [
+    { key: 'poisson', label: 'Poisson',  color: '#bee3f8' },
+    { key: 'elo',     label: 'ELO',      color: '#fbd38d' },
+    { key: 'blended', label: 'Blended',  color: '#d6bcfa' },
+    { key: 'odds',    label: 'Odds',     color: '#a0aec0' },
+  ].filter(({ key }) => result.models?.[key]?.result1X2)
+
+  if (!models.length) return null
+
+  const homeLabel = fixture.homeTeamName
+  const awayLabel = fixture.awayTeamName
+
+  return (
+    <div>
+      <div style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Models comparison</div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: 'left', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Model</th>
+              <th style={{ textAlign: 'center', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Prediction</th>
+              <th style={{ textAlign: 'right', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Home</th>
+              <th style={{ textAlign: 'right', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Draw</th>
+              <th style={{ textAlign: 'right', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Away</th>
+              {!isLive && <th style={{ textAlign: 'center', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Result</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {models.map(({ key, label, color }) => {
+              const mod = result.models[key]
+              const r1x2 = mod.result1X2
+              const predLabel = r1x2.predicted === 'home' ? homeLabel : r1x2.predicted === 'away' ? awayLabel : 'Draw'
+              const correct = r1x2.correct
+              return (
+                <tr key={key} style={{ borderBottom: '1px solid #1a1f2e' }}>
+                  <td style={{ padding: '5px 8px', color, fontWeight: 600 }}>{label}
+                    {key === 'elo' && mod.homeElo && <span style={{ color: '#4a5568', fontWeight: 400, fontSize: '0.65rem', marginLeft: 4 }}>{mod.homeElo}v{mod.awayElo}</span>}
+                    {key === 'odds' && mod.bookmaker && <span style={{ color: '#4a5568', fontWeight: 400, fontSize: '0.65rem', marginLeft: 4 }}>{mod.bookmaker}</span>}
+                  </td>
+                  <td style={{ padding: '5px 8px', textAlign: 'center', color: '#e2e8f0', fontWeight: 600 }}>{predLabel}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'home' ? color : '#718096' }}>{pct(r1x2.probs?.home)}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'draw' ? color : '#718096' }}>{pct(r1x2.probs?.draw)}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'away' ? color : '#718096' }}>{pct(r1x2.probs?.away)}</td>
+                  {!isLive && (
+                    <td style={{ padding: '5px 8px', textAlign: 'center' }}>
+                      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: correct ? CORRECT : WRONG }}>{correct ? '✓' : '✗'}</span>
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+            {/* Actual outcome row */}
+            <tr style={{ borderTop: '1px solid #2d3748' }}>
+              <td style={{ padding: '5px 8px', color: '#718096', fontSize: '0.7rem' }}>Actual</td>
+              <td style={{ padding: '5px 8px', textAlign: 'center', color: '#e2e8f0', fontWeight: 700, textTransform: 'capitalize' }}>
+                {actual1X2 === 'home' ? fixture.homeTeamName : actual1X2 === 'away' ? fixture.awayTeamName : 'Draw'}
+              </td>
+              <td colSpan={isLive ? 3 : 4} style={{ padding: '5px 8px', textAlign: 'right', color: '#718096', fontSize: '0.7rem' }}>
+                {fixture.goalsHome} – {fixture.goalsAway}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// Blended breakdown: Poisson | ELO | Odds (devigged) | Raw | Blended
+function BlendBreakdown({ m, isLive }) {
+  const w = m.weights ?? {}
+  return (
+    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #2d3748' }}>
+      <div style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>
+        Blend weights: Poisson {Math.round((w.poisson ?? 0) * 100)}% · ELO {Math.round((w.elo ?? 0) * 100)}% · Odds {Math.round((w.odds ?? 0) * 100)}%
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ fontSize: '0.72rem', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              {['', 'Poisson', 'ELO', m.oddsProbs ? 'Odds (devig)' : null, m.rawOdds ? 'Raw Odds' : null, 'Blended'].filter(Boolean).map(h => (
+                <th key={h} style={{ color: h === 'Blended' ? '#d6bcfa' : h === 'Odds (devig)' ? '#a0aec0' : h === 'ELO' ? '#fbd38d' : '#718096', fontWeight: 600, padding: '3px 10px', textAlign: h === '' ? 'left' : 'right', borderBottom: '1px solid #2d3748' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {[['Home', 'home'], ['Draw', 'draw'], ['Away', 'away']].map(([label, key]) => (
+              <tr key={key} style={{ borderBottom: '1px solid #1a1f2e' }}>
+                <td style={{ padding: '4px 10px', color: '#a0aec0' }}>{label}</td>
+                <td style={{ padding: '4px 10px', textAlign: 'right', color: '#bee3f8' }}>{pct(m.poissonProbs?.[key])}</td>
+                <td style={{ padding: '4px 10px', textAlign: 'right', color: '#fbd38d' }}>{pct(m.eloProbs?.[key])}</td>
+                {m.oddsProbs && <td style={{ padding: '4px 10px', textAlign: 'right', color: '#a0aec0' }}>{pct(m.oddsProbs?.[key])}</td>}
+                {m.rawOdds && <td style={{ padding: '4px 10px', textAlign: 'right', color: '#718096' }}>{m.rawOdds?.[key]?.toFixed(2) ?? '—'}</td>}
+                <td style={{ padding: '4px 10px', textAlign: 'right', color: '#d6bcfa', fontWeight: 700 }}>{pct(m.result1X2?.probs?.[key])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// Full Claude analysis strip
+function ClaudeStrip({ claude, fixture, result, isLive }) {
+  return (
+    <div>
+      {/* FT verdict */}
+      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' }}>
+        <span style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude FT</span>
+        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isLive ? '#a0aec0' : claude.correct ? CORRECT : WRONG }}>
+          {claude.verdict}
+          {!isLive && <span style={{ marginLeft: 4 }}>{claude.correct ? '✓' : '✗'}</span>}
+        </span>
+        {claude.confidence && <span style={{ fontSize: '0.68rem', color: '#718096', background: '#2d3748', padding: '1px 6px', borderRadius: '4px' }}>{claude.confidence}</span>}
+        {claude.oddsAlignment && claude.oddsAlignment !== 'N/A' && (
+          <span style={{ fontSize: '0.68rem', color: claude.oddsAlignment === 'Agree' ? CORRECT : '#f6e05e' }}>
+            Odds {claude.oddsAlignment} {claude.oddsAlignment === 'Agree' ? '✓' : '⚠'}
+          </span>
+        )}
+        {claude.bestBet && <span style={{ fontSize: '0.7rem', color: '#bee3f8' }}>Best: {claude.bestBet}</span>}
+        {claude.valueBet && <span style={{ fontSize: '0.7rem', color: '#68d391' }}>Value: {claude.valueBet}</span>}
+      </div>
+
+      {/* HT */}
+      {claude.ht && (
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' }}>
+          <span style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude HT</span>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#e2e8f0' }}>
+            {claude.ht.verdict} · {claude.ht.confidence}
+            {claude.ht.predictedScore && <span style={{ color: '#718096', fontWeight: 400 }}> ({claude.ht.predictedScore})</span>}
+          </span>
+          {claude.ht.over05 != null && <span style={{ fontSize: '0.7rem', color: '#718096' }}>O0.5: <span style={{ color: claude.ht.over05 ? CORRECT : NEUTRAL }}>{claude.ht.over05 ? 'Yes' : 'No'}</span></span>}
+          {claude.ht.over15 != null && <span style={{ fontSize: '0.7rem', color: '#718096' }}>O1.5: <span style={{ color: claude.ht.over15 ? CORRECT : NEUTRAL }}>{claude.ht.over15 ? 'Yes' : 'No'}</span></span>}
+          {result.fixture?.htGoalsHome != null && (
+            <span style={{ fontSize: '0.7rem', color: '#718096' }}>
+              Actual HT: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{result.fixture.htGoalsHome}–{result.fixture.htGoalsAway}</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Analysis text */}
+      {claude.analysis && (
+        <p style={{ fontSize: '0.75rem', color: '#a0aec0', lineHeight: 1.55, margin: '6px 0' }}>{claude.analysis}</p>
+      )}
+
+      {/* Odds alignment note */}
+      {claude.oddsAlignmentNote && (
+        <p style={{ fontSize: '0.7rem', color: '#d6bcfa', margin: '4px 0' }}>{claude.oddsAlignmentNote}</p>
+      )}
+
+      {/* Key factors */}
+      {claude.keyFactors?.length > 0 && (
+        <div style={{ marginTop: '4px' }}>
+          {claude.keyFactors.map((f, i) => (
+            <div key={i} style={{ fontSize: '0.7rem', color: '#718096', marginBottom: 2 }}>· {f}</div>
+          ))}
+        </div>
+      )}
+
+      {/* Risk / form / injury */}
+      {(claude.riskFactor || claude.formEdge || claude.injuryImpact) && (
+        <div style={{ display: 'flex', gap: '1rem', marginTop: '6px', flexWrap: 'wrap' }}>
+          {claude.riskFactor && <span style={{ fontSize: '0.68rem', color: '#fc8181' }}>Risk: {claude.riskFactor}</span>}
+          {claude.formEdge && claude.formEdge !== 'Neutral' && <span style={{ fontSize: '0.68rem', color: '#f6e05e' }}>Form edge: {claude.formEdge}</span>}
+          {claude.injuryImpact && claude.injuryImpact !== 'None' && <span style={{ fontSize: '0.68rem', color: '#fc8181' }}>Injuries: {claude.injuryImpact}</span>}
+        </div>
+      )}
+
+      {/* News */}
+      {claude.newsVerdict && (
+        <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>News</span>
+          <span style={{ fontSize: '0.72rem', color: claude.newsAgrees ? CORRECT : '#f6e05e' }}>{claude.newsVerdict} {claude.newsAgrees ? '↑ confirms' : '⚠ conflicts'}</span>
+          {claude.updatedBestBet && <span style={{ fontSize: '0.7rem', color: '#bee3f8' }}>Updated: {claude.updatedBestBet}</span>}
+        </div>
+      )}
+
+      {result.historicalAccuracy && (
+        <div style={{ fontSize: '0.62rem', color: '#4a5568', marginTop: '6px' }}>
+          Calibrated from {result.historicalAccuracy.sample} {result.historicalAccuracy.league} matches
+        </div>
+      )}
     </div>
   )
 }
