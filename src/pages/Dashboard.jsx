@@ -59,10 +59,22 @@ export default function Dashboard() {
   async function loadUpcoming() {
     setUpcomingLoading(true)
     try {
+      // Auto-sync the date from API if not done recently (cache per date, 20 min TTL)
+      const cacheKey = `ss_synced_${selectedDate}`
+      const lastSynced = parseInt(sessionStorage.getItem(cacheKey) || '0')
+      if (Date.now() - lastSynced > 20 * 60 * 1000) {
+        try {
+          await axios.post('/api/sync/date', { date: selectedDate })
+          sessionStorage.setItem(cacheKey, String(Date.now()))
+        } catch (e) {
+          console.warn('[upcoming] date sync failed:', e.message)
+        }
+      }
+
       const from = new Date(selectedDate); from.setUTCHours(0, 0, 0, 0)
       const to   = new Date(selectedDate); to.setUTCHours(23, 59, 59, 999)
       const { data } = await axios.get('/api/fixtures', {
-        params: { from: from.toISOString(), to: to.toISOString(), limit: 100 }
+        params: { from: from.toISOString(), to: to.toISOString(), limit: 500 }
       })
       const fixtures = data.fixtures || []
       setUpcomingFixtures(fixtures)
@@ -180,8 +192,9 @@ export default function Dashboard() {
     setQuickSyncing(true)
     setSyncReport(null)
     try {
-      const { data } = await axios.post('/api/sync/all/quick')
-      setSyncReport({ upcoming: data.results, tier: 'all' })
+      sessionStorage.removeItem(`ss_synced_${selectedDate}`)
+      const { data } = await axios.post('/api/sync/date', { date: selectedDate })
+      setSyncReport({ upcoming: [{ league: 'All leagues', synced: data.synced }], tier: 'all' })
       await loadUpcoming()
     } catch (e) {
       alert('Quick sync failed: ' + e.message)
