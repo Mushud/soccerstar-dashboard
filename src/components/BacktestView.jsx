@@ -271,7 +271,7 @@ function FixtureCard({ item, result, running, onRun }) {
               <span key={threshold} style={{ fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
                 background: isLive ? '#2d3748' : mk.correct ? '#1c4532' : '#2d2020',
                 color: isLive ? NEUTRAL : mk.correct ? CORRECT : WRONG }}>
-                {mk.predicted === 'over' ? 'O' : 'U'}{threshold} {isLive ? '?' : mk.correct ? '✓' : '✗'}
+                {isLive ? (mk.predicted === 'over' ? 'O' : 'U') : (mk.actual === 'over' ? 'O' : 'U')}{threshold} {isLive ? '?' : mk.correct ? '✓' : '✗'}
               </span>
             ))}
           </div>
@@ -340,9 +340,9 @@ function FixtureCard({ item, result, running, onRun }) {
                 {/* Double Chance */}
                 {m.doubleChance && (
                   <MarketTable title="Double Chance" rows={[
-                    { label: '1X (H or D)', prob: m.doubleChance.homeOrDraw?.prob, correct: m.doubleChance.homeOrDraw?.correct },
-                    { label: 'X2 (D or A)', prob: m.doubleChance.awayOrDraw?.prob, correct: m.doubleChance.awayOrDraw?.correct },
-                    { label: '12 (H or A)', prob: m.doubleChance.homeOrAway?.prob, correct: m.doubleChance.homeOrAway?.correct }
+                    { label: '1X (H or D)', prob: m.doubleChance.homeOrDraw?.prob, correct: m.doubleChance.homeOrDraw?.correct, actual: m.doubleChance.homeOrDraw?.actual },
+                    { label: 'X2 (D or A)', prob: m.doubleChance.awayOrDraw?.prob, correct: m.doubleChance.awayOrDraw?.correct, actual: m.doubleChance.awayOrDraw?.actual },
+                    { label: '12 (H or A)', prob: m.doubleChance.homeOrAway?.prob, correct: m.doubleChance.homeOrAway?.correct, actual: m.doubleChance.homeOrAway?.actual }
                   ]} dcMode isLive={isLive} />
                 )}
 
@@ -422,8 +422,8 @@ function MarketTable({ title, rows, dcMode, isLive }) {
           <span style={{ color: '#718096' }}>{pct(row.prob)}</span>
           {!dcMode && <span style={{ fontSize: '0.68rem', color: '#718096' }}>{row.predicted}</span>}
           {!isLive && (
-            <span style={{ fontWeight: 600, fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', background: row.correct ? '#1c4532' : '#2d2020', color: row.correct ? '#68d391' : '#fc8181' }}>
-              {dcMode ? (row.correct ? 'Covered ✓' : 'Missed ✗') : (row.correct ? '✓' : '✗')}
+            <span style={{ fontWeight: 600, fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', background: (dcMode ? row.actual : row.correct) ? '#1c4532' : '#2d2020', color: (dcMode ? row.actual : row.correct) ? '#68d391' : '#fc8181' }}>
+              {dcMode ? (row.actual ? 'Covered ✓' : 'Missed ✗') : (row.correct ? '✓' : '✗')}
             </span>
           )}
         </div>

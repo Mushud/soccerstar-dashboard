@@ -145,6 +145,9 @@ function PickCard({ pick, i }) {
           {analysed && (
             <span style={{ fontSize: 10, color: '#68d391', fontWeight: 700 }}>✓ Claude</span>
           )}
+          {pick.calibrated && (
+            <span style={{ fontSize: 10, color: '#90cdf4', fontWeight: 700 }}>✓ Cal</span>
+          )}
 
           <span style={{ fontSize: 10, color: '#4a5568' }}>{open ? '▲' : '▼'}</span>
         </div>
