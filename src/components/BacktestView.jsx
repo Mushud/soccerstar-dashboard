@@ -22,6 +22,7 @@ export default function BacktestView() {
   const [syncing, setSyncing]   = useState(false)
   const [fixtures, setFixtures] = useState(null)
   const [accuracy, setAccuracy] = useState(null)
+  const [accRisk, setAccRisk]   = useState('')    // '' = all, 'low'/'medium'/'high' = bet builder filtered
   const [results, setResults]   = useState({})   // fixtureId → result
   const [running, setRunning]   = useState({})   // fixtureId → bool
   const [error, setError]       = useState(null)
@@ -36,15 +37,24 @@ export default function BacktestView() {
     await loadFixtures()
   }
 
+  async function refreshAccuracy(risk) {
+    const params = { days: 60 }
+    if (risk) params.risk = risk
+    const { data: acc } = await axios.get('/api/backtest/accuracy', { params })
+    setAccuracy(acc)
+  }
+
   async function loadFixtures() {
     setLoading(true)
     setError(null)
     setFixtures(null)
     setResults({})
     try {
+      const accParams = { days: 60 }
+      if (accRisk) accParams.risk = accRisk
       const [{ data: fx }, { data: acc }] = await Promise.all([
         axios.get('/api/backtest/fixtures', { params: { date } }),
-        axios.get('/api/backtest/accuracy', { params: { days: 60 } })
+        axios.get('/api/backtest/accuracy', { params: accParams })
       ])
       setFixtures(fx.items || [])
       setAccuracy(acc)
@@ -69,9 +79,7 @@ export default function BacktestView() {
     try {
       const { data } = await axios.post(`/api/backtest/fixture/${fixtureId}${force ? '?force=true' : ''}`)
       setResults(r => ({ ...r, [fixtureId]: data }))
-      // Refresh accuracy totals
-      const { data: acc } = await axios.get('/api/backtest/accuracy', { params: { days: 60 } })
-      setAccuracy(acc)
+      await refreshAccuracy(accRisk)
     } catch (e) {
       alert('Analysis failed: ' + (e.response?.data?.error || e.message))
     } finally {
@@ -101,15 +109,33 @@ export default function BacktestView() {
           style={{ background: syncing ? '#2d3748' : '#276749', color: syncing ? '#718096' : '#fff', border: 'none', borderRadius: '8px', padding: '9px 20px', cursor: syncing ? 'default' : 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
           {syncing ? 'Syncing…' : 'Sync Results'}
         </button>
+        <div>
+          <div style={{ fontSize: '0.7rem', color: '#718096', marginBottom: '4px' }}>Accuracy filter</div>
+          <select value={accRisk} onChange={e => { setAccRisk(e.target.value); refreshAccuracy(e.target.value) }}
+            style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '8px', color: '#e2e8f0', padding: '8px 12px', fontSize: '0.875rem', outline: 'none', cursor: 'pointer' }}>
+            <option value="">All predictions</option>
+            <option value="low">Bet Builder – Low risk</option>
+            <option value="medium">Bet Builder – Medium risk</option>
+            <option value="high">Bet Builder – High risk</option>
+          </select>
+        </div>
       </div>
 
       {error && <p style={{ color: '#fc8181', marginBottom: '1rem' }}>{error}</p>}
 
       {/* Historical accuracy (from stored backtest results) */}
+      {accuracy?.total === 0 && accuracy?.risk && (
+        <div style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.5rem', color: '#718096', fontSize: '0.8rem' }}>
+          No backtest results pass the <strong style={{ color: '#e2e8f0' }}>{accuracy.risk}</strong> risk gate yet.
+          Run more fixture analyses so the gate fields get saved, then try again.
+        </div>
+      )}
       {accuracy?.total >= 5 && (
         <div style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
           <div style={{ fontSize: '0.7rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
-            Historical accuracy · last 60 days · {accuracy.total} tested
+            {accuracy.risk
+              ? `Bet Builder (${accuracy.risk} risk) accuracy · last 60 days · ${accuracy.total} qualifying picks`
+              : `Historical accuracy · last 60 days · ${accuracy.total} tested`}
           </div>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <AccBadge label="Blended 1X2"  data={accuracy.blended?.result1X2} />

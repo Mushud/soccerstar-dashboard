@@ -238,12 +238,13 @@ export default function BetBuilder() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
+  const [offset, setOffset] = useState(0)
 
-  async function generate() {
+  async function generate(pageOffset = 0) {
     setLoading(true)
     setError(null)
-    setResult(null)
-    const body = { numTeams, risk: risks }
+    if (pageOffset === 0) setResult(null)
+    const body = { numTeams, risk: risks, offset: pageOffset }
     if (dateMode === 'pick') {
       body.from = fromDate
       body.to   = toDate || fromDate
@@ -253,6 +254,7 @@ export default function BetBuilder() {
     try {
       const { data } = await axios.post(`${API}/api/betbuilder/generate`, body, { timeout: 180000 })
       setResult(data)
+      setOffset(pageOffset)
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Request timed out — try a narrower date window.')
     } finally {
@@ -425,7 +427,7 @@ export default function BetBuilder() {
           </div>
 
           <button
-            onClick={generate}
+            onClick={() => { setOffset(0); generate(0) }}
             disabled={loading}
             style={{
               padding: '13px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800,
@@ -478,7 +480,9 @@ export default function BetBuilder() {
                   {result.combinedOdds}x
                 </div>
                 <div style={{ fontSize: 11, color: rOpt.color, opacity: 0.7, marginTop: 4 }}>
-                  {result.meta?.passedGate} of {result.meta?.fixturesScanned} fixtures cleared the gate
+                  {(result.meta?.total ?? result.meta?.passedGate) > numTeams
+                    ? `Showing ${offset + 1}–${Math.min(offset + numTeams, result.meta.total ?? result.meta.passedGate)} of ${result.meta.total ?? result.meta.passedGate} qualifying picks`
+                    : `${result.meta?.passedGate} of ${result.meta?.fixturesScanned} fixtures cleared the gate`}
                 </div>
               </div>
               <div style={{ fontSize: 13, color: '#a0aec0', maxWidth: 300, lineHeight: 1.6 }}>
@@ -500,8 +504,35 @@ export default function BetBuilder() {
 
             {/* Pick cards */}
             {(result.picks || []).map((pick, i) => (
-              <PickCard key={i} pick={pick} i={i + 1} />
+              <PickCard key={`${offset}-${i}`} pick={pick} i={offset + i + 1} />
             ))}
+
+            {/* Pagination */}
+            {(result.meta?.total ?? result.meta?.passedGate) > numTeams && (() => {
+              const total    = result.meta.total ?? result.meta.passedGate
+              const pageSize = result.meta.pageSize ?? numTeams
+              const from     = offset + 1
+              const to       = Math.min(offset + pageSize, total)
+              const hasPrev  = offset > 0
+              const hasNext  = offset + pageSize < total
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '4px 0' }}>
+                  <button onClick={() => generate(Math.max(0, offset - pageSize))} disabled={!hasPrev || loading}
+                    style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: hasPrev && !loading ? 'pointer' : 'not-allowed',
+                      background: hasPrev ? '#1a2a4a' : '#1a2030', color: hasPrev ? '#90cdf4' : '#4a5568', border: `1px solid ${hasPrev ? '#2b6cb0' : '#2d3748'}` }}>
+                    ← Prev {pageSize}
+                  </button>
+                  <span style={{ fontSize: 12, color: '#718096' }}>
+                    Showing <b style={{ color: '#e2e8f0' }}>{from}–{to}</b> of <b style={{ color: '#e2e8f0' }}>{total}</b> qualifying picks
+                  </span>
+                  <button onClick={() => generate(offset + pageSize)} disabled={!hasNext || loading}
+                    style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: hasNext && !loading ? 'pointer' : 'not-allowed',
+                      background: hasNext ? '#1a2a4a' : '#1a2030', color: hasNext ? '#90cdf4' : '#4a5568', border: `1px solid ${hasNext ? '#2b6cb0' : '#2d3748'}` }}>
+                    Next {Math.min(pageSize, total - offset - pageSize)} →
+                  </button>
+                </div>
+              )
+            })()}
 
             {/* Quick reference strip */}
             <div style={{
