@@ -40,6 +40,9 @@ export default function BetBuilder() {
   const [sortBy, setSortBy]       = useState('score')
   const [limit, setLimit]         = useState(50)
   const [page, setPage]           = useState(1)
+  const [sbLoading, setSbLoading] = useState(false)
+  const [sbResult, setSbResult]   = useState(null)
+  const [sbDebug, setSbDebug]     = useState(false)
   const PAGE_SIZE = 20
 
   function toggleRisk(key) {
@@ -94,6 +97,29 @@ export default function BetBuilder() {
       setError(err.response?.data?.error || err.message || 'Claude analysis failed.')
     } finally {
       setAnalysing(false)
+    }
+  }
+
+  async function getSportybetCode() {
+    const selectedPicks = picks.filter(p => selected.has(p.fixtureId))
+    if (!selectedPicks.length) return
+    setSbLoading(true)
+    setSbResult(null)
+    try {
+      const payload = selectedPicks.map(p => ({
+        homeTeam:  p.match?.split(' v ')[0]?.trim() || '',
+        awayTeam:  p.match?.split(' v ')[1]?.trim() || '',
+        market:    p.market,
+        selection: p.selection,
+        odds:      p.odds,
+        date:      p.fixtureDate,
+      }))
+      const { data } = await axios.post(`${API}/api/sportybet/booking-code`, { picks: payload, debug: sbDebug }, { timeout: 5 * 60 * 1000 })
+      setSbResult(data)
+    } catch (err) {
+      setSbResult({ success: false, error: err.response?.data?.error || err.message })
+    } finally {
+      setSbLoading(false)
     }
   }
 
@@ -239,6 +265,17 @@ export default function BetBuilder() {
                     {analysing ? 'Running Claude…' : `Analyse ${selected.size} Selected`}
                   </button>
                 )}
+                {selected.size > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button onClick={getSportybetCode} disabled={sbLoading} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: sbLoading ? 'not-allowed' : 'pointer', background: sbLoading ? '#1a2a1a' : '#0f2a1a', color: sbLoading ? '#718096' : '#68d391', border: '1px solid #276749', whiteSpace: 'nowrap' }}>
+                      {sbLoading ? 'Adding to SportyBet…' : `🎰 SportyBet Code (${selected.size})`}
+                    </button>
+                    <label title="Show browser window so you can see what's happening" style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: sbDebug ? '#ecc94b' : '#4a5568', cursor: 'pointer', userSelect: 'none' }}>
+                      <input type="checkbox" checked={sbDebug} onChange={e => setSbDebug(e.target.checked)} style={{ cursor: 'pointer' }} />
+                      Debug
+                    </label>
+                  </div>
+                )}
                 <span style={{ fontSize: 11, color: '#4a5568' }}>Sort:</span>
                 {[['score','Score'],['prob','Model %'],['odds','Odds'],['time','Time']].map(([k,l]) => (
                   <button key={k} onClick={() => setSortBy(k)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: sortBy===k ? '#1a2a4a' : '#1a2030', color: sortBy===k ? '#90cdf4' : '#718096', border: `1px solid ${sortBy===k ? '#2b6cb0' : '#2d3748'}` }}>{l}</button>
@@ -383,6 +420,66 @@ export default function BetBuilder() {
                   style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: page === totalPages ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: page === totalPages ? '#2d3748' : '#90cdf4', border: `1px solid ${page === totalPages ? '#2d3748' : '#2b6cb0'}` }}>
                   Next →
                 </button>
+              </div>
+            )}
+
+            {/* SportyBet booking code result */}
+            {sbResult && (
+              <div style={{ background: sbResult.success ? '#0b1f0b' : '#1f0b0b', border: `1px solid ${sbResult.success ? '#276749' : '#742a2a'}`, borderRadius: 12, padding: '16px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: sbResult.success ? '#68d391' : '#fc8181' }}>
+                    {sbResult.success ? '✓ SportyBet Booking Code' : '⚠ SportyBet Result'}
+                  </span>
+                  <button onClick={() => setSbResult(null)} style={{ background: 'none', border: 'none', color: '#718096', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                </div>
+
+                {sbResult.code && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                    <div style={{ fontSize: 28, fontWeight: 900, letterSpacing: '0.15em', color: '#f6e05e', background: '#1a1a0a', border: '2px solid #ecc94b', borderRadius: 10, padding: '10px 24px', fontFamily: 'monospace' }}>
+                      {sbResult.code}
+                    </div>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(sbResult.code)}
+                      style={{ padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: '#1a2a1a', color: '#68d391', border: '1px solid #276749' }}
+                    >
+                      Copy
+                    </button>
+                    {sbResult.totalOdds && (
+                      <div style={{ fontSize: 12, color: '#718096' }}>
+                        Combined odds: <b style={{ color: '#ecc94b' }}>{sbResult.totalOdds}x</b>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {sbResult.error && (
+                  <div style={{ fontSize: 12, color: '#fc8181', marginBottom: 10 }}>{sbResult.error}</div>
+                )}
+
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  {sbResult.added?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10, color: '#68d391', textTransform: 'uppercase', marginBottom: 6 }}>Added ({sbResult.added.length})</div>
+                      {sbResult.added.map((a, i) => (
+                        <div key={i} style={{ fontSize: 11, color: '#9ae6b4', marginBottom: 3 }}>✓ {a.label}</div>
+                      ))}
+                    </div>
+                  )}
+                  {sbResult.skipped?.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 10, color: '#fc8181', textTransform: 'uppercase', marginBottom: 6 }}>Not Found ({sbResult.skipped.length})</div>
+                      {sbResult.skipped.map((s, i) => (
+                        <div key={i} style={{ fontSize: 11, color: '#fc8181', marginBottom: 3 }}>✗ {s.label}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {sbResult.success && (
+                  <div style={{ fontSize: 11, color: '#4a5568', marginTop: 10 }}>
+                    Enter this code on SportyBet Ghana to load your slip → place bet with your account.
+                  </div>
+                )}
               </div>
             )}
 
