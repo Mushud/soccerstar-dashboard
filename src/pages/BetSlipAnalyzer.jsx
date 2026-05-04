@@ -437,7 +437,16 @@ export default function BetSlipAnalyzer() {
                         <span style={{ width: 20, height: 20, background: '#1a1f2e', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#718096', flexShrink: 0 }}>{i + 1}</span>
                         <div style={{ flex: 1, minWidth: 130 }}>
                           <div style={{ fontSize: 13, color: '#e2e8f0' }}>{s.match}</div>
-                          {s.league && <div style={{ fontSize: 10, color: '#4a5568' }}>{s.league}</div>}
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 2 }}>
+                            {s.league && <span style={{ fontSize: 10, color: '#4a5568' }}>{s.league}</span>}
+                            {s.eventTime && (
+                              <span style={{ fontSize: 10, color: '#718096' }}>
+                                {new Date(s.eventTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                                {' · '}
+                                {new Date(s.eventTime).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <span style={{ fontSize: 10, color: '#a0aec0', background: '#1a1f2e', padding: '1px 6px', borderRadius: 3 }}>{s.market}</span>
                         <span style={{ fontSize: 12, color: '#90cdf4', fontWeight: 600 }}>{s.selection}</span>

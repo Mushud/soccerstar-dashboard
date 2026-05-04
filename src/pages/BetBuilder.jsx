@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import axios from 'axios'
-import PredictionCard from '../components/PredictionCard'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
@@ -14,253 +13,120 @@ const DURATION_LABELS = {
 }
 
 const RISK_OPTIONS = [
-  {
-    key: 'low',
-    label: 'Low Risk',
-    emoji: '🛡',
-    desc: 'High confidence only. No conflicts, no doubt.',
-    color: '#68d391', bg: '#1a3a2a', border: '#276749', activeBg: '#276749',
-  },
-  {
-    key: 'medium',
-    label: 'Medium Risk',
-    emoji: '⚖',
-    desc: 'High or Medium confidence. Balanced payout.',
-    color: '#ecc94b', bg: '#2d2a1a', border: '#744210', activeBg: '#744210',
-  },
-  {
-    key: 'high',
-    label: 'High Risk',
-    emoji: '🔥',
-    desc: 'Chase value. Higher odds, some uncertainty.',
-    color: '#fc8181', bg: '#3a1a1a', border: '#742a2a', activeBg: '#742a2a',
-  },
+  { key: 'low',    label: 'Low Risk',    emoji: '🛡', desc: 'High confidence only.',      color: '#68d391', bg: '#1a3a2a', border: '#276749', activeBg: '#276749' },
+  { key: 'medium', label: 'Medium Risk', emoji: '⚖', desc: 'High or Medium confidence.',  color: '#ecc94b', bg: '#2d2a1a', border: '#744210', activeBg: '#744210' },
+  { key: 'high',   label: 'High Risk',   emoji: '🔥', desc: 'Chase value, wider net.',     color: '#fc8181', bg: '#3a1a1a', border: '#742a2a', activeBg: '#742a2a' },
 ]
 
-function formatDate(dateStr) {
+function fmt(dateStr) {
   if (!dateStr) return ''
-  return new Date(dateStr).toLocaleDateString('en-GB', {
-    weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-  })
+  return new Date(dateStr).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-function OddsTag({ odds }) {
-  return (
-    <span style={{
-      background: '#0f1520', border: '1px solid #ecc94b', color: '#ecc94b',
-      fontSize: 14, fontWeight: 800, padding: '4px 12px', borderRadius: 6,
-    }}>
-      {odds}x
-    </span>
-  )
-}
-
-// Lazy-loads the full fixture+prediction when expanded, then renders PredictionCard
-function PickCard({ pick, i }) {
-  const [open, setOpen] = useState(false)
-  const [fetchState, setFetchState] = useState('idle') // idle | loading | done | error
-  const [fixtureData, setFixtureData] = useState(null)
+export default function BetBuilder() {
+  const [duration, setDuration]   = useState('today')
+  const [risks, setRisks]         = useState(['low'])
+  const [dateMode, setDateMode]   = useState('quick')
+  const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
+  const [fromDate, setFromDate]   = useState(localToday)
+  const [toDate, setToDate]       = useState(localToday)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState(null)
+  const [picks, setPicks]         = useState([])
+  const [meta, setMeta]           = useState(null)
+  const [selected, setSelected]   = useState(new Set())
   const [analysing, setAnalysing] = useState(false)
-  const [analysed, setAnalysed] = useState(pick.hasClaudeAnalysis)
+  const [analysingId, setAnalysingId] = useState(null)
+  const [sortBy, setSortBy]       = useState('score')
+  const [limit, setLimit]         = useState(50)
+  const [page, setPage]           = useState(1)
+  const PAGE_SIZE = 20
 
-  async function loadFixture() {
-    if (!pick.fixtureId) return
-    setFetchState('loading')
+  function toggleRisk(key) {
+    setRisks(prev => prev.includes(key) ? (prev.length > 1 ? prev.filter(r => r !== key) : prev) : [...prev, key])
+  }
+
+  function toggleSelect(id) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+
+  function selectAll() {
+    setSelected(picks.length === selected.size ? new Set() : new Set(picks.map(p => p.fixtureId)))
+  }
+
+  async function generate() {
+    setLoading(true)
+    setError(null)
+    setPicks([])
+    setMeta(null)
+    setSelected(new Set())
+    setPage(1)
+
+    const body = { risk: risks, limit }
+    if (dateMode === 'pick') { body.from = fromDate; body.to = toDate || fromDate }
+    else body.duration = duration
+
     try {
-      const { data } = await axios.get(`${API}/api/fixtures/${pick.fixtureId}`)
-      setFixtureData(data)
-      setFetchState('done')
-    } catch {
-      setFetchState('error')
+      const { data } = await axios.post(`${API}/api/betbuilder/generate`, body, { timeout: 5 * 60 * 1000 })
+      setPicks(data.picks || [])
+      setMeta(data.meta)
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Request failed.')
+    } finally {
+      setLoading(false)
     }
   }
 
-  async function expand() {
-    const next = !open
-    setOpen(next)
-    if (next && fetchState === 'idle') loadFixture()
-  }
-
-  async function runAnalysis(e) {
-    e.stopPropagation()
-    if (!pick.fixtureId || analysing) return
+  async function analyseSelected() {
+    if (!selected.size) return
     setAnalysing(true)
+    const fixtureIds = [...selected]
     try {
-      await axios.post(`${API}/api/predictions/fixture/${pick.fixtureId}`)
-      setAnalysed(true)
-      // Reload the fixture data so PredictionCard shows the new Claude analysis
-      setFetchState('idle')
-      setFixtureData(null)
-      if (open) loadFixture()
-    } catch {
-      // silently fail — user can retry
+      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds, risk: risks }, { timeout: 3 * 60 * 1000 })
+      const byId = {}
+      for (const r of (data.results || [])) byId[r.fixtureId] = r
+      setPicks(prev => prev.map(p => {
+        const r = byId[p.fixtureId]
+        if (!r) return p
+        return { ...p, market: r.market, selection: r.selection, odds: r.odds, value: r.value, reason: r.reason, hasClaudeAnalysis: true }
+      }))
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Claude analysis failed.')
     } finally {
       setAnalysing(false)
     }
   }
 
-  return (
-    <div style={{ background: '#1a1f2e', border: `1px solid ${analysed ? '#27674966' : '#2d374855'}`, borderRadius: 12, overflow: 'hidden' }}>
-
-      {/* Header — click to expand */}
-      <div
-        onClick={expand}
-        style={{ padding: '14px 16px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 9 }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* Number badge */}
-          <span style={{
-            width: 24, height: 24, borderRadius: '50%', background: '#276749',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 11, color: '#68d391', flexShrink: 0, fontWeight: 800,
-          }}>{i}</span>
-
-          <div style={{ flex: 1, minWidth: 140 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>{pick.match}</div>
-            <div style={{ fontSize: 11, color: '#718096', marginTop: 2 }}>
-              {pick.league}
-              {pick.fixtureDate && <span style={{ marginLeft: 6 }}>&middot; {formatDate(pick.fixtureDate)}</span>}
-            </div>
-          </div>
-
-          <OddsTag odds={pick.odds} />
-
-          {/* Analyse button — shown when no Claude analysis yet */}
-          {!analysed && pick.fixtureId && (
-            <button
-              onClick={runAnalysis}
-              disabled={analysing}
-              style={{
-                padding: '5px 11px', borderRadius: 7, fontSize: 11, fontWeight: 700,
-                cursor: analysing ? 'not-allowed' : 'pointer',
-                background: analysing ? '#1a2a3a' : '#1a2030',
-                color: analysing ? '#718096' : '#ecc94b',
-                border: '1px solid #744210',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {analysing ? 'Analysing…' : 'Analyse'}
-            </button>
-          )}
-          {analysed && (
-            <span style={{ fontSize: 10, color: '#68d391', fontWeight: 700 }}>✓ Claude</span>
-          )}
-          {pick.calibrated && (
-            <span style={{ fontSize: 10, color: '#90cdf4', fontWeight: 700 }}>✓ Cal</span>
-          )}
-
-          <span style={{ fontSize: 10, color: '#4a5568' }}>{open ? '▲' : '▼'}</span>
-        </div>
-
-        {/* Pick badges */}
-        <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', paddingLeft: 34 }}>
-          <span style={{
-            background: '#1a2a3a', border: '1px solid #2b4a6a', color: '#90cdf4',
-            fontSize: 11, padding: '3px 9px', borderRadius: 20,
-          }}>{pick.market}</span>
-          <span style={{
-            background: '#1a2a4a', border: '1px solid #2b6cb0', color: '#bee3f8',
-            fontSize: 12, fontWeight: 700, padding: '3px 9px', borderRadius: 20,
-          }}>{pick.selection}</span>
-          {pick.modelProb && (
-            <span style={{ fontSize: 11, color: '#4a5568', alignSelf: 'center' }}>model: {pick.modelProb}</span>
-          )}
-          {pick.certaintyScore != null && (
-            <span style={{ fontSize: 11, color: '#4a5568', alignSelf: 'center' }}>
-              score: {pick.certaintyScore.toFixed(3)}
-            </span>
-          )}
-        </div>
-
-        {/* Claude's reason for picking this */}
-        {pick.reason && (
-          <div style={{ paddingLeft: 34, fontSize: 12, color: '#9ae6b4', lineHeight: 1.5 }}>
-            {pick.reason}
-          </div>
-        )}
-
-        {!analysed && (
-          <div style={{ paddingLeft: 34, fontSize: 11, color: '#744210' }}>
-            Statistical pick — click Analyse to run Claude analysis
-          </div>
-        )}
-      </div>
-
-      {/* Expanded: full PredictionCard */}
-      {open && (
-        <div style={{ borderTop: '1px solid #2d3748' }}>
-          {fetchState === 'loading' && (
-            <div style={{ padding: '16px 20px', fontSize: 12, color: '#718096' }}>Loading prediction detail…</div>
-          )}
-          {fetchState === 'error' && (
-            <div style={{ padding: '16px 20px', fontSize: 12, color: '#fc8181' }}>Could not load prediction. Check the match on the dashboard.</div>
-          )}
-          {fetchState === 'done' && fixtureData && (
-            <div style={{ padding: '0 4px 4px' }}>
-              <PredictionCard
-                fixture={fixtureData.fixture}
-                prediction={fixtureData.prediction}
-              />
-            </div>
-          )}
-          {!pick.fixtureId && (
-            <div style={{ padding: '16px 20px', fontSize: 12, color: '#718096' }}>No fixture ID — prediction detail unavailable.</div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-export default function BetBuilder() {
-  const [numTeams, setNumTeams] = useState(5)
-  const [duration, setDuration] = useState('today')
-  const [risks, setRisks] = useState(['low'])
-
-  function toggleRisk(key) {
-    setRisks(prev => {
-      if (prev.includes(key)) {
-        // must keep at least one selected
-        if (prev.length === 1) return prev
-        return prev.filter(r => r !== key)
-      }
-      return [...prev, key]
-    })
-  }
-  const [dateMode, setDateMode] = useState('quick') // 'quick' | 'pick'
-  // Use local date so the picker opens on the correct calendar day for the user
-  const localToday = () => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }
-  const [fromDate, setFromDate] = useState(localToday)
-  const [toDate, setToDate] = useState(localToday)
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState(null)
-  const [error, setError] = useState(null)
-  const [offset, setOffset] = useState(0)
-
-  async function generate(pageOffset = 0) {
-    setLoading(true)
-    setError(null)
-    if (pageOffset === 0) setResult(null)
-    const body = { numTeams, risk: risks, offset: pageOffset }
-    if (dateMode === 'pick') {
-      body.from = fromDate
-      body.to   = toDate || fromDate
-    } else {
-      body.duration = duration
-    }
+  async function analyseOne(fixtureId) {
+    if (!fixtureId || analysingId) return
+    setAnalysingId(fixtureId)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/generate`, body, { timeout: 180000 })
-      setResult(data)
-      setOffset(pageOffset)
+      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds: [fixtureId], risk: risks }, { timeout: 3 * 60 * 1000 })
+      const r = (data.results || [])[0]
+      if (r) {
+        setPicks(prev => prev.map(p => p.fixtureId === fixtureId
+          ? { ...p, market: r.market, selection: r.selection, odds: r.odds, value: r.value, reason: r.reason, hasClaudeAnalysis: true }
+          : p
+        ))
+      }
     } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Request timed out — try a narrower date window.')
+      setError(err.response?.data?.error || err.message || 'Claude analysis failed.')
     } finally {
-      setLoading(false)
+      setAnalysingId(null)
     }
   }
+
+  const sorted = [...picks].sort((a, b) => {
+    if (sortBy === 'prob')  return parseFloat(b.modelProb) - parseFloat(a.modelProb)
+    if (sortBy === 'time')  return new Date(a.fixtureDate) - new Date(b.fixtureDate)
+    if (sortBy === 'odds')  return (b.odds || 0) - (a.odds || 0)
+    return (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0)
+  })
+
+  const totalPages   = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const displayPicks = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  const rOpt = RISK_OPTIONS.find(r => r.key === (risks.includes('high') ? 'high' : risks.includes('medium') ? 'medium' : 'low'))
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0e1a', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
@@ -272,288 +138,271 @@ export default function BetBuilder() {
         <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginLeft: 'auto' }}>Bet Builder</span>
       </div>
 
-      <div style={{ maxWidth: 720, margin: '0 auto', padding: '28px 16px' }}>
-
-        {/* Header */}
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 22, fontWeight: 800, color: '#e2e8f0', marginBottom: 6 }}>Best Bet Builder</div>
-          <div style={{ fontSize: 13, color: '#718096', lineHeight: 1.6 }}>
-            Choose your risk appetite and a time window. <b style={{ color: '#68d391' }}>Low</b> = zero doubt, High confidence only. <b style={{ color: '#ecc94b' }}>Medium</b> = balanced. <b style={{ color: '#fc8181' }}>High</b> = chase value. Mix two tiers for a wider pool — up to <b style={{ color: '#e2e8f0' }}>25 picks</b>.
-          </div>
-        </div>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 16px' }}>
 
         {/* Form */}
-        <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: '20px', marginBottom: 24, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 20, marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
           <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-
-            {/* Number of picks */}
-            <div style={{ flex: 1, minWidth: 160 }}>
-              <label style={{ display: 'block', fontSize: 11, color: '#718096', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Number of Picks
-              </label>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                {[2, 3, 4, 5, 6, 8, 10, 15, 20, 25].map(n => (
-                  <button key={n} onClick={() => setNumTeams(n)} style={{
-                    padding: '7px 13px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                    background: numTeams === n ? '#276749' : '#1a2030',
-                    color: numTeams === n ? '#68d391' : '#718096',
-                    border: `1px solid ${numTeams === n ? '#48bb78' : '#2d3748'}`,
-                  }}>{n}</button>
-                ))}
-              </div>
-              <input
-                type="number" min={1} max={20} value={numTeams}
-                onChange={e => setNumTeams(Math.min(25, Math.max(1, parseInt(e.target.value, 10) || 1)))}
-                style={{
-                  width: '100%', boxSizing: 'border-box', background: '#0a0e1a',
-                  border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 6,
-                  padding: '7px 10px', fontSize: 13,
-                }}
-                placeholder="Custom (1–25)"
-              />
-            </div>
-
             {/* Fixture window */}
             <div style={{ flex: 1, minWidth: 160 }}>
-              <label style={{ display: 'block', fontSize: 11, color: '#718096', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Fixture Window
-              </label>
-
-              {/* Mode toggle */}
-              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                {[['quick', 'Quick pick'], ['pick', 'Date picker']].map(([mode, label]) => (
-                  <button key={mode} onClick={() => setDateMode(mode)} style={{
-                    flex: 1, padding: '6px 10px', borderRadius: 7, fontSize: 12, cursor: 'pointer',
-                    background: dateMode === mode ? '#1a2a4a' : '#1a2030',
-                    color: dateMode === mode ? '#90cdf4' : '#718096',
-                    border: `1px solid ${dateMode === mode ? '#2b6cb0' : '#2d3748'}`,
-                    fontWeight: dateMode === mode ? 700 : 400,
-                  }}>{label}</button>
+              <div style={{ fontSize: 11, color: '#718096', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fixture Window</div>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                {[['quick','Quick'],['pick','Date']].map(([m,l]) => (
+                  <button key={m} onClick={() => setDateMode(m)} style={{ flex: 1, padding: '6px 10px', borderRadius: 7, fontSize: 12, cursor: 'pointer', background: dateMode===m ? '#1a2a4a' : '#1a2030', color: dateMode===m ? '#90cdf4' : '#718096', border: `1px solid ${dateMode===m ? '#2b6cb0' : '#2d3748'}`, fontWeight: dateMode===m ? 700 : 400 }}>{l}</button>
                 ))}
               </div>
-
-              {/* Quick shortcuts */}
               {dateMode === 'quick' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                  {Object.entries(DURATION_LABELS).map(([key, label]) => (
-                    <button key={key} onClick={() => setDuration(key)} style={{
-                      padding: '8px 14px', borderRadius: 8, fontSize: 13, cursor: 'pointer', textAlign: 'left',
-                      background: duration === key ? '#1a2a4a' : '#1a2030',
-                      color: duration === key ? '#90cdf4' : '#718096',
-                      border: `1px solid ${duration === key ? '#2b6cb0' : '#2d3748'}`,
-                      fontWeight: duration === key ? 700 : 400,
-                    }}>{label}</button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {Object.entries(DURATION_LABELS).map(([k, l]) => (
+                    <button key={k} onClick={() => setDuration(k)} style={{ padding: '7px 12px', borderRadius: 7, fontSize: 13, cursor: 'pointer', textAlign: 'left', background: duration===k ? '#1a2a4a' : '#1a2030', color: duration===k ? '#90cdf4' : '#718096', border: `1px solid ${duration===k ? '#2b6cb0' : '#2d3748'}`, fontWeight: duration===k ? 700 : 400 }}>{l}</button>
                   ))}
                 </div>
               )}
-
-              {/* Date picker */}
               {dateMode === 'pick' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: '#718096', marginBottom: 4 }}>From</div>
-                    <input
-                      type="date"
-                      value={fromDate}
-                      onChange={e => {
-                        setFromDate(e.target.value)
-                        if (e.target.value > toDate) setToDate(e.target.value)
-                      }}
-                      style={{
-                        width: '100%', boxSizing: 'border-box', background: '#0a0e1a',
-                        border: '1px solid #2b6cb0', color: '#e2e8f0', borderRadius: 6,
-                        padding: '8px 10px', fontSize: 13, cursor: 'pointer',
-                      }}
-                    />
-                  </div>
-                  <div>
-                    <div style={{ fontSize: 10, color: '#718096', marginBottom: 4 }}>To (optional)</div>
-                    <input
-                      type="date"
-                      value={toDate}
-                      min={fromDate}
-                      onChange={e => setToDate(e.target.value)}
-                      style={{
-                        width: '100%', boxSizing: 'border-box', background: '#0a0e1a',
-                        border: '1px solid #2b6cb0', color: '#e2e8f0', borderRadius: 6,
-                        padding: '8px 10px', fontSize: 13, cursor: 'pointer',
-                      }}
-                    />
-                  </div>
-                  {fromDate === toDate && (
-                    <div style={{ fontSize: 11, color: '#718096' }}>Single day selected</div>
-                  )}
-                  {fromDate && toDate && fromDate !== toDate && (
-                    <div style={{ fontSize: 11, color: '#90cdf4' }}>
-                      {fromDate} → {toDate}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {[['From', fromDate, v => { setFromDate(v); if (v > toDate) setToDate(v) }, null],
+                    ['To',   toDate,   v => setToDate(v), fromDate]].map(([lbl, val, fn, min]) => (
+                    <div key={lbl}>
+                      <div style={{ fontSize: 10, color: '#718096', marginBottom: 3 }}>{lbl}</div>
+                      <input type="date" value={val} min={min || undefined} onChange={e => fn(e.target.value)}
+                        style={{ width: '100%', boxSizing: 'border-box', background: '#0a0e1a', border: '1px solid #2b6cb0', color: '#e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 13 }} />
                     </div>
-                  )}
+                  ))}
                 </div>
               )}
             </div>
-          </div>
 
-          {/* Risk level — multi-select */}
-          <div>
-            <label style={{ display: 'block', fontSize: 11, color: '#718096', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Risk Level <span style={{ color: '#4a5568', textTransform: 'none', fontWeight: 400 }}>(select one or more)</span>
-            </label>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              {RISK_OPTIONS.map(r => {
-                const active = risks.includes(r.key)
-                return (
-                  <button key={r.key} onClick={() => toggleRisk(r.key)} style={{
-                    flex: 1, minWidth: 130, padding: '10px 14px', borderRadius: 10, cursor: 'pointer',
-                    background: active ? r.activeBg : r.bg,
-                    border: `2px solid ${active ? r.color : r.border}`,
-                    textAlign: 'left', position: 'relative',
-                  }}>
-                    {active && (
-                      <span style={{
-                        position: 'absolute', top: 7, right: 9, fontSize: 10,
-                        color: r.color, fontWeight: 800,
-                      }}>✓</span>
-                    )}
-                    <div style={{ fontSize: 13, fontWeight: 700, color: r.color, marginBottom: 3 }}>
-                      {r.emoji} {r.label}
-                    </div>
-                    <div style={{ fontSize: 11, color: active ? r.color : '#718096', lineHeight: 1.4 }}>
-                      {r.desc}
-                    </div>
-                  </button>
-                )
-              })}
+            {/* Risk */}
+            <div style={{ flex: 2, minWidth: 220 }}>
+              <div style={{ fontSize: 11, color: '#718096', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Risk Level</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {RISK_OPTIONS.map(r => {
+                  const active = risks.includes(r.key)
+                  return (
+                    <button key={r.key} onClick={() => toggleRisk(r.key)} style={{ flex: 1, minWidth: 110, padding: '10px 12px', borderRadius: 10, cursor: 'pointer', background: active ? r.activeBg : r.bg, border: `2px solid ${active ? r.color : r.border}`, textAlign: 'left', position: 'relative' }}>
+                      {active && <span style={{ position: 'absolute', top: 6, right: 8, fontSize: 10, color: r.color, fontWeight: 800 }}>✓</span>}
+                      <div style={{ fontSize: 13, fontWeight: 700, color: r.color, marginBottom: 2 }}>{r.emoji} {r.label}</div>
+                      <div style={{ fontSize: 11, color: active ? r.color : '#718096' }}>{r.desc}</div>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
 
-          <button
-            onClick={() => { setOffset(0); generate(0) }}
-            disabled={loading}
-            style={{
-              padding: '13px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              background: loading ? '#1a3a2a' : 'linear-gradient(135deg, #276749, #2f855a)',
-              color: loading ? '#48bb78' : '#f0fff4',
-              border: '1px solid #48bb78',
-            }}
-          >
-            {loading ? 'Finding picks…' : `Generate ${numTeams}-Pick Accumulator (${risks.map(r => RISK_OPTIONS.find(o => o.key === r)?.emoji).join('')} ${risks.join('+').charAt(0).toUpperCase() + risks.join('+').slice(1)})`}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 11, color: '#718096', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fetch top</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[20, 50, 100].map(n => (
+                  <button key={n} onClick={() => setLimit(n)} style={{ padding: '6px 12px', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: limit === n ? '#1a3a2a' : '#1a2030', color: limit === n ? '#68d391' : '#718096', border: `1px solid ${limit === n ? '#48bb78' : '#2d3748'}` }}>{n}</button>
+                ))}
+              </div>
+            </div>
+            <button onClick={generate} disabled={loading} style={{ flex: 1, padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: loading ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
+              {loading ? 'Fetching picks…' : `Get Top ${limit} Picks — ${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}`}
+            </button>
+          </div>
 
           {loading && (
-            <div style={{ fontSize: 12, color: '#718096', textAlign: 'center', lineHeight: 1.9 }}>
-              Scanning fixtures for {dateMode === 'pick' ? (fromDate === toDate ? fromDate : `${fromDate} → ${toDate}`) : DURATION_LABELS[duration]?.toLowerCase()}…<br />
-              <span style={{ color: '#4a5568' }}>Running Poisson + ELO models</span><br />
-              <span style={{ color: '#4a5568' }}>Fetching live standings, form, injuries &amp; odds for top candidates</span><br />
-              <span style={{ color: '#4a5568' }}>This takes 30–60s for new dates</span>
+            <div style={{ fontSize: 12, color: '#718096', textAlign: 'center' }}>
+              Syncing fixtures and running Poisson + ELO models… (first run takes 1–2 min)
             </div>
           )}
         </div>
 
         {/* Error */}
         {error && (
-          <div style={{ background: '#3a1a1a', border: '1px solid #742a2a', borderRadius: 10, padding: '14px 18px', marginBottom: 20, color: '#fc8181', fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ background: '#3a1a1a', border: '1px solid #742a2a', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#fc8181', fontSize: 13 }}>
             {error}
           </div>
         )}
 
         {/* Results */}
-        {result && (() => {
-          const rKeys = Array.isArray(result.meta?.risk) ? result.meta.risk : [result.meta?.risk || 'low']
-          // Banner uses the "loudest" selected risk for colour
-          const rOpt = RISK_OPTIONS.find(r => r.key === (rKeys.includes('high') ? 'high' : rKeys.includes('medium') ? 'medium' : 'low'))
-          return (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {picks.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-            {/* Combined odds banner */}
-            <div style={{
-              background: `linear-gradient(135deg, ${rOpt.bg}, #0a0e1a)`,
-              border: `1px solid ${rOpt.border}`, borderRadius: 12, padding: '18px 20px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              flexWrap: 'wrap', gap: 12,
-            }}>
+            {/* Summary bar */}
+            <div style={{ background: `linear-gradient(135deg,${rOpt.bg},#0a0e1a)`, border: `1px solid ${rOpt.border}`, borderRadius: 10, padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
               <div>
                 <div style={{ fontSize: 11, color: rOpt.color, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
-                  {result.picks?.length}-Pick · {DURATION_LABELS[result.meta?.duration]} · {rKeys.map(k => RISK_OPTIONS.find(o => o.key === k)?.emoji + ' ' + RISK_OPTIONS.find(o => o.key === k)?.label).join(' + ')}
+                  {picks.length} picks · {meta?.fixturesScanned} fixtures scanned · {risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}
                 </div>
-                <div style={{ fontSize: 38, fontWeight: 900, color: rOpt.color, lineHeight: 1 }}>
-                  {result.combinedOdds}x
-                </div>
-                <div style={{ fontSize: 11, color: rOpt.color, opacity: 0.7, marginTop: 4 }}>
-                  {(result.meta?.total ?? result.meta?.passedGate) > numTeams
-                    ? `Showing ${offset + 1}–${Math.min(offset + numTeams, result.meta.total ?? result.meta.passedGate)} of ${result.meta.total ?? result.meta.passedGate} qualifying picks`
-                    : `${result.meta?.passedGate} of ${result.meta?.fixturesScanned} fixtures cleared the gate`}
+                <div style={{ fontSize: 11, color: '#718096' }}>
+                  {picks.filter(p=>p.hasClaudeAnalysis).length} AI-analysed · {selected.size} selected · page {page}/{totalPages}
                 </div>
               </div>
-              <div style={{ fontSize: 13, color: '#a0aec0', maxWidth: 300, lineHeight: 1.6 }}>
-                {result.overview}
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                {selected.size > 0 && (
+                  <button onClick={analyseSelected} disabled={analysing} style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: analysing ? 'not-allowed' : 'pointer', background: analysing ? '#1a2a3a' : '#1a2a4a', color: analysing ? '#718096' : '#90cdf4', border: '1px solid #2b6cb0' }}>
+                    {analysing ? 'Running Claude…' : `Analyse ${selected.size} Selected`}
+                  </button>
+                )}
+                <span style={{ fontSize: 11, color: '#4a5568' }}>Sort:</span>
+                {[['score','Score'],['prob','Model %'],['odds','Odds'],['time','Time']].map(([k,l]) => (
+                  <button key={k} onClick={() => setSortBy(k)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: sortBy===k ? '#1a2a4a' : '#1a2030', color: sortBy===k ? '#90cdf4' : '#718096', border: `1px solid ${sortBy===k ? '#2b6cb0' : '#2d3748'}` }}>{l}</button>
+                ))}
               </div>
             </div>
 
-            {/* Staking tip */}
-            {result.tip && (
-              <div style={{ background: '#1a2a3a', border: '1px solid #2b4a6a', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#90cdf4' }}>
-                💡 {result.tip}
+            {/* Picks table */}
+            <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 10, overflow: 'hidden' }}>
+
+              {/* Header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '8px 14px', background: '#0a0e1a', borderBottom: '1px solid #1f2937' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <input type="checkbox" checked={selected.size === picks.length && picks.length > 0} onChange={selectAll} style={{ cursor: 'pointer' }} />
+                </div>
+                {['Match','League','Market','Selection','Odds','Model %','Value','Reason / Blend',''].map((h,i) => (
+                  <div key={i} style={{ fontSize: 10, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>
+                ))}
+              </div>
+
+              {/* Rows */}
+              {displayPicks.map((pick, i) => {
+                const isSel = selected.has(pick.fixtureId)
+                const hasAI = pick.hasClaudeAnalysis
+                const valColor = pick.value === 'Good value' ? '#68d391'
+                               : pick.value === 'Poor value' ? '#fc8181'
+                               : '#ecc94b'
+                const valBg    = pick.value === 'Good value' ? '#0f2a1a'
+                               : pick.value === 'Poor value' ? '#2a0f0f'
+                               : '#2a2510'
+                const optRows  = (pick.options || []).map((opt, j) => (
+                  <div key={`${pick.fixtureId ?? i}-opt-${j}`} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b0f1c', alignItems: 'center', borderLeft: '3px solid #1e3a5a' }}>
+                    <div />
+                    <div style={{ fontSize: 10, color: '#2d4a6a' }}>└ Option {j + 2}</div>
+                    <div />
+                    <div style={{ fontSize: 11, color: '#4a6080' }}>{opt.market}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#7097b8' }}>{opt.selection}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{opt.odds}x</div>
+                    <div style={{ fontSize: 11, color: '#4a7a5a', fontWeight: 700 }}>{opt.modelProb}</div>
+                    <div /><div /><div />
+                  </div>
+                ))
+                return [
+                  <div key={pick.fixtureId ?? i} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '10px 14px', borderTop: '1px solid #1a2030', background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : undefined, alignItems: 'center', cursor: 'pointer' }} onClick={() => pick.fixtureId && toggleSelect(pick.fixtureId)}>
+
+                    <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center' }}>
+                      <input type="checkbox" checked={isSel} onChange={() => toggleSelect(pick.fixtureId)} disabled={!pick.fixtureId} style={{ cursor: 'pointer' }} />
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{pick.match}</div>
+                      {pick.fixtureDate && <div style={{ fontSize: 10, color: '#4a5568', marginTop: 1 }}>{fmt(pick.fixtureDate)}</div>}
+                      {pick.newsSentiment && (() => {
+                        const c = pick.newsSentiment === 'Home-favoured' ? '#90cdf4'
+                                : pick.newsSentiment === 'Away-favoured' ? '#f6ad55'
+                                : pick.newsSentiment === 'Draw-likely'   ? '#b794f4'
+                                : '#718096'
+                        return (
+                          <div style={{ fontSize: 9, color: c, marginTop: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <span>News:</span>
+                            <span style={{ fontWeight: 700 }}>{pick.newsSentiment}</span>
+                            {pick.newsAgreement === false && <span style={{ color: '#fc8181' }}>⚠ conflicts model</span>}
+                            {pick.newsShift === 'Higher' && <span style={{ color: '#68d391' }}>↑</span>}
+                            {pick.newsShift === 'Lower'  && <span style={{ color: '#fc8181' }}>↓</span>}
+                          </div>
+                        )
+                      })()}
+                    </div>
+
+                    <div style={{ fontSize: 11, color: '#718096', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pick.league}</div>
+
+                    <div style={{ fontSize: 11, color: '#90cdf4' }}>{pick.market}</div>
+
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#bee3f8' }}>{pick.selection}</div>
+
+                    <div style={{ fontSize: 13, fontWeight: 800, color: pick.odds < 1.35 ? '#fc8181' : '#ecc94b', display: 'flex', alignItems: 'center', gap: 3 }}>
+                      {pick.odds}x
+                      {pick.odds < 1.35 && <span title="Very short odds — model may be overconfident. One loss costs many wins." style={{ fontSize: 10, color: '#fc8181' }}>⚠</span>}
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {pick.modelProb && <span style={{ fontSize: 12, color: '#68d391', fontWeight: 700 }}>{pick.modelProb}</span>}
+                      {pick.certaintyScore != null && <span style={{ fontSize: 10, color: '#4a5568' }}>{pick.certaintyScore.toFixed(3)}</span>}
+                    </div>
+
+                    <div>
+                      {pick.value ? (
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 7px', borderRadius: 6, background: valBg, color: valColor, border: `1px solid ${valColor}44`, whiteSpace: 'nowrap' }}>
+                          {pick.value === 'Good value' ? '↑ Good' : pick.value === 'Poor value' ? '↓ Poor' : '= Fair'}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 10, color: '#2d3748' }}>—</span>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+                      {pick.reason ? (
+                        <span style={{ color: '#9ae6b4' }}>{pick.reason}</span>
+                      ) : pick.blend ? (
+                        <span style={{ color: '#4a5568' }}>
+                          H{(pick.blend.home*100).toFixed(0)} D{(pick.blend.draw*100).toFixed(0)} A{(pick.blend.away*100).toFixed(0)}
+                          {pick.over25 != null && ` · O2.5 ${(pick.over25*100).toFixed(0)}%`}
+                          {pick.btts   != null && ` · BTTS ${(pick.btts*100).toFixed(0)}%`}
+                        </span>
+                      ) : (
+                        <span style={{ color: '#2d3748' }}>—</span>
+                      )}
+                    </div>
+
+                    <div onClick={e => e.stopPropagation()}>
+                      {analysingId === pick.fixtureId ? (
+                        <span style={{ fontSize: 10, color: '#718096' }}>…</span>
+                      ) : (
+                        <button
+                          disabled={!pick.fixtureId || !!analysingId || hasAI}
+                          onClick={() => analyseOne(pick.fixtureId)}
+                          title={hasAI ? 'Already analysed' : 'Run Claude analysis on this pick'}
+                          style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: (!pick.fixtureId || !!analysingId || hasAI) ? 'not-allowed' : 'pointer', background: hasAI ? '#0b1f0b' : '#1a2a4a', color: hasAI ? '#276749' : '#90cdf4', border: `1px solid ${hasAI ? '#276749' : '#2b6cb0'}`, opacity: (!!analysingId && analysingId !== pick.fixtureId) ? 0.4 : 1 }}
+                        >
+                          {hasAI ? '✓ AI' : 'AI'}
+                        </button>
+                      )}
+                    </div>
+                  </div>,
+                  ...optRows,
+                ]
+              })}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: page === 1 ? 'not-allowed' : 'pointer', background: '#1a2030', color: page === 1 ? '#2d3748' : '#90cdf4', border: `1px solid ${page === 1 ? '#2d3748' : '#2b6cb0'}` }}>
+                  ← Prev
+                </button>
+                <span style={{ fontSize: 12, color: '#718096' }}>
+                  Page <b style={{ color: '#e2e8f0' }}>{page}</b> of <b style={{ color: '#e2e8f0' }}>{totalPages}</b>
+                  <span style={{ marginLeft: 8, color: '#4a5568' }}>({picks.length} picks total)</span>
+                </span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: page === totalPages ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: page === totalPages ? '#2d3748' : '#90cdf4', border: `1px solid ${page === totalPages ? '#2d3748' : '#2b6cb0'}` }}>
+                  Next →
+                </button>
               </div>
             )}
 
-            {/* Section label */}
-            <div style={{ fontSize: 11, color: '#718096', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>
-              Picks ranked by model score — click Analyse on each to run Claude
-            </div>
-
-            {/* Pick cards */}
-            {(result.picks || []).map((pick, i) => (
-              <PickCard key={`${offset}-${i}`} pick={pick} i={offset + i + 1} />
-            ))}
-
-            {/* Pagination */}
-            {(result.meta?.total ?? result.meta?.passedGate) > numTeams && (() => {
-              const total    = result.meta.total ?? result.meta.passedGate
-              const pageSize = result.meta.pageSize ?? numTeams
-              const from     = offset + 1
-              const to       = Math.min(offset + pageSize, total)
-              const hasPrev  = offset > 0
-              const hasNext  = offset + pageSize < total
-              return (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '4px 0' }}>
-                  <button onClick={() => generate(Math.max(0, offset - pageSize))} disabled={!hasPrev || loading}
-                    style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: hasPrev && !loading ? 'pointer' : 'not-allowed',
-                      background: hasPrev ? '#1a2a4a' : '#1a2030', color: hasPrev ? '#90cdf4' : '#4a5568', border: `1px solid ${hasPrev ? '#2b6cb0' : '#2d3748'}` }}>
-                    ← Prev {pageSize}
-                  </button>
-                  <span style={{ fontSize: 12, color: '#718096' }}>
-                    Showing <b style={{ color: '#e2e8f0' }}>{from}–{to}</b> of <b style={{ color: '#e2e8f0' }}>{total}</b> qualifying picks
-                  </span>
-                  <button onClick={() => generate(offset + pageSize)} disabled={!hasNext || loading}
-                    style={{ padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: hasNext && !loading ? 'pointer' : 'not-allowed',
-                      background: hasNext ? '#1a2a4a' : '#1a2030', color: hasNext ? '#90cdf4' : '#4a5568', border: `1px solid ${hasNext ? '#2b6cb0' : '#2d3748'}` }}>
-                    Next {Math.min(pageSize, total - offset - pageSize)} →
-                  </button>
-                </div>
-              )
-            })()}
-
-            {/* Quick reference strip */}
-            <div style={{
-              background: '#111827', border: '1px solid #1f2937', borderRadius: 10,
-              padding: '12px 16px', display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center',
-            }}>
-              <span style={{ fontSize: 11, color: '#718096' }}>Summary:</span>
-              {(result.picks || []).map((p, i) => (
-                <span key={i} style={{
-                  fontSize: 11, background: '#0a0e1a', border: '1px solid #2d3748',
-                  borderRadius: 6, padding: '4px 10px', color: '#a0aec0',
-                }}>
-                  <b style={{ color: '#e2e8f0' }}>{p.match?.split(' v ')[0]}</b>
-                  {' '}{p.selection}
-                  {' '}<span style={{ color: '#ecc94b' }}>@{p.odds}</span>
-                </span>
-              ))}
-            </div>
+            {/* Quick summary of AI picks */}
+            {picks.some(p => p.hasClaudeAnalysis) && (
+              <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 10, padding: '12px 16px', display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontSize: 11, color: '#718096' }}>AI picks:</span>
+                {picks.filter(p => p.hasClaudeAnalysis).map((p, i) => {
+                  const vc = p.value === 'Good value' ? '#68d391' : p.value === 'Poor value' ? '#fc8181' : '#ecc94b'
+                  return (
+                    <span key={i} style={{ fontSize: 11, background: '#0a0e1a', border: `1px solid ${vc}44`, borderRadius: 6, padding: '3px 10px', color: '#a0aec0' }}>
+                      <b style={{ color: '#e2e8f0' }}>{p.match?.split(' v ')[0]}</b> {p.selection} <span style={{ color: '#ecc94b' }}>@{p.odds}</span>
+                      {p.value && <span style={{ color: vc, marginLeft: 5, fontWeight: 700 }}>{p.value === 'Good value' ? '↑' : p.value === 'Poor value' ? '↓' : '='}</span>}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
-          )
-        })()}
+        )}
       </div>
     </div>
   )

@@ -22,10 +22,48 @@ export default function BacktestView() {
   const [syncing, setSyncing]   = useState(false)
   const [fixtures, setFixtures] = useState(null)
   const [accuracy, setAccuracy] = useState(null)
-  const [accRisk, setAccRisk]   = useState('')    // '' = all, 'low'/'medium'/'high' = bet builder filtered
-  const [results, setResults]   = useState({})   // fixtureId → result
-  const [running, setRunning]   = useState({})   // fixtureId → bool
+  const [accRisk, setAccRisk]   = useState('')
+  const [results, setResults]   = useState({})
+  const [running, setRunning]   = useState({})
   const [error, setError]       = useState(null)
+  const [optimising, setOptimising] = useState(false)
+  const [optimResult, setOptimResult] = useState(null)
+  const [savedWeights, setSavedWeights] = useState(null)
+
+  async function loadSavedWeights() {
+    try {
+      const { data } = await axios.get('/api/backtest/weights')
+      if (data?.value) setSavedWeights(data)
+    } catch {}
+  }
+
+  async function optimiseWeights() {
+    setOptimising(true)
+    setOptimResult(null)
+    try {
+      const { data } = await axios.post('/api/backtest/optimise-weights', { minSamples: 20 })
+      setOptimResult(data)
+      await loadSavedWeights()
+    } catch (e) {
+      setOptimResult({ error: e.response?.data?.error || e.message })
+    } finally {
+      setOptimising(false)
+    }
+  }
+
+  async function resetWeights() {
+    if (!window.confirm('Reset blend weights to defaults (Poisson 35%, ELO 25%, Odds 40%)?')) return
+    try {
+      await axios.delete('/api/backtest/weights')
+      setSavedWeights(null)
+      setOptimResult({ message: 'Weights reset to defaults.' })
+    } catch (e) {
+      setOptimResult({ error: e.response?.data?.error || e.message })
+    }
+  }
+
+  // Load saved weights on mount
+  useState(() => { loadSavedWeights() })
 
   async function syncResults() {
     setSyncing(true)
@@ -164,6 +202,78 @@ export default function BacktestView() {
         </div>
       )}
 
+      {/* Weight optimiser */}
+      <div style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: savedWeights || optimResult ? '12px' : 0 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#e2e8f0', marginBottom: 2 }}>Blend Weight Optimiser</div>
+            <div style={{ fontSize: '0.7rem', color: '#718096' }}>
+              Grid-searches Poisson / ELO / Odds weights to minimise log-loss on your backtest results. Needs 20+ analysed fixtures (odds optional).
+            </div>
+          </div>
+          <button onClick={optimiseWeights} disabled={optimising}
+            style={{ padding: '8px 18px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: optimising ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+              background: optimising ? '#2d3748' : '#553c9a', color: optimising ? '#718096' : '#e9d8fd', border: '1px solid #6b46c1' }}>
+            {optimising ? 'Optimising…' : 'Optimise Weights'}
+          </button>
+          {savedWeights?.value && (
+            <button onClick={resetWeights}
+              style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+                background: 'transparent', color: '#fc8181', border: '1px solid #fc8181' }}>
+              Reset to Defaults
+            </button>
+          )}
+        </div>
+
+        {/* Current saved weights */}
+        {savedWeights?.value && (
+          <div style={{ fontSize: '0.72rem', color: '#a0aec0', marginBottom: optimResult ? '10px' : 0 }}>
+            <span style={{ color: '#718096' }}>Active weights </span>
+            <WeightPill label="Poisson" val={savedWeights.value.full?.poisson} color="#bee3f8" />
+            <WeightPill label="ELO"     val={savedWeights.value.full?.elo}     color="#fbd38d" />
+            <WeightPill label="Odds"    val={savedWeights.value.full?.odds}    color="#a0aec0" />
+            {savedWeights.meta?.optimisedAt && (
+              <span style={{ color: '#4a5568', marginLeft: 8 }}>
+                · last run {new Date(savedWeights.meta.optimisedAt).toLocaleDateString()} on {savedWeights.meta.samples} samples
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Optimisation result */}
+        {optimResult?.error && (
+          <div style={{ fontSize: '0.75rem', color: '#fc8181', marginTop: 4 }}>{optimResult.error}</div>
+        )}
+        {optimResult && !optimResult.error && (
+          <div style={{ fontSize: '0.75rem', color: '#e2e8f0' }}>
+            <div style={{ marginBottom: 4 }}>
+              <span style={{ color: '#718096' }}>Optimised on </span>
+              <b>{optimResult.samples}</b>
+              <span style={{ color: '#718096' }}> records — log-loss </span>
+              <b style={{ color: '#fc8181' }}>{optimResult.baselineLogLoss}</b>
+              <span style={{ color: '#718096' }}> → </span>
+              <b style={{ color: '#68d391' }}>{optimResult.optimisedLogLoss}</b>
+              <span style={{ color: optimResult.improvement > 0 ? '#68d391' : '#fc8181', marginLeft: 6 }}>
+                ({optimResult.improvement > 0 ? '−' : '+'}{Math.abs(optimResult.improvement)} improvement)
+              </span>
+            </div>
+            <div>
+              <span style={{ color: '#718096' }}>New weights (with odds): </span>
+              <WeightPill label="Poisson" val={optimResult.weights?.full?.poisson} color="#bee3f8" />
+              <WeightPill label="ELO"     val={optimResult.weights?.full?.elo}     color="#fbd38d" />
+              <WeightPill label="Odds"    val={optimResult.weights?.full?.odds}    color="#a0aec0" />
+            </div>
+            {optimResult.noOddsSamples >= 10 && (
+              <div style={{ marginTop: 2 }}>
+                <span style={{ color: '#718096' }}>No-odds weights: </span>
+                <WeightPill label="Poisson" val={optimResult.weights?.noOdds?.poisson} color="#bee3f8" />
+                <WeightPill label="ELO"     val={optimResult.weights?.noOdds?.elo}     color="#fbd38d" />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Fixture list */}
       {fixtures !== null && (
         <>
@@ -191,6 +301,16 @@ export default function BacktestView() {
         </>
       )}
     </div>
+  )
+}
+
+function WeightPill({ label, val, color }) {
+  if (val == null) return null
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#2d3748', borderRadius: 5, padding: '1px 7px', marginRight: 4, fontSize: '0.7rem' }}>
+      <span style={{ color }}>{label}</span>
+      <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{Math.round(val * 100)}%</span>
+    </span>
   )
 }
 
