@@ -67,10 +67,21 @@ function PickCard({ p, i }) {
           </div>
           <span style={{ fontSize: 10, color: al.color, background: '#0f1520', border: `1px solid ${al.border}`, padding: '2px 7px', borderRadius: 99 }}>{al.icon} {al.label}</span>
           <span style={{ fontSize: 11, fontWeight: 700, background: vd.bg, color: vd.color, padding: '2px 7px', borderRadius: 4 }}>{p.verdict}</span>
+          {p.pickRating != null && (() => {
+            const r = p.pickRating
+            const rc = r >= 8 ? '#68d391' : r >= 6 ? '#ecc94b' : r >= 4 ? '#f6ad55' : '#fc8181'
+            return <span title={`Pick strength: ${r}/10`} style={{ fontSize: 11, fontWeight: 800, color: rc, background: '#0f1520', border: `1px solid ${rc}44`, padding: '2px 7px', borderRadius: 99 }}>{r}/10</span>
+          })()}
           {md && <span style={{ fontSize: 10, color: '#4a5568' }}>{open ? '▲' : '▼'} detail</span>}
         </div>
-        <div style={{ paddingLeft: 28, fontSize: 12, color: '#a0aec0' }}>
-          {p.suggestion}{p.reason && <span style={{ color: '#4a5568' }}> — {p.reason}</span>}
+        <div style={{ paddingLeft: 28, fontSize: 12, color: '#a0aec0', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {p.suggestedMarket && p.verdict === 'Change' && (
+            <span style={{ fontSize: 10, fontWeight: 700, background: '#2a1a05', color: '#f6ad55', border: '1px solid #744210', borderRadius: 4, padding: '1px 6px' }}>
+              → {p.suggestedMarket}
+            </span>
+          )}
+          <span>{p.suggestion}</span>
+          {p.reason && <span style={{ color: '#4a5568' }}> — {p.reason}</span>}
         </div>
         {p.matchReason && MATCH_REASON_LABEL[p.matchReason] && (
           <div style={{ paddingLeft: 28, marginTop: 3, fontSize: 11, color: MATCH_REASON_LABEL[p.matchReason].color }}>
@@ -82,94 +93,156 @@ function PickCard({ p, i }) {
         )}
       </div>
 
-      {/* Expanded Claude analysis detail */}
+      {/* Expanded detail panel */}
       {open && md && (
         <div style={{ borderTop: `1px solid ${al.border}`, background: 'rgba(0,0,0,0.3)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-          {/* Score + verdicts row */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {md.predictedScore && (
-              <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px', textAlign: 'center' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>Predicted score</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#ecc94b' }}>{md.predictedScore}</div>
+          {/* Pick reasoning — always shown, this is WHY the verdict was given */}
+          {p.reason && (
+            <div style={{ background: p.verdict === 'Change' ? '#2a1a05' : p.verdict === 'Remove' ? '#2a0a0a' : '#0a1a0a', border: `1px solid ${p.verdict === 'Change' ? '#744210' : p.verdict === 'Remove' ? '#742a2a' : '#276749'}`, borderRadius: 7, padding: '9px 12px' }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: '#4a5568', textTransform: 'uppercase', marginBottom: 4 }}>
+                {p.verdict === 'Change' ? '↻ Why change this pick' : p.verdict === 'Remove' ? '✕ Why remove this pick' : '✓ Why keep this pick'}
               </div>
-            )}
-            {md.htPredictedScore && (
-              <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px', textAlign: 'center' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>HT score</div>
-                <div style={{ fontSize: 18, fontWeight: 800, color: '#90cdf4' }}>{md.htPredictedScore}</div>
-              </div>
-            )}
-            {md.claudeVerdict && (
-              <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>Our verdict</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#68d391' }}>{md.claudeVerdict} <span style={{ color: '#4a5568', fontWeight: 400 }}>({md.claudeConfidence})</span></div>
-              </div>
-            )}
-            {md.riskFactor && (
-              <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>Risk</div>
-                <div style={{ fontSize: 12, color: '#fc8181' }}>{md.riskFactor}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Best bet + value bet */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {(md.updatedBestBet || md.claudeBestBet) && (
-              <div style={{ flex: 1, minWidth: 140, background: '#1a2a1a', border: '1px solid #276749', borderRadius: 6, padding: '8px 12px' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Best Bet</div>
-                <div style={{ fontSize: 12, color: '#68d391', fontWeight: 600 }}>{md.updatedBestBet || md.claudeBestBet}</div>
-              </div>
-            )}
-            {md.claudeValueBet && (
-              <div style={{ flex: 1, minWidth: 140, background: '#1a2630', border: '1px solid #2b4c7e', borderRadius: 6, padding: '8px 12px' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Value Bet</div>
-                <div style={{ fontSize: 12, color: '#90cdf4', fontWeight: 600 }}>{md.claudeValueBet}</div>
-              </div>
-            )}
-          </div>
-
-          {/* Full analysis text */}
-          {md.analysis && (
-            <div style={{ fontSize: 12, color: '#a0aec0', lineHeight: 1.7, borderLeft: '2px solid #4a5568', paddingLeft: 10 }}>
-              {md.analysis}
+              <div style={{ fontSize: 12, color: '#c6f6d5', lineHeight: 1.6 }}>{p.reason}</div>
+              {p.suggestion && p.suggestion !== p.reason && (
+                <div style={{ marginTop: 6, fontSize: 11, color: '#f6ad55', fontWeight: 600 }}>Suggestion: {p.suggestion}</div>
+              )}
             </div>
           )}
 
-          {/* Key factors */}
-          {md.keyFactors?.length > 0 && (
-            <div>
-              <div style={{ fontSize: 10, color: '#4a5568', textTransform: 'uppercase', marginBottom: 5 }}>Key Factors</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                {md.keyFactors.map((f, fi) => (
-                  <div key={fi} style={{ fontSize: 11, color: '#a0aec0', display: 'flex', gap: 6 }}>
-                    <span style={{ color: '#4a5568', flexShrink: 0 }}>•</span>{f}
+          {/* Model probability breakdown — always shown when we have blended/poisson data */}
+          {(md.blended?.result1X2 || md.poisson?.result1X2) && (() => {
+            const r1x2 = md.blended?.result1X2 || md.poisson?.result1X2
+            const ou   = md.blended?.overUnder  || md.poisson?.overUnder
+            const btts = md.blended?.bothTeamsToScore ?? md.poisson?.bothTeamsToScore
+            const pct  = v => v != null ? `${(v * 100).toFixed(0)}%` : null
+            return (
+              <div style={{ background: '#1a1f2e', borderRadius: 7, padding: '10px 12px' }}>
+                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 8 }}>Model Probabilities</div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  {r1x2 && (
+                    <div>
+                      <div style={{ fontSize: 9, color: '#4a5568', marginBottom: 4 }}>1X2</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {[['H', r1x2.home], ['D', r1x2.draw], ['A', r1x2.away]].map(([lbl, v]) => v != null && (
+                          <div key={lbl} style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: 9, color: '#4a5568' }}>{lbl}</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: v >= 0.5 ? '#68d391' : v >= 0.35 ? '#ecc94b' : '#fc8181' }}>{pct(v)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {ou && (
+                    <div>
+                      <div style={{ fontSize: 9, color: '#4a5568', marginBottom: 4 }}>Over/Under</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {ou.over15 != null && <div style={{ textAlign: 'center' }}><div style={{ fontSize: 9, color: '#4a5568' }}>O1.5</div><div style={{ fontSize: 13, fontWeight: 700, color: '#a0aec0' }}>{pct(ou.over15)}</div></div>}
+                        {ou.over25 != null && <div style={{ textAlign: 'center' }}><div style={{ fontSize: 9, color: '#4a5568' }}>O2.5</div><div style={{ fontSize: 13, fontWeight: 700, color: '#a0aec0' }}>{pct(ou.over25)}</div></div>}
+                        {ou.over35 != null && <div style={{ textAlign: 'center' }}><div style={{ fontSize: 9, color: '#4a5568' }}>O3.5</div><div style={{ fontSize: 13, fontWeight: 700, color: '#a0aec0' }}>{pct(ou.over35)}</div></div>}
+                      </div>
+                    </div>
+                  )}
+                  {btts != null && (
+                    <div>
+                      <div style={{ fontSize: 9, color: '#4a5568', marginBottom: 4 }}>BTTS</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#a0aec0' }}>{pct(btts)}</div>
+                    </div>
+                  )}
+                </div>
+                {md.matchedProb != null && (
+                  <div style={{ marginTop: 8, fontSize: 10, color: '#4a5568' }}>
+                    Model prob for your pick: <span style={{ color: md.matchedProb >= 0.5 ? '#68d391' : md.matchedProb >= 0.35 ? '#ecc94b' : '#fc8181', fontWeight: 700 }}>{pct(md.matchedProb)}</span>
+                    {md.confidence != null && <span style={{ marginLeft: 8 }}>Engine confidence: <span style={{ color: '#718096' }}>{md.confidence}</span></span>}
                   </div>
-                ))}
+                )}
               </div>
-            </div>
-          )}
+            )
+          })()}
 
-          {/* Form + injuries */}
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {md.formEdge && (
-              <div style={{ flex: 1, minWidth: 160, background: '#1a1f2e', borderRadius: 6, padding: '8px 10px' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Form Edge</div>
-                <div style={{ fontSize: 11, color: '#cbd5e0' }}>{md.formEdge}</div>
+          {/* Claude deep analysis — shown when the prediction has been analysed with Claude */}
+          {(md.claudeVerdict || md.predictedScore || md.analysis || md.keyFactors?.length > 0) && (
+            <>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {md.predictedScore && (
+                  <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>Predicted score</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#ecc94b' }}>{md.predictedScore}</div>
+                  </div>
+                )}
+                {md.htPredictedScore && (
+                  <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>HT score</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: '#90cdf4' }}>{md.htPredictedScore}</div>
+                  </div>
+                )}
+                {md.claudeVerdict && (
+                  <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>AI Verdict</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#68d391' }}>{md.claudeVerdict} <span style={{ color: '#4a5568', fontWeight: 400 }}>({md.claudeConfidence})</span></div>
+                  </div>
+                )}
+                {md.riskFactor && (
+                  <div style={{ background: '#1a1f2e', borderRadius: 6, padding: '6px 12px' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase' }}>Risk</div>
+                    <div style={{ fontSize: 12, color: '#fc8181' }}>{md.riskFactor}</div>
+                  </div>
+                )}
               </div>
-            )}
-            {md.injuryImpact && (
-              <div style={{ flex: 1, minWidth: 160, background: '#1a1f2e', borderRadius: 6, padding: '8px 10px' }}>
-                <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Injury Impact</div>
-                <div style={{ fontSize: 11, color: '#cbd5e0' }}>{md.injuryImpact}</div>
-              </div>
-            )}
-          </div>
 
-          {/* Model agreement */}
-          {md.modelAgreement && (
-            <div style={{ fontSize: 11, color: '#718096', fontStyle: 'italic' }}>Models: {md.modelAgreement}</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {(md.updatedBestBet || md.claudeBestBet) && (
+                  <div style={{ flex: 1, minWidth: 140, background: '#1a2a1a', border: '1px solid #276749', borderRadius: 6, padding: '8px 12px' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Best Bet</div>
+                    <div style={{ fontSize: 12, color: '#68d391', fontWeight: 600 }}>{md.updatedBestBet || md.claudeBestBet}</div>
+                  </div>
+                )}
+                {md.claudeValueBet && (
+                  <div style={{ flex: 1, minWidth: 140, background: '#1a2630', border: '1px solid #2b4c7e', borderRadius: 6, padding: '8px 12px' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Value Bet</div>
+                    <div style={{ fontSize: 12, color: '#90cdf4', fontWeight: 600 }}>{md.claudeValueBet}</div>
+                  </div>
+                )}
+              </div>
+
+              {md.analysis && (
+                <div style={{ fontSize: 12, color: '#a0aec0', lineHeight: 1.7, borderLeft: '2px solid #4a5568', paddingLeft: 10 }}>
+                  {md.analysis}
+                </div>
+              )}
+
+              {md.keyFactors?.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 10, color: '#4a5568', textTransform: 'uppercase', marginBottom: 5 }}>Key Factors</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {md.keyFactors.map((f, fi) => (
+                      <div key={fi} style={{ fontSize: 11, color: '#a0aec0', display: 'flex', gap: 6 }}>
+                        <span style={{ color: '#4a5568', flexShrink: 0 }}>•</span>{f}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {md.formEdge && (
+                  <div style={{ flex: 1, minWidth: 160, background: '#1a1f2e', borderRadius: 6, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Form Edge</div>
+                    <div style={{ fontSize: 11, color: '#cbd5e0' }}>{md.formEdge}</div>
+                  </div>
+                )}
+                {md.injuryImpact && (
+                  <div style={{ flex: 1, minWidth: 160, background: '#1a1f2e', borderRadius: 6, padding: '8px 10px' }}>
+                    <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Injury Impact</div>
+                    <div style={{ fontSize: 11, color: '#cbd5e0' }}>{md.injuryImpact}</div>
+                  </div>
+                )}
+              </div>
+
+              {md.modelAgreement && (
+                <div style={{ fontSize: 11, color: '#718096', fontStyle: 'italic' }}>Models: {md.modelAgreement}</div>
+              )}
+            </>
           )}
 
           {/* News section */}
@@ -255,7 +328,7 @@ export default function BetSlipAnalyzer() {
       setSlip(slipData)
       setFetchState('done')
       if (saved.overview) {
-        setAnalysis({ overview: saved.overview, pickAnalysis: saved.pickAnalysis, strategies: saved.strategies, matchedCount: saved.matchedCount, totalSelections: saved.totalSelections })
+        setAnalysis({ overview: saved.overview, slipScore: saved.slipScore, slipGrade: saved.slipGrade, slipVerdict: saved.slipVerdict, pickAnalysis: saved.pickAnalysis, strategies: saved.strategies, matchedCount: saved.matchedCount, totalSelections: saved.totalSelections })
         setAnalyzeState('done')
       }
       // Re-fetch live from Sportybet in background to check for changes
@@ -390,17 +463,40 @@ export default function BetSlipAnalyzer() {
                     </>
                   )}
                   {verdictCounts && (
-                    <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
                       {Object.entries(verdictCounts).filter(([,v]) => v > 0).map(([k, v]) => (
                         <span key={k} style={{ fontSize: 11, fontWeight: 700, background: VERDICT_STYLE[k]?.bg, color: VERDICT_STYLE[k]?.color, padding: '2px 7px', borderRadius: 99 }}>{v} {k}</span>
                       ))}
                     </div>
                   )}
                   {analyzeState === 'error' && (
-                    <button onClick={() => runAnalysis(null)} style={{ marginLeft: 'auto', background: '#1a2a3a', color: '#90cdf4', border: '1px solid #2b6cb0', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
+                    <button onClick={() => runAnalysis(null)} style={{ background: '#1a2a3a', color: '#90cdf4', border: '1px solid #2b6cb0', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>
                       Retry Analysis
                     </button>
                   )}
+                  {/* Slip rating — shown once analysis is done */}
+                  {analysis?.slipGrade && (() => {
+                    const score = analysis.slipScore
+                    const grade = analysis.slipGrade
+                    const gradeColor = grade === 'A' ? '#68d391' : grade === 'B' ? '#9ae6b4' : grade === 'C' ? '#ecc94b' : grade === 'D' ? '#f6ad55' : '#fc8181'
+                    const gradeBg    = grade === 'A' ? '#0f2a1a' : grade === 'B' ? '#0f2a1a' : grade === 'C' ? '#2a2510' : grade === 'D' ? '#2a1a05' : '#2a0f0f'
+                    return (
+                      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: gradeBg, border: `1px solid ${gradeColor}44`, borderRadius: 8, padding: '6px 12px' }}>
+                          <div style={{ textAlign: 'center' }}>
+                            <div style={{ fontSize: 9, color: '#4a5568', textTransform: 'uppercase', marginBottom: 1 }}>Slip Rating</div>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                              <span style={{ fontSize: 28, fontWeight: 900, color: gradeColor, lineHeight: 1 }}>{grade}</span>
+                              {score != null && <span style={{ fontSize: 12, color: '#4a5568' }}>{score}/10</span>}
+                            </div>
+                          </div>
+                          {analysis.slipVerdict && (
+                            <div style={{ fontSize: 11, color: gradeColor, maxWidth: 160, lineHeight: 1.3 }}>{analysis.slipVerdict}</div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {/* Change banner */}

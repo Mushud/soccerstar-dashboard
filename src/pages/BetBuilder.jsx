@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import axios from 'axios'
 
@@ -40,9 +40,10 @@ export default function BetBuilder() {
   const [sortBy, setSortBy]       = useState('score')
   const [limit, setLimit]         = useState(50)
   const [page, setPage]           = useState(1)
-  const [sbLoading, setSbLoading] = useState(false)
-  const [sbResult, setSbResult]   = useState(null)
-  const [sbDebug, setSbDebug]     = useState(false)
+  const [sbLoading, setSbLoading]   = useState(false)
+  const [sbResult, setSbResult]     = useState(null)
+  const [sbDebug, setSbDebug]       = useState(false)
+  const [expandedAI, setExpandedAI] = useState(new Set())
   const PAGE_SIZE = 20
 
   function toggleRisk(key) {
@@ -70,7 +71,7 @@ export default function BetBuilder() {
     else body.duration = duration
 
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/generate`, body, { timeout: 5 * 60 * 1000 })
+      const { data } = await axios.post(`${API}/api/betbuilder/generate`, body, { timeout: 10 * 60 * 1000 })
       setPicks(data.picks || [])
       setMeta(data.meta)
     } catch (err) {
@@ -80,19 +81,37 @@ export default function BetBuilder() {
     }
   }
 
+  const mergeAnalysis = useCallback((pick, r) => ({
+    ...pick,
+    // Track original engine pick so we can show a "changed" badge
+    originalMarket:    pick.market,
+    originalSelection: pick.selection,
+    market: r.market, selection: r.selection, odds: r.odds,
+    value: r.value, reason: r.reason, hasClaudeAnalysis: true,
+    verdict: r.verdict, claudeConf: r.claudeConf, predictedScore: r.predictedScore,
+    modelAgreement: r.modelAgreement, riskFactor: r.riskFactor,
+    formEdge: r.formEdge, injuryImpact: r.injuryImpact,
+    keyFactors: r.keyFactors, fullAnalysis: r.fullAnalysis,
+    bestBet: r.bestBet, valueBet: r.valueBet,
+    newsVerdict: r.newsVerdict, newsSentiment: r.newsSentiment,
+    newsAgreement: r.newsAgreement, newsShift: r.newsShift,
+    updatedBestBet: r.updatedBestBet, newsAnalysisText: r.newsAnalysisText,
+  }), [])
+
   async function analyseSelected() {
     if (!selected.size) return
     setAnalysing(true)
     const fixtureIds = [...selected]
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds, risk: risks }, { timeout: 3 * 60 * 1000 })
+      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds, risk: risks }, { timeout: 10 * 60 * 1000 })
       const byId = {}
       for (const r of (data.results || [])) byId[r.fixtureId] = r
       setPicks(prev => prev.map(p => {
         const r = byId[p.fixtureId]
         if (!r) return p
-        return { ...p, market: r.market, selection: r.selection, odds: r.odds, value: r.value, reason: r.reason, hasClaudeAnalysis: true }
+        return mergeAnalysis(p, r)
       }))
+      setExpandedAI(prev => { const s = new Set(prev); fixtureIds.forEach(id => s.add(id)); return s })
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Claude analysis failed.')
     } finally {
@@ -114,7 +133,7 @@ export default function BetBuilder() {
         odds:      p.odds,
         date:      p.fixtureDate,
       }))
-      const { data } = await axios.post(`${API}/api/sportybet/booking-code`, { picks: payload, debug: sbDebug }, { timeout: 5 * 60 * 1000 })
+      const { data } = await axios.post(`${API}/api/sportybet/booking-code`, { picks: payload, debug: sbDebug }, { timeout: 10 * 60 * 1000 })
       setSbResult(data)
     } catch (err) {
       setSbResult({ success: false, error: err.response?.data?.error || err.message })
@@ -127,13 +146,11 @@ export default function BetBuilder() {
     if (!fixtureId || analysingId) return
     setAnalysingId(fixtureId)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds: [fixtureId], risk: risks }, { timeout: 3 * 60 * 1000 })
+      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds: [fixtureId], risk: risks }, { timeout: 10 * 60 * 1000 })
       const r = (data.results || [])[0]
       if (r) {
-        setPicks(prev => prev.map(p => p.fixtureId === fixtureId
-          ? { ...p, market: r.market, selection: r.selection, odds: r.odds, value: r.value, reason: r.reason, hasClaudeAnalysis: true }
-          : p
-        ))
+        setPicks(prev => prev.map(p => p.fixtureId === fixtureId ? mergeAnalysis(p, r) : p))
+        setExpandedAI(prev => { const s = new Set(prev); s.add(fixtureId); return s })
       }
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Claude analysis failed.')
@@ -257,6 +274,11 @@ export default function BetBuilder() {
                 </div>
                 <div style={{ fontSize: 11, color: '#718096' }}>
                   {picks.filter(p=>p.hasClaudeAnalysis).length} AI-analysed · {selected.size} selected · page {page}/{totalPages}
+                  {meta?.failedEnrichment > 0 && (
+                    <span title="Picks excluded because form/standings/H2H contradicted the model" style={{ marginLeft: 8, color: '#fc8181' }}>
+                      · {meta.failedEnrichment} blocked by data
+                    </span>
+                  )}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -300,6 +322,9 @@ export default function BetBuilder() {
               {displayPicks.map((pick, i) => {
                 const isSel = selected.has(pick.fixtureId)
                 const hasAI = pick.hasClaudeAnalysis
+                const pickChanged = hasAI && pick.originalMarket && (
+                  pick.market !== pick.originalMarket || pick.selection !== pick.originalSelection
+                )
                 const valColor = pick.value === 'Good value' ? '#68d391'
                                : pick.value === 'Poor value' ? '#fc8181'
                                : '#ecc94b'
@@ -318,6 +343,7 @@ export default function BetBuilder() {
                     <div /><div /><div />
                   </div>
                 ))
+                const aiExpanded = expandedAI.has(pick.fixtureId)
                 return [
                   <div key={pick.fixtureId ?? i} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '10px 14px', borderTop: '1px solid #1a2030', background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : undefined, alignItems: 'center', cursor: 'pointer' }} onClick={() => pick.fixtureId && toggleSelect(pick.fixtureId)}>
 
@@ -326,8 +352,21 @@ export default function BetBuilder() {
                     </div>
 
                     <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{pick.match}</div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {pick.match}
+                        {pick.dataVerified === 'confirmed' && <span title="Form/standings/H2H confirm this pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>✓ DATA</span>}
+                        {pick.dataVerified === 'risky'     && <span title="Data raises concerns — check flags below" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚠ CHECK</span>}
+                        {pick.dataVerified === 'mixed'     && <span title="Mixed signals from data" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>~ MIXED</span>}
+                        {pick.dataVerified === 'unverified'&& <span title="No enrichment data yet — click AI to fetch" style={{ fontSize: 9, background: '#1a1a2a', color: '#4a5568', border: '1px solid #2d3748', borderRadius: 4, padding: '1px 5px' }}>NO DATA</span>}
+                        {pick.claudeConf === 'Medium' && <span title="Claude rated this Medium confidence — not High. Review before selecting." style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px' }}>AI: Medium</span>}
+                        {pick.claudeConf === 'Low'    && <span title="Claude rated this Low confidence. High risk pick." style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px' }}>AI: Low</span>}
+                      </div>
                       {pick.fixtureDate && <div style={{ fontSize: 10, color: '#4a5568', marginTop: 1 }}>{fmt(pick.fixtureDate)}</div>}
+                      {pick.dataFlags?.filter(f => f.type !== 'info' || pick.dataVerified === 'unverified').slice(0, 3).map((f, fi) => (
+                        <div key={fi} style={{ fontSize: 9, marginTop: 2, color: f.type === 'good' ? '#68d391' : f.type === 'warn' ? '#fc8181' : '#4a5568' }}>
+                          {f.label}
+                        </div>
+                      ))}
                       {pick.newsSentiment && (() => {
                         const c = pick.newsSentiment === 'Home-favoured' ? '#90cdf4'
                                 : pick.newsSentiment === 'Away-favoured' ? '#f6ad55'
@@ -347,9 +386,19 @@ export default function BetBuilder() {
 
                     <div style={{ fontSize: 11, color: '#718096', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pick.league}</div>
 
-                    <div style={{ fontSize: 11, color: '#90cdf4' }}>{pick.market}</div>
+                    <div style={{ fontSize: 11, color: pickChanged ? '#f6ad55' : '#90cdf4' }}>
+                      {pick.market}
+                      {pickChanged && pick.market !== pick.originalMarket && (
+                        <span title={`Engine suggested: ${pick.originalMarket}`} style={{ display: 'block', fontSize: 9, color: '#718096', textDecoration: 'line-through' }}>{pick.originalMarket}</span>
+                      )}
+                    </div>
 
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#bee3f8' }}>{pick.selection}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: pickChanged ? '#f6ad55' : '#bee3f8' }}>
+                      {pick.selection}
+                      {pickChanged && pick.selection !== pick.originalSelection && (
+                        <span title={`Engine suggested: ${pick.originalSelection}`} style={{ display: 'block', fontSize: 9, fontWeight: 400, color: '#718096', textDecoration: 'line-through' }}>{pick.originalSelection}</span>
+                      )}
+                    </div>
 
                     <div style={{ fontSize: 13, fontWeight: 800, color: pick.odds < 1.35 ? '#fc8181' : '#ecc94b', display: 'flex', alignItems: 'center', gap: 3 }}>
                       {pick.odds}x
@@ -373,7 +422,17 @@ export default function BetBuilder() {
 
                     <div style={{ fontSize: 11, lineHeight: 1.4 }}>
                       {pick.reason ? (
-                        <span style={{ color: '#9ae6b4' }}>{pick.reason}</span>
+                        <div>
+                          {pickChanged && (
+                            <div style={{ fontSize: 9, fontWeight: 700, color: '#f6ad55', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <span>↻ AI changed pick</span>
+                              {pick.originalSelection && pick.selection !== pick.originalSelection && (
+                                <span style={{ color: '#718096', fontWeight: 400 }}>({pick.originalSelection} → {pick.selection})</span>
+                              )}
+                            </div>
+                          )}
+                          <span style={{ color: pick.reason ? '#9ae6b4' : '#4a5568' }}>{pick.reason}</span>
+                        </div>
                       ) : pick.blend ? (
                         <span style={{ color: '#4a5568' }}>
                           H{(pick.blend.home*100).toFixed(0)} D{(pick.blend.draw*100).toFixed(0)} A{(pick.blend.away*100).toFixed(0)}
@@ -388,19 +447,120 @@ export default function BetBuilder() {
                     <div onClick={e => e.stopPropagation()}>
                       {analysingId === pick.fixtureId ? (
                         <span style={{ fontSize: 10, color: '#718096' }}>…</span>
-                      ) : (
-                        <button
-                          disabled={!pick.fixtureId || !!analysingId || hasAI}
-                          onClick={() => analyseOne(pick.fixtureId)}
-                          title={hasAI ? 'Already analysed' : 'Run Claude analysis on this pick'}
-                          style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: (!pick.fixtureId || !!analysingId || hasAI) ? 'not-allowed' : 'pointer', background: hasAI ? '#0b1f0b' : '#1a2a4a', color: hasAI ? '#276749' : '#90cdf4', border: `1px solid ${hasAI ? '#276749' : '#2b6cb0'}`, opacity: (!!analysingId && analysingId !== pick.fixtureId) ? 0.4 : 1 }}
-                        >
-                          {hasAI ? '✓ AI' : 'AI'}
-                        </button>
-                      )}
+                      ) : hasAI ? (
+                          <button
+                            onClick={e => { e.stopPropagation(); setExpandedAI(prev => { const s = new Set(prev); s.has(pick.fixtureId) ? s.delete(pick.fixtureId) : s.add(pick.fixtureId); return s }) }}
+                            title={aiExpanded ? 'Hide AI analysis' : 'Show AI analysis'}
+                            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: aiExpanded ? '#1a3a1a' : '#0b1f0b', color: '#68d391', border: '1px solid #276749' }}
+                          >
+                            {aiExpanded ? '▲ AI' : '▼ AI'}
+                          </button>
+                        ) : (
+                          <button
+                            disabled={!pick.fixtureId || !!analysingId}
+                            onClick={e => { e.stopPropagation(); analyseOne(pick.fixtureId) }}
+                            title="Run Claude analysis on this pick"
+                            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: (!pick.fixtureId || !!analysingId) ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: '#90cdf4', border: '1px solid #2b6cb0', opacity: (!!analysingId && analysingId !== pick.fixtureId) ? 0.4 : 1 }}
+                          >
+                            AI
+                          </button>
+                        )}
                     </div>
                   </div>,
                   ...optRows,
+                  hasAI && aiExpanded && (
+                    <div key={`${pick.fixtureId ?? i}-ai`} style={{ borderTop: '1px solid #1a3a1a', background: '#080f08', padding: '12px 18px 14px 46px' }}>
+                      {/* Toggle collapse */}
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: '#68d391', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI Analysis</span>
+                          {pickChanged && (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#f6ad55', background: '#2a1a05', border: '1px solid #744210', borderRadius: 5, padding: '2px 7px' }}>
+                              ↻ Changed: {pick.originalMarket !== pick.market ? `${pick.originalMarket} → ${pick.market}` : ''}{pick.originalSelection !== pick.selection ? (pick.originalMarket !== pick.market ? ' · ' : '') + `${pick.originalSelection} → ${pick.selection}` : ''}
+                            </span>
+                          )}
+                        </div>
+                        <button onClick={e => { e.stopPropagation(); setExpandedAI(prev => { const s = new Set(prev); s.delete(pick.fixtureId); return s }) }}
+                          style={{ background: 'none', border: 'none', color: '#4a5568', cursor: 'pointer', fontSize: 13, padding: '0 4px' }}>▲ hide</button>
+                      </div>
+                      {/* Pick decision reason — shown first when AI changed the pick */}
+                      {pick.reason && (
+                        <div style={{ marginBottom: 12, background: pickChanged ? '#1a120a' : '#0b130b', border: `1px solid ${pickChanged ? '#744210' : '#1a3a1a'}`, borderRadius: 7, padding: '8px 12px' }}>
+                          {pickChanged && <div style={{ fontSize: 9, fontWeight: 700, color: '#f6ad55', textTransform: 'uppercase', marginBottom: 4 }}>Why AI changed this pick</div>}
+                          {!pickChanged && <div style={{ fontSize: 9, fontWeight: 700, color: '#4a7a4a', textTransform: 'uppercase', marginBottom: 4 }}>Pick reasoning</div>}
+                          <div style={{ fontSize: 12, color: '#c6f6d5', lineHeight: 1.5 }}>{pick.reason}</div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                        {/* Verdict block */}
+                        <div style={{ minWidth: 180 }}>
+                          {pick.verdict && (
+                            <div style={{ marginBottom: 6 }}>
+                              <span style={{ fontSize: 11, color: '#4a5568' }}>Verdict: </span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: pick.verdict === 'Home Win' ? '#90cdf4' : pick.verdict === 'Away Win' ? '#f6ad55' : '#b794f4' }}>{pick.verdict}</span>
+                              {pick.claudeConf && <span style={{ fontSize: 10, color: pick.claudeConf === 'High' ? '#68d391' : pick.claudeConf === 'Medium' ? '#ecc94b' : '#fc8181', marginLeft: 6, fontWeight: 700 }}>{pick.claudeConf}</span>}
+                              {pick.predictedScore && <span style={{ fontSize: 11, color: '#718096', marginLeft: 8 }}>({pick.predictedScore})</span>}
+                            </div>
+                          )}
+                          {pick.modelAgreement && (
+                            <div style={{ fontSize: 10, color: pick.modelAgreement === 'Strong' ? '#68d391' : pick.modelAgreement === 'Conflicting' ? '#fc8181' : '#ecc94b', marginBottom: 4 }}>
+                              Models: {pick.modelAgreement}
+                            </div>
+                          )}
+                          {pick.riskFactor && <div style={{ fontSize: 10, color: '#fc8181', marginBottom: 4 }}>Risk: {pick.riskFactor}</div>}
+                          {pick.formEdge && pick.formEdge !== 'Neutral' && <div style={{ fontSize: 10, color: '#90cdf4', marginBottom: 4 }}>Form edge: {pick.formEdge}</div>}
+                          {pick.injuryImpact && pick.injuryImpact !== 'None' && <div style={{ fontSize: 10, color: '#f6ad55', marginBottom: 4 }}>Injuries: {pick.injuryImpact} impact</div>}
+                        </div>
+
+                        {/* Best/Value bets */}
+                        <div style={{ minWidth: 200 }}>
+                          {pick.bestBet && (
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 10, color: '#68d391', textTransform: 'uppercase', marginBottom: 3 }}>Best Bet</div>
+                              <div style={{ fontSize: 12, color: '#9ae6b4', lineHeight: 1.4 }}>{pick.bestBet}</div>
+                            </div>
+                          )}
+                          {pick.valueBet && (
+                            <div>
+                              <div style={{ fontSize: 10, color: '#ecc94b', textTransform: 'uppercase', marginBottom: 3 }}>Value Bet</div>
+                              <div style={{ fontSize: 12, color: '#faf089', lineHeight: 1.4 }}>{pick.valueBet}</div>
+                            </div>
+                          )}
+                          {pick.updatedBestBet && (
+                            <div style={{ marginTop: 8 }}>
+                              <div style={{ fontSize: 10, color: '#90cdf4', textTransform: 'uppercase', marginBottom: 3 }}>News-updated Pick</div>
+                              <div style={{ fontSize: 12, color: '#bee3f8', lineHeight: 1.4 }}>{pick.updatedBestBet}</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Key factors + full analysis */}
+                        <div style={{ flex: 1, minWidth: 220 }}>
+                          {pick.keyFactors?.length > 0 && (
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 10, color: '#718096', textTransform: 'uppercase', marginBottom: 4 }}>Key Factors</div>
+                              {pick.keyFactors.map((f, fi) => (
+                                <div key={fi} style={{ fontSize: 11, color: '#a0aec0', marginBottom: 2 }}>· {f}</div>
+                              ))}
+                            </div>
+                          )}
+                          {pick.fullAnalysis && (
+                            <div>
+                              <div style={{ fontSize: 10, color: '#718096', textTransform: 'uppercase', marginBottom: 4 }}>Analysis</div>
+                              <div style={{ fontSize: 11, color: '#718096', lineHeight: 1.5 }}>{pick.fullAnalysis}</div>
+                            </div>
+                          )}
+                          {pick.newsAnalysisText && (
+                            <div style={{ marginTop: 8 }}>
+                              <div style={{ fontSize: 10, color: '#90cdf4', textTransform: 'uppercase', marginBottom: 4 }}>News</div>
+                              <div style={{ fontSize: 11, color: '#718096', lineHeight: 1.5 }}>{pick.newsAnalysisText}</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ),
                 ]
               })}
             </div>
