@@ -354,6 +354,9 @@ export default function BetBuilder() {
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                         {pick.match}
+                        {pick.tier === 'low'    && <span title="Passed Low Risk gate — high certainty pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🛡 LOW</span>}
+                        {pick.tier === 'medium' && <span title="Passed Medium Risk gate — moderate certainty" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚖ MED</span>}
+                        {pick.tier === 'high'   && <span title="High Risk pick — uncertain, value-hunting" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🔥 HIGH</span>}
                         {pick.dataVerified === 'confirmed' && <span title="Form/standings/H2H confirm this pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>✓ DATA</span>}
                         {pick.dataVerified === 'risky'     && <span title="Data raises concerns — check flags below" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚠ CHECK</span>}
                         {pick.dataVerified === 'mixed'     && <span title="Mixed signals from data" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>~ MIXED</span>}
