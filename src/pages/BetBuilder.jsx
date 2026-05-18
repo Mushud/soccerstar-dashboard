@@ -31,6 +31,7 @@ export default function BetBuilder() {
   const [fromDate, setFromDate]   = useState(localToday)
   const [toDate, setToDate]       = useState(localToday)
   const [loading, setLoading]     = useState(false)
+  const [loadProgress, setLoadProgress] = useState(null) // { sent, total }
   const [error, setError]         = useState(null)
   const [picks, setPicks]         = useState([])
   const [meta, setMeta]           = useState(null)
@@ -38,12 +39,14 @@ export default function BetBuilder() {
   const [analysing, setAnalysing] = useState(false)
   const [analysingId, setAnalysingId] = useState(null)
   const [sortBy, setSortBy]       = useState('score')
-  const [limit, setLimit]         = useState(50)
+  const [limit, setLimit]         = useState(500)
   const [page, setPage]           = useState(1)
+  const [showAll, setShowAll]       = useState(false)
   const [sbLoading, setSbLoading]   = useState(false)
   const [sbResult, setSbResult]     = useState(null)
   const [sbDebug, setSbDebug]       = useState(false)
   const [expandedAI, setExpandedAI] = useState(new Set())
+  const [enrichingId, setEnrichingId] = useState(null)
   const PAGE_SIZE = 20
 
   function toggleRisk(key) {
@@ -63,20 +66,60 @@ export default function BetBuilder() {
     setError(null)
     setPicks([])
     setMeta(null)
+    setLoadProgress(null)
     setSelected(new Set())
     setPage(1)
 
-    const body = { risk: risks, limit }
+    const body = { risk: risks, limit, showAll }
     if (dateMode === 'pick') { body.from = fromDate; body.to = toDate || fromDate }
     else body.duration = duration
 
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/generate`, body, { timeout: 10 * 60 * 1000 })
-      setPicks(data.picks || [])
-      setMeta(data.meta)
+      const res = await fetch(`${API}/api/betbuilder/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}))
+        setError(json.error || `Server error ${res.status}`)
+        setLoading(false)
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const parts = buf.split('\n\n')
+        buf = parts.pop()   // last partial chunk — keep for next read
+        for (const part of parts) {
+          if (!part.startsWith('data: ')) continue
+          let evt
+          try { evt = JSON.parse(part.slice(6)) } catch { continue }
+
+          if (evt.type === 'batch') {
+            setPicks(prev => [...prev, ...evt.picks])
+            setLoadProgress(evt.progress)
+          } else if (evt.type === 'done') {
+            setMeta(evt.meta)
+            setLoadProgress(null)
+            setLoading(false)
+          } else if (evt.type === 'error') {
+            setError(evt.error)
+            setLoading(false)
+          }
+        }
+      }
+      // Make sure loading is cleared even if 'done' event didn't arrive
+      setLoading(false)
     } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Request failed.')
-    } finally {
+      setError(err.message || 'Request failed.')
       setLoading(false)
     }
   }
@@ -139,6 +182,22 @@ export default function BetBuilder() {
       setSbResult({ success: false, error: err.response?.data?.error || err.message })
     } finally {
       setSbLoading(false)
+    }
+  }
+
+  async function enrichOne(fixtureId, market, selection) {
+    if (!fixtureId || enrichingId) return
+    setEnrichingId(fixtureId)
+    try {
+      const { data } = await axios.post(`${API}/api/betbuilder/enrich`, { fixtureId, market, selection })
+      setPicks(prev => prev.map(p => p.fixtureId === fixtureId
+        ? { ...p, dataFlags: data.dataFlags, dataVerified: data.dataVerified }
+        : p
+      ))
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Enrichment failed.')
+    } finally {
+      setEnrichingId(null)
     }
   }
 
@@ -237,20 +296,30 @@ export default function BetBuilder() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 11, color: '#718096', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fetch top</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {[20, 50, 100].map(n => (
-                  <button key={n} onClick={() => setLimit(n)} style={{ padding: '6px 12px', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: limit === n ? '#1a3a2a' : '#1a2030', color: limit === n ? '#68d391' : '#718096', border: `1px solid ${limit === n ? '#48bb78' : '#2d3748'}` }}>{n}</button>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[50, 100, 500, 1000, 2000].map(n => (
+                  <button key={n} onClick={() => setLimit(n)} style={{ padding: '6px 12px', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: limit === n ? '#1a3a2a' : '#1a2030', color: limit === n ? '#68d391' : '#718096', border: `1px solid ${limit === n ? '#48bb78' : '#2d3748'}` }}>{n >= 1000 ? `${n/1000}k` : n}</button>
                 ))}
               </div>
             </div>
+            <div>
+              <div style={{ fontSize: 11, color: '#718096', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Filter</div>
+              <button
+                onClick={() => setShowAll(v => !v)}
+                title={showAll ? 'Showing ALL matches — risk gates disabled' : 'Only showing matches that pass the selected risk tier'}
+                style={{ padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: showAll ? '#2a1a3a' : '#1a2030', color: showAll ? '#b794f4' : '#718096', border: `1px solid ${showAll ? '#805ad5' : '#2d3748'}` }}
+              >
+                {showAll ? '🔓 All matches' : '🎯 Filtered'}
+              </button>
+            </div>
             <button onClick={generate} disabled={loading} style={{ flex: 1, padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: loading ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
-              {loading ? 'Fetching picks…' : `Get Top ${limit} Picks — ${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}`}
+              {loading ? 'Fetching picks…' : showAll ? `Get All Matches (${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join('+')} filter off)` : `Get Top ${limit} Picks — ${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}`}
             </button>
           </div>
 
-          {loading && (
+          {loading && !picks.length && (
             <div style={{ fontSize: 12, color: '#718096', textAlign: 'center' }}>
-              Syncing fixtures and running Poisson + ELO models… (first run takes 1–2 min)
+              Loading picks from database…
             </div>
           )}
         </div>
@@ -259,6 +328,18 @@ export default function BetBuilder() {
         {error && (
           <div style={{ background: '#3a1a1a', border: '1px solid #742a2a', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#fc8181', fontSize: 13 }}>
             {error}
+          </div>
+        )}
+
+        {/* In-flight batch banner — shown while first batch is displayed but more are coming */}
+        {picks.length > 0 && loadProgress && (
+          <div style={{ background: '#1a2030', border: '1px solid #2b6cb0', borderRadius: 8, padding: '10px 16px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, color: '#90cdf4', fontWeight: 700 }}>
+              Showing {loadProgress.sent} of {loadProgress.total} picks — loading more…
+            </span>
+            <div style={{ flex: 1, height: 4, background: '#0a0e1a', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${Math.round(loadProgress.sent / loadProgress.total * 100)}%`, background: '#2b6cb0', borderRadius: 4, transition: 'width 0.3s ease' }} />
+            </div>
           </div>
         )}
 
@@ -357,6 +438,7 @@ export default function BetBuilder() {
                         {pick.tier === 'low'    && <span title="Passed Low Risk gate — high certainty pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🛡 LOW</span>}
                         {pick.tier === 'medium' && <span title="Passed Medium Risk gate — moderate certainty" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚖ MED</span>}
                         {pick.tier === 'high'   && <span title="High Risk pick — uncertain, value-hunting" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🔥 HIGH</span>}
+                        {pick.tier === 'none'   && <span title="Does not pass any risk tier — model confidence too low" style={{ fontSize: 9, background: '#1a1a2a', color: '#4a5568', border: '1px solid #2d3748', borderRadius: 4, padding: '1px 5px' }}>NO TIER</span>}
                         {pick.dataVerified === 'confirmed' && <span title="Form/standings/H2H confirm this pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>✓ DATA</span>}
                         {pick.dataVerified === 'risky'     && <span title="Data raises concerns — check flags below" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚠ CHECK</span>}
                         {pick.dataVerified === 'mixed'     && <span title="Mixed signals from data" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>~ MIXED</span>}
@@ -447,27 +529,43 @@ export default function BetBuilder() {
                       )}
                     </div>
 
-                    <div onClick={e => e.stopPropagation()}>
+                    <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {/* Enrich button — only when no data cached yet */}
+                      {pick.dataVerified === 'unverified' && (
+                        enrichingId === pick.fixtureId ? (
+                          <span style={{ fontSize: 10, color: '#ecc94b' }}>fetching…</span>
+                        ) : (
+                          <button
+                            disabled={!!enrichingId}
+                            onClick={e => { e.stopPropagation(); enrichOne(pick.fixtureId, pick.market, pick.selection) }}
+                            title="Fetch form, standings & H2H data for this match"
+                            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: !!enrichingId ? 'not-allowed' : 'pointer', background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', opacity: (!!enrichingId && enrichingId !== pick.fixtureId) ? 0.4 : 1 }}
+                          >
+                            + Data
+                          </button>
+                        )
+                      )}
+                      {/* AI button */}
                       {analysingId === pick.fixtureId ? (
                         <span style={{ fontSize: 10, color: '#718096' }}>…</span>
                       ) : hasAI ? (
-                          <button
-                            onClick={e => { e.stopPropagation(); setExpandedAI(prev => { const s = new Set(prev); s.has(pick.fixtureId) ? s.delete(pick.fixtureId) : s.add(pick.fixtureId); return s }) }}
-                            title={aiExpanded ? 'Hide AI analysis' : 'Show AI analysis'}
-                            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: aiExpanded ? '#1a3a1a' : '#0b1f0b', color: '#68d391', border: '1px solid #276749' }}
-                          >
-                            {aiExpanded ? '▲ AI' : '▼ AI'}
-                          </button>
-                        ) : (
-                          <button
-                            disabled={!pick.fixtureId || !!analysingId}
-                            onClick={e => { e.stopPropagation(); analyseOne(pick.fixtureId) }}
-                            title="Run Claude analysis on this pick"
-                            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: (!pick.fixtureId || !!analysingId) ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: '#90cdf4', border: '1px solid #2b6cb0', opacity: (!!analysingId && analysingId !== pick.fixtureId) ? 0.4 : 1 }}
-                          >
-                            AI
-                          </button>
-                        )}
+                        <button
+                          onClick={e => { e.stopPropagation(); setExpandedAI(prev => { const s = new Set(prev); s.has(pick.fixtureId) ? s.delete(pick.fixtureId) : s.add(pick.fixtureId); return s }) }}
+                          title={aiExpanded ? 'Hide AI analysis' : 'Show AI analysis'}
+                          style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: aiExpanded ? '#1a3a1a' : '#0b1f0b', color: '#68d391', border: '1px solid #276749' }}
+                        >
+                          {aiExpanded ? '▲ AI' : '▼ AI'}
+                        </button>
+                      ) : (
+                        <button
+                          disabled={!pick.fixtureId || !!analysingId}
+                          onClick={e => { e.stopPropagation(); analyseOne(pick.fixtureId) }}
+                          title="Run Claude analysis on this pick"
+                          style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: (!pick.fixtureId || !!analysingId) ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: '#90cdf4', border: '1px solid #2b6cb0', opacity: (!!analysingId && analysingId !== pick.fixtureId) ? 0.4 : 1 }}
+                        >
+                          AI
+                        </button>
+                      )}
                     </div>
                   </div>,
                   ...optRows,

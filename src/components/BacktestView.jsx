@@ -29,6 +29,9 @@ export default function BacktestView() {
   const [optimising, setOptimising] = useState(false)
   const [optimResult, setOptimResult] = useState(null)
   const [savedWeights, setSavedWeights] = useState(null)
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillResult, setBackfillResult] = useState(null)
+  const [backfillDays, setBackfillDays] = useState(3)
 
   async function loadSavedWeights() {
     try {
@@ -73,6 +76,24 @@ export default function BacktestView() {
     } catch { /* non-fatal */ }
     finally { setSyncing(false) }
     await loadFixtures()
+  }
+
+  async function backfillAndRun() {
+    setBackfilling(true)
+    setBackfillResult(null)
+    try {
+      // Step 1: sync fixture results for all leagues via syncByDate
+      const { data: syncData } = await axios.post('/api/sync/recent', { days: backfillDays })
+      // Step 2: batch-backtest all finished fixtures from last N days
+      const { data: runData } = await axios.post(`/api/backtest/run?days=${backfillDays}`)
+      setBackfillResult({ syncData, runData })
+      // Refresh fixtures list and accuracy panel
+      await loadFixtures()
+    } catch (e) {
+      setBackfillResult({ error: e.response?.data?.error || e.message })
+    } finally {
+      setBackfilling(false)
+    }
   }
 
   async function refreshAccuracy(risk) {
@@ -147,6 +168,23 @@ export default function BacktestView() {
           style={{ background: syncing ? '#2d3748' : '#276749', color: syncing ? '#718096' : '#fff', border: 'none', borderRadius: '8px', padding: '9px 20px', cursor: syncing ? 'default' : 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
           {syncing ? 'Syncing…' : 'Sync Results'}
         </button>
+
+        {/* Backfill Results — syncs all leagues for recent days, then runs batch backtest */}
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: '#718096', marginBottom: '4px' }}>Days back</div>
+            <select value={backfillDays} onChange={e => setBackfillDays(parseInt(e.target.value))}
+              disabled={backfilling}
+              style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '8px', color: '#e2e8f0', padding: '8px 10px', fontSize: '0.875rem', outline: 'none', cursor: 'pointer' }}>
+              {[1, 2, 3, 5, 7, 14].map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <button onClick={backfillAndRun} disabled={backfilling || loading}
+            style={{ background: backfilling ? '#2d3748' : '#744210', color: backfilling ? '#718096' : '#fbd38d', border: '1px solid #b7791f', borderRadius: '8px', padding: '9px 18px', cursor: backfilling ? 'default' : 'pointer', fontSize: '0.875rem', fontWeight: 700, whiteSpace: 'nowrap', alignSelf: 'flex-end' }}>
+            {backfilling ? 'Backfilling…' : 'Backfill Results'}
+          </button>
+        </div>
+
         <div>
           <div style={{ fontSize: '0.7rem', color: '#718096', marginBottom: '4px' }}>Accuracy filter</div>
           <select value={accRisk} onChange={e => { setAccRisk(e.target.value); refreshAccuracy(e.target.value) }}
@@ -160,6 +198,32 @@ export default function BacktestView() {
       </div>
 
       {error && <p style={{ color: '#fc8181', marginBottom: '1rem' }}>{error}</p>}
+
+      {/* Backfill result panel */}
+      {backfillResult && (
+        <div style={{ background: '#1a1f2e', border: `1px solid ${backfillResult.error ? '#742a2a' : '#744210'}`, borderRadius: '12px', padding: '0.875rem 1.25rem', marginBottom: '1rem', fontSize: '0.78rem' }}>
+          {backfillResult.error ? (
+            <span style={{ color: '#fc8181' }}>Backfill failed: {backfillResult.error}</span>
+          ) : (
+            <div>
+              <div style={{ fontWeight: 700, color: '#fbd38d', marginBottom: '4px' }}>Backfill complete</div>
+              <div style={{ color: '#a0aec0' }}>
+                Synced <strong style={{ color: '#e2e8f0' }}>{backfillResult.syncData?.totalSynced ?? '?'}</strong> fixtures across last {backfillResult.syncData?.days} days
+                {backfillResult.syncData?.results?.map(r => (
+                  <span key={r.date} style={{ marginLeft: 8, color: '#4a5568', fontSize: '0.7rem' }}>
+                    {r.date}: {r.error ? <span style={{ color: '#fc8181' }}>err</span> : r.synced}
+                  </span>
+                ))}
+              </div>
+              <div style={{ color: '#a0aec0', marginTop: '4px' }}>
+                Backtest: <strong style={{ color: '#e2e8f0' }}>{backfillResult.runData?.toProcess ?? 0}</strong> new fixtures queued
+                {backfillResult.runData?.skipped > 0 && <span style={{ color: '#718096', marginLeft: 6 }}>({backfillResult.runData.skipped} already done)</span>}
+                <span style={{ color: '#718096', marginLeft: 6 }}>— calibration curves updating in background</span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Historical accuracy (from stored backtest results) */}
       {accuracy?.total === 0 && accuracy?.risk && (

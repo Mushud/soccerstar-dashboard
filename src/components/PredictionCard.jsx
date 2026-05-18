@@ -74,6 +74,29 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
     else                               { modelVerdict = 'Draw';     modelProb = draw }
   }
 
+  // Approximate risk tier based on best calibrated probability across all markets.
+  // Full gate (Claude confidence, enrichment checks) only runs in Bet Builder —
+  // this is a quick visual signal based on probability thresholds alone.
+  function computeTier(pred) {
+    // Use match favouriteness (top 1X2 prob) to determine tier — same logic as the backend.
+    // DC/O1.5 can't be used here because they're always ≥ 0.65 for every match.
+    const b = (pred?.blended?.result1X2 ? pred.blended : null) || pred?.modeB || pred?.modeA
+    if (!b?.result1X2) return null
+    const r = b.result1X2
+    const fav = Math.max(r.home ?? 0, r.draw ?? 0, r.away ?? 0)
+    if (fav >= 0.56) return 'low'
+    if (fav >= 0.42) return 'medium'
+    if (fav >= 0.33) return 'high'
+    return null
+  }
+  const tier = computeTier(prediction)
+
+  const TIER_STYLE = {
+    low:    { label: '🛡 LOW',  color: '#68d391', bg: '#0f2a1a', border: '#276749' },
+    medium: { label: '⚖ MED',  color: '#ecc94b', bg: '#2a2510', border: '#744210' },
+    high:   { label: '🔥 HIGH', color: '#fc8181', bg: '#2a0f0f', border: '#742a2a' },
+  }
+
   const borderColor = claude
     ? (CONF_COLOR[claude.confidence] ?? '#2d3748')
     : '#2d3748'
@@ -88,8 +111,17 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
       <div style={{ padding: '0.875rem 1.25rem 0.6rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#e2e8f0' }}>
+            <div style={{ fontSize: '0.92rem', fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {fixture.homeTeamName} <span style={{ color: '#4a5568' }}>vs</span> {fixture.awayTeamName}
+              {tier && (
+                <span title={`Model probability qualifies as ${tier.toUpperCase()} risk in Bet Builder`} style={{
+                  fontSize: '0.6rem', fontWeight: 800, padding: '2px 6px', borderRadius: 4,
+                  background: TIER_STYLE[tier].bg, color: TIER_STYLE[tier].color,
+                  border: `1px solid ${TIER_STYLE[tier].border}`
+                }}>
+                  {TIER_STYLE[tier].label}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: '0.7rem', color: '#718096', marginTop: '2px' }}>{fixture.league} · {date}</div>
           </div>
