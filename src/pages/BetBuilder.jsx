@@ -30,8 +30,9 @@ export default function BetBuilder() {
   const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` }
   const [fromDate, setFromDate]   = useState(localToday)
   const [toDate, setToDate]       = useState(localToday)
-  const [loading, setLoading]     = useState(false)
+  const [loading, setLoading]         = useState(false)
   const [loadProgress, setLoadProgress] = useState(null) // { sent, total }
+  const [loadMessage, setLoadMessage]   = useState('')
   const [error, setError]         = useState(null)
   const [picks, setPicks]         = useState([])
   const [meta, setMeta]           = useState(null)
@@ -61,16 +62,18 @@ export default function BetBuilder() {
     setSelected(picks.length === selected.size ? new Set() : new Set(picks.map(p => p.fixtureId)))
   }
 
-  async function generate() {
+  async function generate(overrides = {}) {
+    const effectiveShowAll = overrides.showAll ?? showAll
     setLoading(true)
     setError(null)
     setPicks([])
     setMeta(null)
     setLoadProgress(null)
+    setLoadMessage('')
     setSelected(new Set())
     setPage(1)
 
-    const body = { risk: risks, limit, showAll }
+    const body = { risk: risks, limit, showAll: effectiveShowAll }
     if (dateMode === 'pick') { body.from = fromDate; body.to = toDate || fromDate }
     else body.duration = duration
 
@@ -103,12 +106,16 @@ export default function BetBuilder() {
           let evt
           try { evt = JSON.parse(part.slice(6)) } catch { continue }
 
-          if (evt.type === 'batch') {
+          if (evt.type === 'progress') {
+            setLoadMessage(evt.message)
+          } else if (evt.type === 'batch') {
             setPicks(prev => [...prev, ...evt.picks])
             setLoadProgress(evt.progress)
+            setLoadMessage('')
           } else if (evt.type === 'done') {
             setMeta(evt.meta)
             setLoadProgress(null)
+            setLoadMessage('')
             setLoading(false)
           } else if (evt.type === 'error') {
             setError(evt.error)
@@ -319,7 +326,7 @@ export default function BetBuilder() {
 
           {loading && !picks.length && (
             <div style={{ fontSize: 12, color: '#718096', textAlign: 'center' }}>
-              Loading picks from database…
+              {loadMessage || 'Loading picks from database…'}
             </div>
           )}
         </div>
@@ -358,6 +365,19 @@ export default function BetBuilder() {
                   {meta?.failedEnrichment > 0 && (
                     <span title="Picks excluded because form/standings/H2H contradicted the model" style={{ marginLeft: 8, color: '#fc8181' }}>
                       · {meta.failedEnrichment} blocked by data
+                    </span>
+                  )}
+                  {meta?.debug?.noPred > 0 && (
+                    <span title="These fixtures have no prediction — run the engine on them first" style={{ marginLeft: 8, color: '#4a5568' }}>
+                      · {meta.debug.noPred} no prediction
+                    </span>
+                  )}
+                  {!showAll && meta && meta.fixturesScanned > picks.length && (
+                    <span style={{ marginLeft: 8, color: '#4a5568' }}>
+                      · {meta.fixturesScanned - picks.length} filtered out —{' '}
+                      <button onClick={() => { setShowAll(true); generate({ showAll: true }) }} style={{ background: 'none', border: 'none', color: '#90cdf4', cursor: 'pointer', fontSize: 11, padding: 0, textDecoration: 'underline' }}>
+                        show all
+                      </button>
                     </span>
                   )}
                 </div>
