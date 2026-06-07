@@ -48,6 +48,9 @@ export default function BetBuilder() {
   const [sbDebug, setSbDebug]       = useState(false)
   const [expandedAI, setExpandedAI] = useState(new Set())
   const [enrichingId, setEnrichingId] = useState(null)
+  const [goalsPickCount, setGoalsPickCount] = useState(10)
+  const [rerunning, setRerunning] = useState(false)
+  const [rerunMsg, setRerunMsg] = useState(null)
   const PAGE_SIZE = 20
 
   function toggleRisk(key) {
@@ -60,6 +63,52 @@ export default function BetBuilder() {
 
   function selectAll() {
     setSelected(picks.length === selected.size ? new Set() : new Set(picks.map(p => p.fixtureId)))
+  }
+
+  const GOAL_MARKETS = ['Over 1.5', 'Over 2.5', 'BTTS']
+
+  async function runPickAndAnalyse(fixtureIds, { fast = false } = {}) {
+    setSelected(new Set(fixtureIds))
+    if (!fixtureIds.length) return
+    setAnalysing(true)
+    try {
+      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds, risk: risks, fast }, { timeout: 10 * 60 * 1000 })
+      const byId = {}
+      for (const r of (data.results || [])) byId[r.fixtureId] = r
+      setPicks(prev => prev.map(p => {
+        const r = byId[p.fixtureId]
+        if (!r) return p
+        return mergeAnalysis(p, r)
+      }))
+      setExpandedAI(prev => { const s = new Set(prev); fixtureIds.forEach(id => s.add(id)); return s })
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Auto-analysis failed.')
+    } finally {
+      setAnalysing(false)
+    }
+  }
+
+  async function smartPick(n = 10) {
+    const ranked = [...picks].sort((a, b) => (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0))
+    let pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified === 'confirmed')
+    if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified !== 'risky')
+    if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier))
+    if (pool.length < n) pool = ranked.filter(p => p.dataVerified !== 'risky')
+    if (pool.length < n) pool = ranked
+    await runPickAndAnalyse(pool.slice(0, n).map(p => p.fixtureId).filter(Boolean))
+  }
+
+  async function goalsPick(n = 10) {
+    // Prioritise goal markets: Over 1.5 / Over 2.5 / BTTS — confirmed data first, then relax
+    const isGoalMarket = p => GOAL_MARKETS.includes(p.selection)
+    const ranked = [...picks]
+      .filter(isGoalMarket)
+      .sort((a, b) => (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0))
+    let pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified === 'confirmed')
+    if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified !== 'risky')
+    if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier))
+    if (pool.length < n) pool = ranked
+    await runPickAndAnalyse(pool.slice(0, n).map(p => p.fixtureId).filter(Boolean), { fast: true })
   }
 
   async function generate(overrides = {}) {
@@ -128,6 +177,27 @@ export default function BetBuilder() {
     } catch (err) {
       setError(err.message || 'Request failed.')
       setLoading(false)
+    }
+  }
+
+  async function rerunPredictions() {
+    const fixtureIds = picks.map(p => p.fixtureId).filter(Boolean)
+    if (!fixtureIds.length) {
+      setError('Load picks first, then rerun to refresh their predictions.')
+      return
+    }
+    setRerunning(true)
+    setRerunMsg(`Rerunning engine for ${fixtureIds.length} fixtures…`)
+    try {
+      const { data } = await axios.post(`${API}/api/betbuilder/rerun`, { fixtureIds }, { timeout: 3 * 60 * 1000 })
+      setRerunMsg(`Done — ${data.ran} updated. Refreshing picks…`)
+      await generate()
+    } catch (err) {
+      setRerunMsg(null)
+      setError(err.response?.data?.error || err.message || 'Engine run failed.')
+    } finally {
+      setRerunning(false)
+      setTimeout(() => setRerunMsg(null), 4000)
     }
   }
 
@@ -319,10 +389,16 @@ export default function BetBuilder() {
                 {showAll ? '🔓 All matches' : '🎯 Filtered'}
               </button>
             </div>
-            <button onClick={generate} disabled={loading} style={{ flex: 1, padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: loading ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
+            <button onClick={generate} disabled={loading || rerunning} style={{ flex: 1, padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
               {loading ? 'Fetching picks…' : showAll ? `Get All Matches (${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join('+')} filter off)` : `Get Top ${limit} Picks — ${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}`}
             </button>
+            <button onClick={rerunPredictions} disabled={loading || rerunning} title="Re-run the prediction engine on all upcoming fixtures, then refresh picks" style={{ padding: '12px 18px', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: rerunning ? '#1a2a3a' : '#1a2030', color: rerunning ? '#90cdf4' : '#4a5568', border: '1px solid #2d3748', whiteSpace: 'nowrap' }}>
+              {rerunning ? '⚙️ Running engine…' : '⚙️ Rerun Predictions'}
+            </button>
           </div>
+          {rerunMsg && (
+            <div style={{ fontSize: 12, color: '#90cdf4', textAlign: 'center', marginTop: 4 }}>{rerunMsg}</div>
+          )}
 
           {loading && !picks.length && (
             <div style={{ fontSize: 12, color: '#718096', textAlign: 'center' }}>
@@ -399,6 +475,17 @@ export default function BetBuilder() {
                     </label>
                   </div>
                 )}
+                <button onClick={() => smartPick(10)} disabled={analysing} title="Auto-select the top 10 highest-certainty picks for the selected risk level and confirm the best bet for each" style={{ padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 800, cursor: analysing ? 'not-allowed' : 'pointer', background: analysing ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: analysing ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78', whiteSpace: 'nowrap' }}>
+                  {analysing ? '🎯 Picking bets…' : '🎯 Smart Pick 10'}
+                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button onClick={() => goalsPick(goalsPickCount)} disabled={analysing} title="Auto-select top goal-heavy picks (Over 1.5 / Over 2.5 / BTTS) — uses fast Claude Haiku for quick analysis" style={{ padding: '8px 16px', borderRadius: '8px 0 0 8px', fontSize: 13, fontWeight: 800, cursor: analysing ? 'not-allowed' : 'pointer', background: analysing ? '#1a2a3a' : 'linear-gradient(135deg,#1a3a5a,#2b6cb0)', color: analysing ? '#718096' : '#bee3f8', border: '1px solid #3182ce', borderRight: 'none', whiteSpace: 'nowrap' }}>
+                    ⚽ Goals Pick {goalsPickCount}
+                  </button>
+                  <select value={goalsPickCount} onChange={e => setGoalsPickCount(Number(e.target.value))} disabled={analysing} style={{ padding: '8px 6px', borderRadius: '0 8px 8px 0', fontSize: 13, fontWeight: 700, background: '#1a2a3a', color: '#bee3f8', border: '1px solid #3182ce', cursor: 'pointer' }}>
+                    {[5, 10, 20, 50].map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
                 <span style={{ fontSize: 11, color: '#4a5568' }}>Sort:</span>
                 {[['score','Score'],['prob','Model %'],['odds','Odds'],['time','Time']].map(([k,l]) => (
                   <button key={k} onClick={() => setSortBy(k)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: sortBy===k ? '#1a2a4a' : '#1a2030', color: sortBy===k ? '#90cdf4' : '#718096', border: `1px solid ${sortBy===k ? '#2b6cb0' : '#2d3748'}` }}>{l}</button>

@@ -82,13 +82,24 @@ export default function BacktestView() {
     setBackfilling(true)
     setBackfillResult(null)
     try {
-      // Step 1: sync fixture results for all leagues via syncByDate
-      const { data: syncData } = await axios.post('/api/sync/recent', { days: backfillDays })
-      // Step 2: batch-backtest all finished fixtures from last N days
-      const { data: runData } = await axios.post(`/api/backtest/run?days=${backfillDays}`)
-      setBackfillResult({ syncData, runData })
-      // Refresh fixtures list and accuracy panel
+      // Always cover from today back to the selected date — plus 1 buffer day.
+      // If the user is viewing June 1 but "Days back" is only 3 (covers June 4-6),
+      // the selected date would never be synced. Auto-compute the correct window.
+      const selectedMs  = new Date(date).getTime()
+      const todayMs     = new Date(today()).getTime()
+      const daysToDate  = Math.ceil((todayMs - selectedMs) / (1000 * 60 * 60 * 24)) + 1
+      const effectiveDays = Math.max(backfillDays, daysToDate)
+
+      // Step 1: sync fixture results for the full window
+      const { data: syncData } = await axios.post('/api/sync/recent', { days: effectiveDays })
+      // Step 2: queue backtest for finished fixtures in that window
+      const { data: runData } = await axios.post(`/api/backtest/run?days=${effectiveDays}`)
+      setBackfillResult({ syncData, runData, effectiveDays })
+
+      // Reload immediately to show synced scores, then again after 8s to catch
+      // BacktestResult docs created by the background job
       await loadFixtures()
+      setTimeout(() => loadFixtures(), 8000)
     } catch (e) {
       setBackfillResult({ error: e.response?.data?.error || e.message })
     } finally {
@@ -206,9 +217,10 @@ export default function BacktestView() {
             <span style={{ color: '#fc8181' }}>Backfill failed: {backfillResult.error}</span>
           ) : (
             <div>
-              <div style={{ fontWeight: 700, color: '#fbd38d', marginBottom: '4px' }}>Backfill complete</div>
+              <div style={{ fontWeight: 700, color: '#fbd38d', marginBottom: '4px' }}>Backfill complete — covered last {backfillResult.effectiveDays} days to reach {date}</div>
               <div style={{ color: '#a0aec0' }}>
-                Synced <strong style={{ color: '#e2e8f0' }}>{backfillResult.syncData?.totalSynced ?? '?'}</strong> fixtures across last {backfillResult.syncData?.days} days
+                Synced <strong style={{ color: '#e2e8f0' }}>{backfillResult.syncData?.totalSynced ?? '?'}</strong> fixtures · backtest results loading in background (auto-refreshes in ~8s)</div>
+              <div style={{ color: '#a0aec0' }}>
                 {backfillResult.syncData?.results?.map(r => (
                   <span key={r.date} style={{ marginLeft: 8, color: '#4a5568', fontSize: '0.7rem' }}>
                     {r.date}: {r.error ? <span style={{ color: '#fc8181' }}>err</span> : r.synced}
@@ -248,6 +260,7 @@ export default function BacktestView() {
             <AccBadge label="Over 2.5"     data={accuracy.blended?.over25 || accuracy.poisson?.over25} />
             <AccBadge label="Over 3.5"     data={accuracy.poisson?.over35} />
             <AccBadge label="DC 1X"        data={accuracy.poisson?.dc_homeOrDraw} />
+            <AccBadge label="DC X2"        data={accuracy.poisson?.dc_awayOrDraw} />
             {accuracy.claude && <AccBadge label="Claude" data={accuracy.claude} highlight />}
           </div>
           {(accuracy.blended?.byOutcome || accuracy.poisson?.byOutcome) && (
@@ -381,12 +394,18 @@ function WeightPill({ label, val, color }) {
 function AccBadge({ label, data, highlight }) {
   if (!data || data.total === 0) return null
   const pctVal = data.pct ?? (data.total ? Math.round(data.correct / data.total * 100) : null)
-  const good = pctVal >= 50
+  // For Over/Under markets, show precision (when model said Over, was it right?) instead of
+  // two-sided accuracy, which is inflated by correct Under predictions on rare events like Over 3.5.
+  const prec = data.overPrecision
+  const displayPct = prec ? prec.pct : pctVal
+  const displaySub = prec ? `${prec.correct}/${prec.total} picks` : `${data.correct}/${data.total}`
+  const good = displayPct >= 50
   return (
     <div style={{ background: highlight ? (good ? '#1c4532' : '#2d2020') : '#2d3748', border: highlight ? `1px solid ${good ? '#276749' : '#742a2a'}` : '1px solid transparent', borderRadius: '8px', padding: '5px 10px', textAlign: 'center', minWidth: '70px' }}>
       <div style={{ fontSize: '0.6rem', color: '#718096', marginBottom: 1 }}>{label}</div>
-      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: good ? '#68d391' : '#fc8181' }}>{pctVal}%</div>
-      <div style={{ fontSize: '0.6rem', color: '#718096' }}>{data.correct}/{data.total}</div>
+      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: good ? '#68d391' : '#fc8181' }}>{displayPct}%</div>
+      <div style={{ fontSize: '0.6rem', color: '#718096' }}>{displaySub}</div>
+      {prec && <div style={{ fontSize: '0.55rem', color: '#4a5568' }}>when picked</div>}
     </div>
   )
 }
@@ -474,14 +493,19 @@ function FixtureCard({ item, result, running, onRun }) {
           )}
         </div>
 
-        {/* O/U badges */}
+        {/* O/U badges — shows predicted→actual so it's clear when they differ */}
         {m && (
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
             {[['1.5', m.over15], ['2.5', m.over25], ['3.5', m.over35]].map(([threshold, mk]) => mk && (
-              <span key={threshold} style={{ fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
+              <span key={threshold} title={`Predicted: ${mk.predicted === 'over' ? 'Over' : 'Under'} ${threshold} · Actual: ${mk.actual === 'over' ? 'Over' : 'Under'} ${threshold}`}
+                style={{ fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
                 background: isLive ? '#2d3748' : mk.correct ? '#1c4532' : '#2d2020',
                 color: isLive ? NEUTRAL : mk.correct ? CORRECT : WRONG }}>
-                {isLive ? (mk.predicted === 'over' ? 'O' : 'U') : (mk.actual === 'over' ? 'O' : 'U')}{threshold} {isLive ? '?' : mk.correct ? '✓' : '✗'}
+                {isLive
+                  ? `${mk.predicted === 'over' ? 'O' : 'U'}${threshold}?`
+                  : mk.correct
+                    ? `${mk.actual === 'over' ? 'O' : 'U'}${threshold} ✓`
+                    : `${mk.predicted === 'over' ? 'O' : 'U'}→${mk.actual === 'over' ? 'O' : 'U'}${threshold} ✗`}
               </span>
             ))}
           </div>

@@ -43,11 +43,25 @@ function timeAgo(dateStr) {
   return `${Math.floor(h / 24)}d ago`
 }
 
-function PickCard({ p, i }) {
+function PickCard({ p, i, onPredictionGenerated }) {
   const [open, setOpen] = useState(false)
+  const [generating, setGenerating] = useState(false)
   const al = ALIGNMENT_STYLE[p.modelAlignment] || ALIGNMENT_STYLE.no_data
   const vd = VERDICT_STYLE[p.verdict] || VERDICT_STYLE.Caution
   const md = p.modelDetail
+
+  async function generatePrediction() {
+    if (!p.fixtureId) return
+    setGenerating(true)
+    try {
+      await axios.post(`${API}/api/betbuilder/rerun`, { fixtureIds: [p.fixtureId] })
+      onPredictionGenerated?.()
+    } catch (e) {
+      console.error('Prediction generation failed', e)
+    } finally {
+      setGenerating(false)
+    }
+  }
 
   return (
     <div style={{ background: al.bg, border: `1px solid ${al.border}`, borderRadius: 8, overflow: 'hidden' }}>
@@ -84,8 +98,14 @@ function PickCard({ p, i }) {
           {p.reason && <span style={{ color: '#4a5568' }}> — {p.reason}</span>}
         </div>
         {p.matchReason && MATCH_REASON_LABEL[p.matchReason] && (
-          <div style={{ paddingLeft: 28, marginTop: 3, fontSize: 11, color: MATCH_REASON_LABEL[p.matchReason].color }}>
+          <div style={{ paddingLeft: 28, marginTop: 3, fontSize: 11, color: MATCH_REASON_LABEL[p.matchReason].color, display: 'flex', alignItems: 'center', gap: 8 }}>
             {MATCH_REASON_LABEL[p.matchReason].icon} {MATCH_REASON_LABEL[p.matchReason].text}
+            {p.matchReason === 'no_prediction' && p.fixtureId && (
+              <button onClick={e => { e.stopPropagation(); generatePrediction() }} disabled={generating}
+                style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, border: '1px solid #276749', background: '#1a3a2a', color: generating ? '#48bb78' : '#9ae6b4', cursor: generating ? 'default' : 'pointer' }}>
+                {generating ? 'Generating…' : '⚙️ Generate now'}
+              </button>
+            )}
           </div>
         )}
         {p.dbMatch && p.dbMatch !== p.match && (
@@ -599,7 +619,7 @@ export default function BetSlipAnalyzer() {
                     <h2 style={{ fontSize: 11, color: '#4a5568', margin: '0 0 10px', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Pick-by-Pick Analysis</h2>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
                       {analysis.pickAnalysis.map((p, i) => (
-                        <PickCard key={i} p={p} i={i} />
+                        <PickCard key={i} p={p} i={i} onPredictionGenerated={() => slip && runAnalysis(slip)} />
                       ))}
                     </div>
                   </div>
