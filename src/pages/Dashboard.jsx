@@ -250,7 +250,8 @@ export default function Dashboard() {
               {view === 'live' && liveRefreshing ? '● Live…' : '● Live'}
             </button>
             <button onClick={() => { setView('backtest'); sessionStorage.setItem('ss_view', 'backtest') }} style={tabBtnStyle(view === 'backtest')}>Test Model</button>
-            <Link to="/betslip" style={{ ...btnStyle('#276749'), marginLeft: '6px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>⚡ Bet Slip</Link>
+            <Link to="/tournaments" style={{ ...btnStyle('#553c9a'), marginLeft: '6px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>🏆 Tournaments</Link>
+            <Link to="/betslip" style={{ ...btnStyle('#276749'), marginLeft: '4px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>⚡ Bet Slip</Link>
             <Link to="/bet-builder" style={{ ...btnStyle('#744210'), marginLeft: '4px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>🎯 Bet Builder</Link>
             <button onClick={handleQuickSync} disabled={quickSyncing || syncing} style={{ ...btnStyle('#276749'), marginLeft: '6px' }}>
               {quickSyncing ? 'Syncing...' : 'Sync Fixtures'}
