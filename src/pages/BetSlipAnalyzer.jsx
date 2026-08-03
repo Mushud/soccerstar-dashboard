@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 const RISK_COLORS = {
   'Low Risk':    { bg: '#1a3a2a', border: '#48bb78', badge: '#276749', text: '#9ae6b4' },
@@ -54,7 +53,7 @@ function PickCard({ p, i, onPredictionGenerated }) {
     if (!p.fixtureId) return
     setGenerating(true)
     try {
-      await axios.post(`${API}/api/betbuilder/rerun`, { fixtureIds: [p.fixtureId] })
+      await api.post(`/api/betbuilder/rerun`, { fixtureIds: [p.fixtureId] })
       onPredictionGenerated?.()
     } catch (e) {
       console.error('Prediction generation failed', e)
@@ -305,7 +304,7 @@ export default function BetSlipAnalyzer() {
 
   const loadRecent = useCallback(async () => {
     try {
-      const { data } = await axios.get(`${API}/api/betslip/recent`)
+      const { data } = await api.get(`/api/betslip/recent`)
       setRecentSlips(data)
     } catch {}
   }, [])
@@ -322,7 +321,7 @@ export default function BetSlipAnalyzer() {
     setFetchError(null)
     setAnalyzeError(null)
     try {
-      const { data } = await axios.get(`${API}/api/betslip/fetch`, { params: { input: val } })
+      const { data } = await api.get(`/api/betslip/fetch`, { params: { input: val } })
       setSlip(data)
       setFetchState('done')
       loadRecent()
@@ -343,7 +342,7 @@ export default function BetSlipAnalyzer() {
     setInput(shareCode)
     try {
       // Show saved data instantly
-      const { data: saved } = await axios.get(`${API}/api/betslip/saved/${shareCode}`)
+      const { data: saved } = await api.get(`/api/betslip/saved/${shareCode}`)
       const slipData = { shareCode: saved.shareCode, selections: saved.selections, totalOdds: saved.totalOdds, hasChanges: saved.hasChanges, lastChanges: saved.lastChanges, changedAt: saved.changedAt }
       setSlip(slipData)
       setFetchState('done')
@@ -366,7 +365,7 @@ export default function BetSlipAnalyzer() {
     setAnalysis(null)
     setAnalyzeError(null)
     try {
-      const { data } = await axios.post(`${API}/api/betslip/analyze`, {
+      const { data } = await api.post(`/api/betslip/analyze`, {
         selections: s.selections,
         shareCode: s.shareCode,
       })

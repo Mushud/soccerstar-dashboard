@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 import ProbabilityBar from '../components/ProbabilityBar'
 import ScoreMatrix from '../components/ScoreMatrix'
 
@@ -20,7 +20,7 @@ export default function MatchDetail() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    axios.get(`/api/fixtures/${id}`)
+    api.get(`/api/fixtures/${id}`)
       .then(r => setData(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))

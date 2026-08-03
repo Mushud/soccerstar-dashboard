@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import axios from 'axios'
+import api from '../api'
 import PredictionCard from '../components/PredictionCard'
 import BacktestView from '../components/BacktestView'
 
@@ -64,7 +64,7 @@ export default function Dashboard() {
       const lastSynced = parseInt(sessionStorage.getItem(cacheKey) || '0')
       if (Date.now() - lastSynced > 20 * 60 * 1000) {
         try {
-          await axios.post('/api/sync/date', { date: selectedDate })
+          await api.post('/api/sync/date', { date: selectedDate })
           sessionStorage.setItem(cacheKey, String(Date.now()))
         } catch (e) {
           console.warn('[upcoming] date sync failed:', e.message)
@@ -73,7 +73,7 @@ export default function Dashboard() {
 
       const from = new Date(selectedDate); from.setUTCHours(0, 0, 0, 0)
       const to   = new Date(selectedDate); to.setUTCHours(23, 59, 59, 999)
-      const { data } = await axios.get('/api/fixtures', {
+      const { data } = await api.get('/api/fixtures', {
         params: { from: from.toISOString(), to: to.toISOString(), limit: 500 }
       })
       const fixtures = data.fixtures || []
@@ -82,7 +82,7 @@ export default function Dashboard() {
       const predMap = {}
       await Promise.all(fixtures.map(async (f) => {
         try {
-          const { data: pred } = await axios.get(`/api/predictions/${f._id}`)
+          const { data: pred } = await api.get(`/api/predictions/${f._id}`)
           predMap[f._id] = pred
         } catch { /* none yet */ }
       }))
@@ -101,15 +101,15 @@ export default function Dashboard() {
     else setLiveRefreshing(true)
     try {
       // Sync live from API-Football first, then fetch from DB
-      await axios.post('/api/sync/live')
-      const { data } = await axios.get('/api/fixtures/live')
+      await api.post('/api/sync/live')
+      const { data } = await api.get('/api/fixtures/live')
       const fixtures = data.fixtures || []
       setLiveFixtures(fixtures)
 
       const predMap = {}
       await Promise.all(fixtures.map(async (f) => {
         try {
-          const { data: pred } = await axios.get(`/api/predictions/${f._id}`)
+          const { data: pred } = await api.get(`/api/predictions/${f._id}`)
           predMap[f._id] = pred
         } catch { /* none yet */ }
       }))
@@ -136,7 +136,7 @@ export default function Dashboard() {
   async function handleLivePredict(fixtureId) {
     setLiveComputing(c => ({ ...c, [fixtureId]: true }))
     try {
-      const { data: pred } = await axios.post(`/api/predictions/fixture/${fixtureId}`)
+      const { data: pred } = await api.post(`/api/predictions/fixture/${fixtureId}`)
       setLivePredictions(p => ({ ...p, [fixtureId]: pred }))
     } catch (e) {
       alert('Prediction failed: ' + (e.response?.data?.error || e.message))
@@ -158,13 +158,13 @@ export default function Dashboard() {
     setSearching(true)
     setError(null)
     try {
-      const { data } = await axios.get('/api/fixtures/search', { params: { q } })
+      const { data } = await api.get('/api/fixtures/search', { params: { q } })
       setSearchResults(data.fixtures)
       const predMap = { ...predictions }
       await Promise.all(data.fixtures.map(async (f) => {
         if (predMap[f._id]) return
         try {
-          const { data: pred } = await axios.get(`/api/predictions/${f._id}`)
+          const { data: pred } = await api.get(`/api/predictions/${f._id}`)
           predMap[f._id] = pred
         } catch { /* none yet */ }
       }))
@@ -179,7 +179,7 @@ export default function Dashboard() {
   async function handlePredict(fixtureId) {
     setComputing(c => ({ ...c, [fixtureId]: true }))
     try {
-      const { data: pred } = await axios.post(`/api/predictions/fixture/${fixtureId}`)
+      const { data: pred } = await api.post(`/api/predictions/fixture/${fixtureId}`)
       setPredictions(p => ({ ...p, [fixtureId]: pred }))
     } catch (e) {
       alert('Prediction failed: ' + (e.response?.data?.error || e.message))
@@ -193,7 +193,7 @@ export default function Dashboard() {
     setSyncReport(null)
     try {
       sessionStorage.removeItem(`ss_synced_${selectedDate}`)
-      const { data } = await axios.post('/api/sync/date', { date: selectedDate })
+      const { data } = await api.post('/api/sync/date', { date: selectedDate })
       setSyncReport({ upcoming: [{ league: 'All leagues', synced: data.synced }], tier: 'all' })
       await loadUpcoming()
     } catch (e) {
@@ -207,7 +207,7 @@ export default function Dashboard() {
     setSyncing(true)
     setSyncReport(null)
     try {
-      const { data } = await axios.post('/api/sync/all')
+      const { data } = await api.post('/api/sync/all')
       setSyncReport(data.report)
       await loadUpcoming()
       if (query.trim().length >= 2) await search(query.trim())

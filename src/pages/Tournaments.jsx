@@ -1,9 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import axios from 'axios'
+import api, { API_BASE } from '../api'
 import PredictionCard from '../components/PredictionCard'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 const CONTINENT_ORDER = ['World', 'Europe', 'Americas', 'Asia', 'Africa', 'Oceania']
 const CONTINENT_COLOR = {
@@ -71,7 +70,7 @@ export default function Tournaments() {
 
   // ── Load leagues list ──
   useEffect(() => {
-    axios.get('/api/fixtures/leagues').then(({ data }) => setLeagues(data.leagues || []))
+    api.get('/api/fixtures/leagues').then(({ data }) => setLeagues(data.leagues || []))
       .catch(() => {}).finally(() => setLeaguesLoading(false))
   }, [])
 
@@ -94,11 +93,11 @@ export default function Tournaments() {
     setFixturesLoading(true)
     try {
       const now = new Date().toISOString()
-      const { data } = await axios.get('/api/fixtures', {
+      const { data } = await api.get('/api/fixtures', {
         params: { league: league.name, status: 'upcoming', from: now, limit: 200 }
       })
       // Also fetch live matches for this league
-      const { data: liveData } = await axios.get('/api/fixtures/live').catch(() => ({ data: { fixtures: [] } }))
+      const { data: liveData } = await api.get('/api/fixtures/live').catch(() => ({ data: { fixtures: [] } }))
       const liveForLeague = (liveData.fixtures || []).filter(f =>
         f.league?.toLowerCase().includes(league.name.toLowerCase())
       )
@@ -111,7 +110,7 @@ export default function Tournaments() {
       const predMap = {}
       await Promise.all(deduped.map(async (f) => {
         try {
-          const { data: pred } = await axios.get(`/api/predictions/${f._id}`)
+          const { data: pred } = await api.get(`/api/predictions/${f._id}`)
           predMap[f._id] = pred
         } catch { /* none yet */ }
       }))
@@ -126,7 +125,7 @@ export default function Tournaments() {
   async function handlePredict(fixtureId) {
     setComputing(c => ({ ...c, [fixtureId]: true }))
     try {
-      const { data: pred } = await axios.post(`/api/predictions/fixture/${fixtureId}`)
+      const { data: pred } = await api.post(`/api/predictions/fixture/${fixtureId}`)
       setPredictions(p => ({ ...p, [fixtureId]: pred }))
     } catch (e) {
       alert('Prediction failed: ' + (e.response?.data?.error || e.message))
@@ -139,7 +138,7 @@ export default function Tournaments() {
     if (!selectedLeague) return
     setSyncing(true); setSyncMsg(null)
     try {
-      await axios.post('/api/sync/all')
+      await api.post('/api/sync/all')
       setSyncMsg('Synced!')
       await loadFixtures(selectedLeague)
       setSyncMsg(null)
@@ -168,7 +167,7 @@ export default function Tournaments() {
     setLoadMsg('')
 
     try {
-      const res = await fetch(`${API}/api/betbuilder/generate`, {
+      const res = await fetch(`${API_BASE}/api/betbuilder/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ risk: risks, duration, limit: 500, showAll, league: selectedLeague.name }),
@@ -212,7 +211,7 @@ export default function Tournaments() {
     if (!selected.size) return
     setAnalysing(true)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/analyse`,
+      const { data } = await api.post(`/api/betbuilder/analyse`,
         { fixtureIds: [...selected], risk: risks },
         { timeout: 10 * 60 * 1000 }
       )
@@ -238,7 +237,7 @@ export default function Tournaments() {
     setPicksError(null)
     setLoadMsg(`Running predictions for ${selectedLeague.name}…`)
     try {
-      await axios.post('/api/predictions/run', { league: selectedLeague.name }, { timeout: 5 * 60 * 1000 })
+      await api.post('/api/predictions/run', { league: selectedLeague.name }, { timeout: 5 * 60 * 1000 })
       setLoadMsg('Done! Generating picks…')
       await generatePicks()
     } catch (e) {
@@ -266,7 +265,7 @@ export default function Tournaments() {
     setSelected(new Set())
     setLoadMsg(`Analysing ${ids.length} fixture${ids.length !== 1 ? 's' : ''}…`)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/analyse`,
+      const { data } = await api.post(`/api/betbuilder/analyse`,
         { fixtureIds: ids, risk: risks },
         { timeout: 10 * 60 * 1000 }
       )

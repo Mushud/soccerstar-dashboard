@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import axios from 'axios'
+import api from '../api'
 
 function yesterday() {
   const d = new Date()
@@ -35,7 +35,7 @@ export default function BacktestView() {
 
   async function loadSavedWeights() {
     try {
-      const { data } = await axios.get('/api/backtest/weights')
+      const { data } = await api.get('/api/backtest/weights')
       if (data?.value) setSavedWeights(data)
     } catch {}
   }
@@ -44,7 +44,7 @@ export default function BacktestView() {
     setOptimising(true)
     setOptimResult(null)
     try {
-      const { data } = await axios.post('/api/backtest/optimise-weights', { minSamples: 20 })
+      const { data } = await api.post('/api/backtest/optimise-weights', { minSamples: 20 })
       setOptimResult(data)
       await loadSavedWeights()
     } catch (e) {
@@ -57,7 +57,7 @@ export default function BacktestView() {
   async function resetWeights() {
     if (!window.confirm('Reset blend weights to defaults (Poisson 35%, ELO 25%, Odds 40%)?')) return
     try {
-      await axios.delete('/api/backtest/weights')
+      await api.delete('/api/backtest/weights')
       setSavedWeights(null)
       setOptimResult({ message: 'Weights reset to defaults.' })
     } catch (e) {
@@ -72,7 +72,7 @@ export default function BacktestView() {
     setSyncing(true)
     setError(null)
     try {
-      await axios.post('/api/sync/all/backfill')
+      await api.post('/api/sync/all/backfill')
     } catch { /* non-fatal */ }
     finally { setSyncing(false) }
     await loadFixtures()
@@ -91,9 +91,9 @@ export default function BacktestView() {
       const effectiveDays = Math.max(backfillDays, daysToDate)
 
       // Step 1: sync fixture results for the full window
-      const { data: syncData } = await axios.post('/api/sync/recent', { days: effectiveDays })
+      const { data: syncData } = await api.post('/api/sync/recent', { days: effectiveDays })
       // Step 2: queue backtest for finished fixtures in that window
-      const { data: runData } = await axios.post(`/api/backtest/run?days=${effectiveDays}`)
+      const { data: runData } = await api.post(`/api/backtest/run?days=${effectiveDays}`)
       setBackfillResult({ syncData, runData, effectiveDays })
 
       // Reload immediately to show synced scores, then again after 8s to catch
@@ -110,7 +110,7 @@ export default function BacktestView() {
   async function refreshAccuracy(risk) {
     const params = { days: 60 }
     if (risk) params.risk = risk
-    const { data: acc } = await axios.get('/api/backtest/accuracy', { params })
+    const { data: acc } = await api.get('/api/backtest/accuracy', { params })
     setAccuracy(acc)
   }
 
@@ -123,8 +123,8 @@ export default function BacktestView() {
       const accParams = { days: 60 }
       if (accRisk) accParams.risk = accRisk
       const [{ data: fx }, { data: acc }] = await Promise.all([
-        axios.get('/api/backtest/fixtures', { params: { date } }),
-        axios.get('/api/backtest/accuracy', { params: accParams })
+        api.get('/api/backtest/fixtures', { params: { date } }),
+        api.get('/api/backtest/accuracy', { params: accParams })
       ])
       setFixtures(fx.items || [])
       setAccuracy(acc)
@@ -147,7 +147,7 @@ export default function BacktestView() {
   async function runFixture(fixtureId, force = false) {
     setRunning(r => ({ ...r, [fixtureId]: true }))
     try {
-      const { data } = await axios.post(`/api/backtest/fixture/${fixtureId}${force ? '?force=true' : ''}`)
+      const { data } = await api.post(`/api/backtest/fixture/${fixtureId}${force ? '?force=true' : ''}`)
       setResults(r => ({ ...r, [fixtureId]: data }))
       await refreshAccuracy(accRisk)
     } catch (e) {

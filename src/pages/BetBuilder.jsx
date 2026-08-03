@@ -1,8 +1,7 @@
 import { useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import axios from 'axios'
+import api, { API_BASE } from '../api'
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'
 
 const DURATION_LABELS = {
   today:    'Today',
@@ -72,7 +71,7 @@ export default function BetBuilder() {
     if (!fixtureIds.length) return
     setAnalysing(true)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds, risk: risks, fast }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/betbuilder/analyse`, { fixtureIds, risk: risks, fast }, { timeout: 10 * 60 * 1000 })
       const byId = {}
       for (const r of (data.results || [])) byId[r.fixtureId] = r
       setPicks(prev => prev.map(p => {
@@ -127,7 +126,7 @@ export default function BetBuilder() {
     else body.duration = duration
 
     try {
-      const res = await fetch(`${API}/api/betbuilder/generate`, {
+      const res = await fetch(`${API_BASE}/api/betbuilder/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -189,7 +188,7 @@ export default function BetBuilder() {
     setRerunning(true)
     setRerunMsg(`Rerunning engine for ${fixtureIds.length} fixtures…`)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/rerun`, { fixtureIds }, { timeout: 3 * 60 * 1000 })
+      const { data } = await api.post(`/api/betbuilder/rerun`, { fixtureIds }, { timeout: 3 * 60 * 1000 })
       setRerunMsg(`Done — ${data.ran} updated. Refreshing picks…`)
       await generate()
     } catch (err) {
@@ -223,7 +222,7 @@ export default function BetBuilder() {
     setAnalysing(true)
     const fixtureIds = [...selected]
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds, risk: risks }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/betbuilder/analyse`, { fixtureIds, risk: risks }, { timeout: 10 * 60 * 1000 })
       const byId = {}
       for (const r of (data.results || [])) byId[r.fixtureId] = r
       setPicks(prev => prev.map(p => {
@@ -253,7 +252,7 @@ export default function BetBuilder() {
         odds:      p.odds,
         date:      p.fixtureDate,
       }))
-      const { data } = await axios.post(`${API}/api/sportybet/booking-code`, { picks: payload, debug: sbDebug }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug }, { timeout: 10 * 60 * 1000 })
       setSbResult(data)
     } catch (err) {
       setSbResult({ success: false, error: err.response?.data?.error || err.message })
@@ -266,7 +265,7 @@ export default function BetBuilder() {
     if (!fixtureId || enrichingId) return
     setEnrichingId(fixtureId)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/enrich`, { fixtureId, market, selection })
+      const { data } = await api.post(`/api/betbuilder/enrich`, { fixtureId, market, selection })
       setPicks(prev => prev.map(p => p.fixtureId === fixtureId
         ? { ...p, dataFlags: data.dataFlags, dataVerified: data.dataVerified }
         : p
@@ -282,7 +281,7 @@ export default function BetBuilder() {
     if (!fixtureId || analysingId) return
     setAnalysingId(fixtureId)
     try {
-      const { data } = await axios.post(`${API}/api/betbuilder/analyse`, { fixtureIds: [fixtureId], risk: risks }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/betbuilder/analyse`, { fixtureIds: [fixtureId], risk: risks }, { timeout: 10 * 60 * 1000 })
       const r = (data.results || [])[0]
       if (r) {
         setPicks(prev => prev.map(p => p.fixtureId === fixtureId ? mergeAnalysis(p, r) : p))
