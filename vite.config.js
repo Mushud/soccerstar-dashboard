@@ -6,7 +6,10 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': 'http://localhost:3001'
+      // Must match PORT in backend/.env. index.js falls back to 3001 only when PORT is
+      // unset — it is set to 3547, so this pointed at a port nothing was listening on and
+      // every relative /api call in dev failed.
+      '/api': 'http://localhost:3547'
     }
   }
 })
