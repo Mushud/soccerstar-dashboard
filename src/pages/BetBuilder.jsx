@@ -188,8 +188,38 @@ export default function BetBuilder() {
     setRerunning(true)
     setRerunMsg(`Rerunning engine for ${fixtureIds.length} fixtures…`)
     try {
-      const { data } = await api.post(`/api/betbuilder/rerun`, { fixtureIds }, { timeout: 3 * 60 * 1000 })
-      setRerunMsg(`Done — ${data.ran} updated. Refreshing picks…`)
+      // SSE, not JSON: a large batch takes ~2 minutes of server work and nginx closes idle
+      // connections at 60s, so the old single-response version always failed as a network
+      // error. Streaming keeps the connection alive and surfaces real progress.
+      const res = await fetch(`${API_BASE}/api/betbuilder/rerun`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fixtureIds }),
+      })
+      if (!res.ok || !res.body) throw new Error(`Engine run failed (${res.status})`)
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      let result = null
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const parts = buf.split('\n\n')
+        buf = parts.pop()
+        for (const part of parts) {
+          if (!part.startsWith('data: ')) continue
+          let evt
+          try { evt = JSON.parse(part.slice(6)) } catch { continue }
+          if (evt.type === 'progress') setRerunMsg(evt.message)
+          else if (evt.type === 'done') result = evt
+          else if (evt.type === 'error') throw new Error(evt.error)
+        }
+      }
+
+      setRerunMsg(`Done — ${result?.ran ?? 0} updated. Refreshing picks…`)
       await generate()
     } catch (err) {
       setRerunMsg(null)
