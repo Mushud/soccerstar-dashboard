@@ -98,11 +98,21 @@ export default function BetBuilder() {
   }
 
   async function goalsPick(n = 10) {
-    // Prioritise goal markets: Over 1.5 / Over 2.5 / BTTS — confirmed data first, then relax
-    const isGoalMarket = p => GOAL_MARKETS.includes(p.selection)
+    // Prioritise goal markets: Over 1.5 / Over 2.5 / BTTS.
+    //
+    // This used to filter on the pick's OWN selection, which meant it found almost nothing in
+    // High Risk: that tier's scoring curve makes 93% of its main picks 1X2 Home/Away Win, even
+    // though high-risk fixtures are the highest-scoring on the card (2.94 goals average) and
+    // Over 1.5 landed 75.8% on them versus 31-41% for the 1X2 picks. `goalsOption` carries the
+    // best goals market for every fixture regardless of what won the main slot, so a fixture
+    // now qualifies on the strength of its goals market rather than being skipped.
+    const isGoalMarket = p => GOAL_MARKETS.includes(p.selection) || !!p.goalsOption
+    const goalStrength = p => GOAL_MARKETS.includes(p.selection)
+      ? (p.certaintyScore ?? 0)
+      : (p.goalsOption?.modelProbRaw ?? 0)
     const ranked = [...picks]
       .filter(isGoalMarket)
-      .sort((a, b) => (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0))
+      .sort((a, b) => goalStrength(b) - goalStrength(a))
     let pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified === 'confirmed')
     if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified !== 'risky')
     if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier))
@@ -593,6 +603,23 @@ export default function BetBuilder() {
                     <div /><div /><div />
                   </div>
                 ))
+                // Goals line, shown only when the main pick is NOT already a goals market.
+                // High Risk picks come out as 1X2 almost every time, yet those fixtures are the
+                // highest-scoring on the card — this surfaces the goals market before kickoff
+                // instead of leaving it to be noticed in the final score.
+                const g = pick.goalsOption
+                const goalsRow = (g && !GOAL_MARKETS.includes(pick.selection)) ? (
+                  <div key={`${pick.fixtureId ?? i}-goals`} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b1410', alignItems: 'center', borderLeft: '3px solid #2f6b4a' }}>
+                    <div />
+                    <div style={{ fontSize: 10, color: '#3d6b52' }}>└ ⚽ Goals</div>
+                    <div />
+                    <div style={{ fontSize: 11, color: '#4a806a' }}>{g.market}</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#68b892' }}>{g.selection}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{g.odds}x{g.hasRealOdds ? '' : '*'}</div>
+                    <div style={{ fontSize: 11, color: '#48bb78', fontWeight: 700 }}>{g.modelProb}</div>
+                    <div /><div /><div />
+                  </div>
+                ) : null
                 const aiExpanded = expandedAI.has(pick.fixtureId)
                 return [
                   <div key={pick.fixtureId ?? i} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '10px 14px', borderTop: '1px solid #1a2030', background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : undefined, alignItems: 'center', cursor: 'pointer' }} onClick={() => pick.fixtureId && toggleSelect(pick.fixtureId)}>
@@ -737,6 +764,7 @@ export default function BetBuilder() {
                       )}
                     </div>
                   </div>,
+                  ...(goalsRow ? [goalsRow] : []),
                   ...optRows,
                   hasAI && aiExpanded && (
                     <div key={`${pick.fixtureId ?? i}-ai`} style={{ borderTop: '1px solid #1a3a1a', background: '#080f08', padding: '12px 18px 14px 46px' }}>
