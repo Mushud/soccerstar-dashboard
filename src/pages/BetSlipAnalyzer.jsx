@@ -175,6 +175,31 @@ function PickCard({ p, i, onPredictionGenerated }) {
                     {md.confidence != null && <span style={{ marginLeft: 8 }}>Engine confidence: <span style={{ color: '#718096' }}>{md.confidence}</span></span>}
                   </div>
                 )}
+
+                {/* Model vs the price actually offered. impliedProb is 1/odds, so it INCLUDES
+                    the bookmaker's margin — the real hurdle, not the de-vigged fair figure. */}
+                {md.edge != null && (() => {
+                  const V = {
+                    'value':             { label: 'Value',        color: '#68d391', bg: '#1a3a2a', border: '#276749' },
+                    'slight-value':      { label: 'Slight value',  color: '#9ae6b4', bg: '#1a2e24', border: '#22543d' },
+                    'fair':              { label: 'Fair price',    color: '#a0aec0', bg: '#1a2030', border: '#2d3748' },
+                    'slight-overpriced': { label: 'Slightly short', color: '#ecc94b', bg: '#2d2a1a', border: '#744210' },
+                    'overpriced':        { label: 'Overpriced',    color: '#fc8181', bg: '#3a1a1a', border: '#742a2a' },
+                  }[md.edgeVerdict] || { label: md.edgeVerdict, color: '#a0aec0', bg: '#1a2030', border: '#2d3748' }
+                  return (
+                    <div style={{ marginTop: 8, padding: '7px 10px', background: V.bg, border: `1px solid ${V.border}`, borderRadius: 7, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 10 }}>
+                      <span style={{ fontWeight: 800, color: V.color, textTransform: 'uppercase', letterSpacing: 0.4 }}>{V.label}</span>
+                      <span style={{ color: '#718096' }}>model <strong style={{ color: '#cbd5e0' }}>{pct(md.matchedProb)}</strong></span>
+                      <span style={{ color: '#718096' }}>book implies <strong style={{ color: '#cbd5e0' }}>{pct(md.impliedProb)}</strong></span>
+                      <span style={{ color: V.color, fontWeight: 700 }}>
+                        {md.edge >= 0 ? '+' : ''}{(md.edge * 100).toFixed(1)}pp edge
+                      </span>
+                      <span style={{ color: '#4a5568' }}>
+                        break-even {md.matchedProb > 0 ? (1 / md.matchedProb).toFixed(2) : '—'}
+                      </span>
+                    </div>
+                  )
+                })()}
               </div>
             )
           })()}

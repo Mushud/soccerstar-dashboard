@@ -6,6 +6,7 @@ import MatchDetail from './pages/MatchDetail'
 import BetSlipAnalyzer from './pages/BetSlipAnalyzer'
 import BetBuilder from './pages/BetBuilder'
 import Tournaments from './pages/Tournaments'
+import Aliases from './pages/Aliases'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -16,6 +17,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Route path="/betslip" element={<BetSlipAnalyzer />} />
       <Route path="/bet-builder" element={<BetBuilder />} />
       <Route path="/tournaments" element={<Tournaments />} />
+      <Route path="/aliases" element={<Aliases />} />
     </Routes>
   </BrowserRouter>
 )
