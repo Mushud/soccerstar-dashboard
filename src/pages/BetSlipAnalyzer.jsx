@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import api from '../api'
+import api, { API_BASE } from '../api'
 
 
 const RISK_COLORS = {
@@ -324,6 +324,7 @@ export default function BetSlipAnalyzer() {
   const [analysis, setAnalysis]         = useState(null)
   const [fetchError, setFetchError]     = useState(null)
   const [analyzeError, setAnalyzeError] = useState(null)
+  const [analyzeProgress, setAnalyzeProgress] = useState(null)
   const [recentSlips, setRecentSlips]   = useState([])
   const [sidebarOpen, setSidebarOpen]   = useState(true)
 
@@ -390,15 +391,44 @@ export default function BetSlipAnalyzer() {
     setAnalysis(null)
     setAnalyzeError(null)
     try {
-      const { data } = await api.post(`/api/betslip/analyze`, {
-        selections: s.selections,
-        shareCode: s.shareCode,
+      // SSE, not JSON: a 39-leg slip takes ~200s server-side and nginx closes idle
+      // connections at 60s, so the single-response version only ever worked for small slips.
+      const res = await fetch(`${API_BASE}/api/betslip/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selections: s.selections, shareCode: s.shareCode }),
       })
-      setAnalysis(data)
+      if (!res.ok || !res.body) throw new Error(`Analysis failed (${res.status})`)
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buf = ''
+      let result = null
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        buf += decoder.decode(value, { stream: true })
+        const parts = buf.split('\n\n')
+        buf = parts.pop()
+        for (const part of parts) {
+          if (!part.startsWith('data: ')) continue
+          let evt
+          try { evt = JSON.parse(part.slice(6)) } catch { continue }
+          if (evt.type === 'progress') setAnalyzeProgress(evt.message)
+          else if (evt.type === 'done') result = evt.result
+          else if (evt.type === 'error') throw new Error(evt.error)
+        }
+      }
+      if (!result) throw new Error('Analysis ended without a result')
+
+      setAnalysis(result)
       setAnalyzeState('done')
+      setAnalyzeProgress(null)
       loadRecent()
     } catch (err) {
       setAnalyzeError(err.response?.data?.error || err.message)
+      setAnalyzeProgress(null)
       setAnalyzeState('error')
     }
   }
