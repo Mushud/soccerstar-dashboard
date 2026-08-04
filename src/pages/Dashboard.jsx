@@ -74,19 +74,25 @@ export default function Dashboard() {
       const from = new Date(selectedDate); from.setUTCHours(0, 0, 0, 0)
       const to   = new Date(selectedDate); to.setUTCHours(23, 59, 59, 999)
       const { data } = await api.get('/api/fixtures', {
-        params: { from: from.toISOString(), to: to.toISOString(), limit: 500 }
+        params: { from: from.toISOString(), to: to.toISOString(), limit: 1500 }
       })
       const fixtures = data.fixtures || []
       setUpcomingFixtures(fixtures)
+      if (data.total > fixtures.length) {
+        console.warn(`[upcoming] showing ${fixtures.length} of ${data.total} fixtures — raise the limit`)
+      }
 
-      const predMap = {}
-      await Promise.all(fixtures.map(async (f) => {
+      // One request for every prediction, not one per fixture. The old version fired a
+      // separate GET per fixture inside Promise.all — 500 requests on a normal day and 1500
+      // on a weekend, all queued behind the browser's per-host connection cap.
+      if (fixtures.length) {
         try {
-          const { data: pred } = await api.get(`/api/predictions/${f._id}`)
-          predMap[f._id] = pred
+          const { data: predMap } = await api.post('/api/predictions/bulk', {
+            fixtureIds: fixtures.map(f => f._id),
+          })
+          setPredictions(p => ({ ...p, ...predMap }))
         } catch { /* none yet */ }
-      }))
-      setPredictions(p => ({ ...p, ...predMap }))
+      }
     } catch {
       // silently fail
     } finally {

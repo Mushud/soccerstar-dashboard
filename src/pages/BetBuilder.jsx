@@ -39,7 +39,7 @@ export default function BetBuilder() {
   const [analysing, setAnalysing] = useState(false)
   const [analysingId, setAnalysingId] = useState(null)
   const [sortBy, setSortBy]       = useState('score')
-  const [limit, setLimit]         = useState(500)
+  const [limit, setLimit]         = useState(1500)
   const [page, setPage]           = useState(1)
   const [showAll, setShowAll]       = useState(false)
   const [sbLoading, setSbLoading]   = useState(false)

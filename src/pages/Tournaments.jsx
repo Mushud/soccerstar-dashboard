@@ -94,7 +94,7 @@ export default function Tournaments() {
     try {
       const now = new Date().toISOString()
       const { data } = await api.get('/api/fixtures', {
-        params: { league: league.name, status: 'upcoming', from: now, limit: 200 }
+        params: { league: league.name, status: 'upcoming', from: now, limit: 1500 }
       })
       // Also fetch live matches for this league
       const { data: liveData } = await api.get('/api/fixtures/live').catch(() => ({ data: { fixtures: [] } }))
@@ -170,7 +170,7 @@ export default function Tournaments() {
       const res = await fetch(`${API_BASE}/api/betbuilder/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ risk: risks, duration, limit: 500, showAll, league: selectedLeague.name }),
+        body: JSON.stringify({ risk: risks, duration, limit: 1500, showAll, league: selectedLeague.name }),
       })
 
       if (!res.ok) {
