@@ -179,14 +179,37 @@ export default function BetBuilder() {
     }
   }
 
-  async function rerunPredictions() {
-    const fixtureIds = picks.map(p => p.fixtureId).filter(Boolean)
-    if (!fixtureIds.length) {
-      setError('Load picks first, then rerun to refresh their predictions.')
-      return
+  // scope 'picks'  — only the fixtures currently on screen (fast)
+  // scope 'window' — EVERY upcoming fixture in the selected date window
+  //
+  // 'window' matters because refreshing only the fixtures that already qualified can only ever
+  // confirm what already qualified. A fixture that missed the risk gate on stale strengths or
+  // absent odds is never re-predicted under 'picks', so it can never re-enter the list however
+  // much has changed underneath.
+  async function rerunPredictions({ scope = 'picks', refreshOdds = false } = {}) {
+    const body = { refreshOdds }
+    if (scope === 'window') {
+      body.scope = 'window'
+      if (dateMode === 'pick') { body.from = fromDate; body.to = toDate || fromDate }
+      else body.duration = duration
+      const label = dateMode === 'pick' ? `${fromDate}${toDate && toDate !== fromDate ? ` → ${toDate}` : ''}` : duration
+      if (!window.confirm(
+        `Re-run the prediction engine on EVERY upcoming fixture in "${label}".\n\n` +
+        `This can take 15–30 minutes for a week-long window` +
+        (refreshOdds ? ` and will also re-fetch bookmaker odds (slower again, and uses API quota)` : '') +
+        `.\n\nProgress is shown as it runs. Continue?`
+      )) return
+    } else {
+      const fixtureIds = picks.map(p => p.fixtureId).filter(Boolean)
+      if (!fixtureIds.length) {
+        setError('Load picks first, then rerun to refresh their predictions.')
+        return
+      }
+      body.fixtureIds = fixtureIds
     }
+
     setRerunning(true)
-    setRerunMsg(`Rerunning engine for ${fixtureIds.length} fixtures…`)
+    setRerunMsg(scope === 'window' ? 'Starting full-window engine run…' : `Rerunning engine for ${body.fixtureIds.length} fixtures…`)
     try {
       // SSE, not JSON: a large batch takes ~2 minutes of server work and nginx closes idle
       // connections at 60s, so the old single-response version always failed as a network
@@ -194,7 +217,7 @@ export default function BetBuilder() {
       const res = await fetch(`${API_BASE}/api/betbuilder/rerun`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fixtureIds }),
+        body: JSON.stringify(body),
       })
       if (!res.ok || !res.body) throw new Error(`Engine run failed (${res.status})`)
 
@@ -213,13 +236,17 @@ export default function BetBuilder() {
           if (!part.startsWith('data: ')) continue
           let evt
           try { evt = JSON.parse(part.slice(6)) } catch { continue }
-          if (evt.type === 'progress') setRerunMsg(evt.message)
+          if (evt.type === 'start') {
+            const mins = Math.round((evt.estimatedSeconds || 0) / 60)
+            setRerunMsg(`${evt.fixtures} fixtures across ${evt.leagues} leagues${evt.window ? ` (${evt.window})` : ''} — roughly ${mins < 1 ? 'under a minute' : `${mins} min`}…`)
+          }
+          else if (evt.type === 'progress') setRerunMsg(evt.message)
           else if (evt.type === 'done') result = evt
           else if (evt.type === 'error') throw new Error(evt.error)
         }
       }
 
-      setRerunMsg(`Done — ${result?.ran ?? 0} updated. Refreshing picks…`)
+      setRerunMsg(`Done — ${result?.ran ?? 0} updated${result?.oddsFetched ? `, ${result.oddsFetched} odds refreshed` : ''}. Refreshing picks…`)
       await generate()
     } catch (err) {
       setRerunMsg(null)
@@ -421,8 +448,14 @@ export default function BetBuilder() {
             <button onClick={generate} disabled={loading || rerunning} style={{ flex: 1, padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
               {loading ? 'Fetching picks…' : showAll ? `Get All Matches (${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join('+')} filter off)` : `Get Top ${limit} Picks — ${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}`}
             </button>
-            <button onClick={rerunPredictions} disabled={loading || rerunning} title="Re-run the prediction engine on all upcoming fixtures, then refresh picks" style={{ padding: '12px 18px', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: rerunning ? '#1a2a3a' : '#1a2030', color: rerunning ? '#90cdf4' : '#4a5568', border: '1px solid #2d3748', whiteSpace: 'nowrap' }}>
-              {rerunning ? '⚙️ Running engine…' : '⚙️ Rerun Predictions'}
+            <button onClick={() => rerunPredictions({ scope: 'picks' })} disabled={loading || rerunning} title="Re-run the engine on the fixtures currently listed only. Fast, but a fixture that is not already in the list cannot appear — use Rerun All for that." style={{ padding: '12px 18px', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: rerunning ? '#1a2a3a' : '#1a2030', color: rerunning ? '#90cdf4' : '#4a5568', border: '1px solid #2d3748', whiteSpace: 'nowrap' }}>
+              {rerunning ? '⚙️ Running engine…' : '⚙️ Rerun Listed'}
+            </button>
+            <button onClick={() => rerunPredictions({ scope: 'window' })} disabled={loading || rerunning} title="Re-run the engine on EVERY upcoming fixture in the selected date window, so fixtures that previously missed the risk gate can re-enter the list. Slow — 15-30 min for a week." style={{ padding: '12px 18px', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: rerunning ? '#1a2a3a' : '#2a2030', color: rerunning ? '#90cdf4' : '#d69e2e', border: '1px solid #744210', whiteSpace: 'nowrap' }}>
+              ⚙️ Rerun All
+            </button>
+            <button onClick={() => rerunPredictions({ scope: 'window', refreshOdds: true })} disabled={loading || rerunning} title="Rerun All, and also re-fetch live bookmaker odds for every fixture. Slowest option and it consumes API-Football quota — use when prices have moved." style={{ padding: '12px 14px', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: rerunning ? '#1a2a3a' : '#2a1a2a', color: rerunning ? '#90cdf4' : '#b794f4', border: '1px solid #553c9a', whiteSpace: 'nowrap' }}>
+              ⚙️+💰 All&nbsp;+&nbsp;Odds
             </button>
           </div>
           {rerunMsg && (
