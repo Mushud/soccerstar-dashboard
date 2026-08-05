@@ -42,6 +42,8 @@ export default function BetBuilder() {
   const [limit, setLimit]         = useState(1500)
   const [page, setPage]           = useState(1)
   const [showAll, setShowAll]       = useState(false)
+  const [valueMode, setValueMode]   = useState(false)   // rank by edge vs the real price
+  const [minEdge, setMinEdge]       = useState(0.10)
   const [sbLoading, setSbLoading]   = useState(false)
   const [sbResult, setSbResult]     = useState(null)
   const [sbDebug, setSbDebug]       = useState(false)
@@ -131,7 +133,11 @@ export default function BetBuilder() {
     setSelected(new Set())
     setPage(1)
 
+    const useValue = overrides.valueMode ?? valueMode
     const body = { risk: risks, limit, showAll: effectiveShowAll }
+    // Value mode ranks by disagreement with a REAL bookmaker price instead of by risk tier,
+    // so the tier gate and showAll are irrelevant to it.
+    if (useValue) { body.mode = 'edge'; body.minEdge = minEdge }
     if (dateMode === 'pick') { body.from = fromDate; body.to = toDate || fromDate }
     else body.duration = duration
 
@@ -454,6 +460,24 @@ export default function BetBuilder() {
               >
                 {showAll ? '🔓 All matches' : '🎯 Filtered'}
               </button>
+              <button
+                onClick={() => { const v = !valueMode; setValueMode(v); generate({ valueMode: v }) }}
+                disabled={loading || rerunning}
+                title="Value mode: show only bets where the model disagrees with a REAL bookmaker price by at least the chosen edge, ranked by edge. Ignores risk tiers. Expect a handful per week, not a full slate — and only fixtures whose odds we have stored can qualify."
+                style={{ padding: '6px 14px', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: valueMode ? '#2a2410' : '#1a2030', color: valueMode ? '#f6e05e' : '#718096', border: `1px solid ${valueMode ? '#d69e2e' : '#2d3748'}` }}
+              >
+                {valueMode ? '💎 Value' : '💎 Value off'}
+              </button>
+              {valueMode && (
+                <select value={minEdge} onChange={e => { setMinEdge(Number(e.target.value)); }} disabled={loading}
+                  title="Minimum model-vs-market disagreement. Below 10pp the market has historically been the better forecaster."
+                  style={{ padding: '6px 8px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#1a2030', color: '#f6e05e', border: '1px solid #d69e2e', cursor: 'pointer' }}>
+                  <option value={0.05}>≥5pp (weak)</option>
+                  <option value={0.08}>≥8pp</option>
+                  <option value={0.10}>≥10pp</option>
+                  <option value={0.15}>≥15pp (rare)</option>
+                </select>
+              )}
             </div>
             <button onClick={generate} disabled={loading || rerunning} style={{ flex: 1, padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
               {loading ? 'Fetching picks…' : showAll ? `Get All Matches (${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join('+')} filter off)` : `Get Top ${limit} Picks — ${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}`}
@@ -688,6 +712,17 @@ export default function BetBuilder() {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {pick.modelProb && <span style={{ fontSize: 12, color: '#68d391', fontWeight: 700 }}>{pick.modelProb}</span>}
+                      {/* Edge is only meaningful against a REAL price — against estOdds it is
+                          structurally zero, since estOdds is derived from modelProb itself. */}
+                      {pick.hasRealOdds && pick.edge != null && (
+                        <span title={`Model ${pick.modelProb} vs bookmaker ${(pick.bookImplied * 100).toFixed(0)}% implied`}
+                          style={{ fontSize: 10, marginLeft: 5, fontWeight: 800, padding: '1px 5px', borderRadius: 4,
+                            background: pick.edge >= 0.10 ? '#2a2410' : pick.edge > 0 ? '#12211a' : '#241414',
+                            color: pick.edge >= 0.10 ? '#f6e05e' : pick.edge > 0 ? '#68d391' : '#fc8181',
+                            border: `1px solid ${pick.edge >= 0.10 ? '#d69e2e' : pick.edge > 0 ? '#2f6b4a' : '#742a2a'}` }}>
+                          {pick.edge >= 0 ? '+' : ''}{(pick.edge * 100).toFixed(0)}pp
+                        </span>
+                      )}
                       {pick.certaintyScore != null && <span style={{ fontSize: 10, color: '#4a5568' }}>{pick.certaintyScore.toFixed(3)}</span>}
                     </div>
 
