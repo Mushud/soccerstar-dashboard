@@ -276,12 +276,27 @@ export default function BacktestView() {
                 <AccBadge label="DC 1X"       data={daySummary.markets.dc1X} />
                 <AccBadge label="DC X2"       data={daySummary.markets.dcX2} />
               </div>
-              {/* Odds is measured on its own denominator — only some fixtures have a stored
-                  price — so comparing its % to the others without the counts would mislead. */}
-              {daySummary.models.odds && daySummary.models.blended &&
-               daySummary.models.odds.total !== daySummary.models.blended.total && (
-                <div style={{ fontSize: '0.62rem', color: '#4a5568', marginTop: 6 }}>
-                  Odds measured on {daySummary.models.odds.total} fixtures that had a stored bookmaker price, not all {daySummary.models.blended.total}.
+              {/* The badges above put Odds on a different denominator from the rest, so this
+                  block re-measures every model on the SAME fixtures — the priced subset, and
+                  its complement — which is the only fair comparison. */}
+              {daySummary.headToHead?.withOdds?.n > 0 && (
+                <div style={{ marginTop: 12, borderTop: '1px solid #2d3748', paddingTop: 10 }}>
+                  <div style={{ fontSize: '0.65rem', color: '#63b3ed', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, marginBottom: 6 }}>
+                    Like-for-like · same fixtures, every model
+                  </div>
+                  <HeadToHeadRow label={`Priced (${daySummary.headToHead.withOdds.n})`} block={daySummary.headToHead.withOdds} showOdds />
+                  {daySummary.headToHead.withoutOdds?.n > 0 && (
+                    <HeadToHeadRow label={`No price (${daySummary.headToHead.withoutOdds.n})`} block={daySummary.headToHead.withoutOdds} />
+                  )}
+                  {daySummary.headToHead.disagreements && (
+                    <div style={{ marginTop: 8, fontSize: '0.7rem', color: '#a0aec0' }}>
+                      Model and market named different winners <strong style={{ color: '#e2e8f0' }}>{daySummary.headToHead.disagreements.total}</strong> times —
+                      <span style={{ color: '#68d391', fontWeight: 700 }}> model right {daySummary.headToHead.disagreements.modelRight}</span>,
+                      <span style={{ color: '#fc8181', fontWeight: 700 }}> market right {daySummary.headToHead.disagreements.marketRight}</span>,
+                      <span style={{ color: '#718096' }}> both wrong {daySummary.headToHead.disagreements.bothWrong}</span>.
+                      <span style={{ color: '#4a5568' }}> Agreement tells you nothing; only these say who has an edge.</span>
+                    </div>
+                  )}
                 </div>
               )}
               <DayFixtureList fixtures={daySummary.fixtures} />
@@ -444,6 +459,29 @@ function WeightPill({ label, val, color }) {
   )
 }
 
+function HeadToHeadRow({ label, block, showOdds }) {
+  const cell = (name, d) => {
+    if (!d) return null
+    const good = d.pct >= 50
+    return (
+      <div key={name} style={{ background: '#222b3d', borderRadius: 6, padding: '3px 8px', minWidth: 74 }}>
+        <div style={{ fontSize: '0.58rem', color: '#718096' }}>{name}</div>
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: good ? '#68d391' : '#fc8181' }}>{d.pct}%</div>
+        <div style={{ fontSize: '0.58rem', color: '#4a5568' }}>{d.correct}/{d.total}</div>
+      </div>
+    )
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
+      <div style={{ fontSize: '0.65rem', color: '#a0aec0', minWidth: 96 }}>{label}</div>
+      {cell('Blended', block.blended)}
+      {cell('Poisson', block.poisson)}
+      {cell('ELO', block.elo)}
+      {showOdds && cell('Market', block.odds)}
+    </div>
+  )
+}
+
 function DayFixtureList({ fixtures }) {
   const [open, setOpen] = useState(false)
   if (!fixtures?.length) return null
@@ -456,11 +494,17 @@ function DayFixtureList({ fixtures }) {
       {open && (
         <div style={{ marginTop: 8, maxHeight: 340, overflowY: 'auto', borderTop: '1px solid #2d3748' }}>
           {fixtures.map((f, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px 1fr 60px 90px 60px', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #1a2030', fontSize: '0.7rem' }}>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px 1fr 56px 86px 96px 52px', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #1a2030', fontSize: '0.7rem', background: f.disagreed ? '#1d1a12' : undefined }}>
               <span style={{ color: f.correct ? '#68d391' : '#fc8181', fontWeight: 700 }}>{f.correct ? '✓' : '✗'}</span>
               <span style={{ color: '#cbd5e0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.league}>{f.match}</span>
               <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{f.score}</span>
               <span style={{ color: '#718096' }}>said {f.predicted} {f.prob}%</span>
+              {/* No price stored means this fixture is invisible to the market comparison. */}
+              {f.hasOdds
+                ? <span style={{ color: f.oddsCorrect ? '#68d391' : '#fc8181' }}>
+                    mkt {f.oddsPredicted} {f.oddsProb}%{f.disagreed ? ' ⚔' : ''}
+                  </span>
+                : <span style={{ color: '#3a4658' }}>no price</span>}
               <span style={{ color: '#4a5568' }}>{f.actual}</span>
             </div>
           ))}
