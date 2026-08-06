@@ -22,6 +22,7 @@ export default function BacktestView() {
   const [syncing, setSyncing]   = useState(false)
   const [fixtures, setFixtures] = useState(null)
   const [accuracy, setAccuracy] = useState(null)
+  const [daySummary, setDaySummary] = useState(null)   // accuracy for the picked matchday
   const [accRisk, setAccRisk]   = useState('')
   const [results, setResults]   = useState({})
   const [running, setRunning]   = useState({})
@@ -119,15 +120,20 @@ export default function BacktestView() {
     setError(null)
     setFixtures(null)
     setResults({})
+    setDaySummary(null)
     try {
       const accParams = { days: 60 }
       if (accRisk) accParams.risk = accRisk
-      const [{ data: fx }, { data: acc }] = await Promise.all([
+      // day-summary is scoped to the picked matchday; accuracy stays the rolling 60-day view.
+      // Failure of the day view must not blank the page, hence the catch.
+      const [{ data: fx }, { data: acc }, daySum] = await Promise.all([
         api.get('/api/backtest/fixtures', { params: { date } }),
-        api.get('/api/backtest/accuracy', { params: accParams })
+        api.get('/api/backtest/accuracy', { params: accParams }),
+        api.get('/api/backtest/day-summary', { params: { date } }).then(r => r.data).catch(() => null),
       ])
       setFixtures(fx.items || [])
       setAccuracy(acc)
+      setDaySummary(daySum)
 
       // Pre-fill already-analysed fixtures using the full result from buildResult()
       const prefilled = {}
@@ -233,6 +239,53 @@ export default function BacktestView() {
                 <span style={{ color: '#718096', marginLeft: 6 }}>— calibration curves updating in background</span>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* This matchday only — distinct from the rolling 60-day panel below it. */}
+      {daySummary && (
+        <div style={{ background: '#141a28', border: '1px solid #2b4a6f', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+            <div style={{ fontSize: '0.7rem', color: '#63b3ed', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+              This day · {daySummary.date}
+            </div>
+            <div style={{ fontSize: '0.7rem', color: '#718096' }}>
+              {daySummary.played} played · <strong style={{ color: '#e2e8f0' }}>{daySummary.graded}</strong> graded
+              {daySummary.ungraded > 0 && <span style={{ color: '#d69e2e' }}> · {daySummary.ungraded} not backtested</span>}
+            </div>
+            {daySummary.actualOutcomes && daySummary.graded > 0 && (
+              <div style={{ fontSize: '0.68rem', color: '#4a5568' }}>
+                actual: {daySummary.actualOutcomes.home}H / {daySummary.actualOutcomes.draw}D / {daySummary.actualOutcomes.away}A
+              </div>
+            )}
+          </div>
+          {daySummary.graded === 0 ? (
+            <div style={{ fontSize: '0.75rem', color: '#718096' }}>{daySummary.note}</div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <AccBadge label="Blended 1X2" data={daySummary.models.blended} highlight />
+                <AccBadge label="Poisson 1X2" data={daySummary.models.poisson} />
+                <AccBadge label="ELO 1X2"     data={daySummary.models.elo} />
+                <AccBadge label="Odds 1X2"    data={daySummary.models.odds} />
+                <AccBadge label="Over 1.5"    data={daySummary.markets.over15} />
+                <AccBadge label="Over 2.5"    data={daySummary.markets.over25} />
+                <AccBadge label="Over 3.5"    data={daySummary.markets.over35} />
+                <AccBadge label="BTTS"        data={daySummary.markets.btts} />
+                <AccBadge label="DC 1X"       data={daySummary.markets.dc1X} />
+                <AccBadge label="DC X2"       data={daySummary.markets.dcX2} />
+              </div>
+              {/* Odds is measured on its own denominator — only some fixtures have a stored
+                  price — so comparing its % to the others without the counts would mislead. */}
+              {daySummary.models.odds && daySummary.models.blended &&
+               daySummary.models.odds.total !== daySummary.models.blended.total && (
+                <div style={{ fontSize: '0.62rem', color: '#4a5568', marginTop: 6 }}>
+                  Odds measured on {daySummary.models.odds.total} fixtures that had a stored bookmaker price, not all {daySummary.models.blended.total}.
+                </div>
+              )}
+              <DayFixtureList fixtures={daySummary.fixtures} />
+            </>
           )}
         </div>
       )}
@@ -388,6 +441,32 @@ function WeightPill({ label, val, color }) {
       <span style={{ color }}>{label}</span>
       <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{Math.round(val * 100)}%</span>
     </span>
+  )
+}
+
+function DayFixtureList({ fixtures }) {
+  const [open, setOpen] = useState(false)
+  if (!fixtures?.length) return null
+  const hits = fixtures.filter(f => f.correct).length
+  return (
+    <div style={{ marginTop: 10 }}>
+      <button onClick={() => setOpen(!open)} style={{ background: 'none', border: 'none', color: '#63b3ed', fontSize: '0.7rem', cursor: 'pointer', padding: 0, fontWeight: 700 }}>
+        {open ? '▾' : '▸'} {hits}/{fixtures.length} correct — {open ? 'hide' : 'show'} every match
+      </button>
+      {open && (
+        <div style={{ marginTop: 8, maxHeight: 340, overflowY: 'auto', borderTop: '1px solid #2d3748' }}>
+          {fixtures.map((f, i) => (
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px 1fr 60px 90px 60px', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #1a2030', fontSize: '0.7rem' }}>
+              <span style={{ color: f.correct ? '#68d391' : '#fc8181', fontWeight: 700 }}>{f.correct ? '✓' : '✗'}</span>
+              <span style={{ color: '#cbd5e0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.league}>{f.match}</span>
+              <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{f.score}</span>
+              <span style={{ color: '#718096' }}>said {f.predicted} {f.prob}%</span>
+              <span style={{ color: '#4a5568' }}>{f.actual}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
