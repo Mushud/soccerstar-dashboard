@@ -369,6 +369,11 @@ export default function BetBuilder() {
 
   const sorted = [...picks].sort((a, b) => {
     if (sortBy === 'prob')  return parseFloat(b.modelProb) - parseFloat(a.modelProb)
+    if (sortBy === 'o15')   return (b.over15 ?? 0) - (a.over15 ?? 0)
+    if (sortBy === 'x2') {
+      const top = p => p.blend ? Math.max(p.blend.home ?? 0, p.blend.draw ?? 0, p.blend.away ?? 0) : 0
+      return top(b) - top(a)
+    }
     if (sortBy === 'time')  return new Date(a.fixtureDate) - new Date(b.fixtureDate)
     if (sortBy === 'odds')  return (b.odds || 0) - (a.odds || 0)
     return (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0)
@@ -389,14 +394,20 @@ export default function BetBuilder() {
         <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginLeft: 'auto' }}>Bet Builder</span>
       </div>
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 16px' }}>
+      {/* The picks table carries 12 columns; at the old maxWidth 900 that left ~75px each,
+          which is what made the page feel cramped and scattered. Wide but still bounded, so
+          text lines do not run to absurd lengths on an ultrawide display. */}
+      <div style={{ maxWidth: 1560, margin: '0 auto', padding: '24px clamp(12px, 2vw, 28px)' }}>
 
         {/* Form */}
         <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 20, marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
 
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {/* Explicit grid, not flex-wrap: the window controls want a bounded column and the
+              risk cards should absorb whatever is left. Under flex-wrap both children sized to
+              their content, which stranded them on the left with ~1000px of empty panel. */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(250px, 330px) 1fr', gap: 20, alignItems: 'start' }}>
             {/* Fixture window */}
-            <div style={{ flex: 1, minWidth: 160 }}>
+            <div>
               <div style={{ fontSize: 11, color: '#718096', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fixture Window</div>
               <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
                 {[['quick','Quick'],['pick','Date']].map(([m,l]) => (
@@ -404,17 +415,17 @@ export default function BetBuilder() {
                 ))}
               </div>
               {dateMode === 'quick' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {Object.entries(DURATION_LABELS).map(([k, l]) => (
-                    <button key={k} onClick={() => setDuration(k)} style={{ padding: '7px 12px', borderRadius: 7, fontSize: 13, cursor: 'pointer', textAlign: 'left', background: duration===k ? '#1a2a4a' : '#1a2030', color: duration===k ? '#90cdf4' : '#718096', border: `1px solid ${duration===k ? '#2b6cb0' : '#2d3748'}`, fontWeight: duration===k ? 700 : 400 }}>{l}</button>
+                    <button key={k} onClick={() => setDuration(k)} style={{ padding: '7px 12px', borderRadius: 7, fontSize: 13, cursor: 'pointer', textAlign: 'center', flex: '1 1 auto', background: duration===k ? '#1a2a4a' : '#1a2030', color: duration===k ? '#90cdf4' : '#718096', border: `1px solid ${duration===k ? '#2b6cb0' : '#2d3748'}`, fontWeight: duration===k ? 700 : 400 }}>{l}</button>
                   ))}
                 </div>
               )}
               {dateMode === 'pick' && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 8 }}>
                   {[['From', fromDate, v => { setFromDate(v); if (v > toDate) setToDate(v) }, null],
                     ['To',   toDate,   v => setToDate(v), fromDate]].map(([lbl, val, fn, min]) => (
-                    <div key={lbl}>
+                    <div key={lbl} style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, color: '#718096', marginBottom: 3 }}>{lbl}</div>
                       <input type="date" value={val} min={min || undefined} onChange={e => fn(e.target.value)}
                         style={{ width: '100%', boxSizing: 'border-box', background: '#0a0e1a', border: '1px solid #2b6cb0', color: '#e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 13 }} />
@@ -425,13 +436,13 @@ export default function BetBuilder() {
             </div>
 
             {/* Risk */}
-            <div style={{ flex: 2, minWidth: 220 }}>
+            <div>
               <div style={{ fontSize: 11, color: '#718096', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Risk Level</div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {RISK_OPTIONS.map(r => {
                   const active = risks.includes(r.key)
                   return (
-                    <button key={r.key} onClick={() => toggleRisk(r.key)} style={{ flex: 1, minWidth: 110, padding: '10px 12px', borderRadius: 10, cursor: 'pointer', background: active ? r.activeBg : r.bg, border: `2px solid ${active ? r.color : r.border}`, textAlign: 'left', position: 'relative' }}>
+                    <button key={r.key} onClick={() => toggleRisk(r.key)} style={{ flex: '1 1 0', minWidth: 150, padding: '12px 14px', borderRadius: 10, cursor: 'pointer', background: active ? r.activeBg : r.bg, border: `2px solid ${active ? r.color : r.border}`, textAlign: 'left', position: 'relative' }}>
                       {active && <span style={{ position: 'absolute', top: 6, right: 8, fontSize: 10, color: r.color, fontWeight: 800 }}>✓</span>}
                       <div style={{ fontSize: 13, fontWeight: 700, color: r.color, marginBottom: 2 }}>{r.emoji} {r.label}</div>
                       <div style={{ fontSize: 11, color: active ? r.color : '#718096' }}>{r.desc}</div>
@@ -442,7 +453,7 @@ export default function BetBuilder() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', paddingTop: 4, borderTop: '1px solid #1a2030' }}>
             <div>
               <div style={{ fontSize: 11, color: '#718096', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fetch top</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -479,7 +490,7 @@ export default function BetBuilder() {
                 </select>
               )}
             </div>
-            <button onClick={generate} disabled={loading || rerunning} style={{ flex: 1, padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
+            <button onClick={generate} disabled={loading || rerunning} style={{ flex: '0 1 420px', padding: '12px 24px', borderRadius: 10, fontSize: 15, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: loading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: loading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78' }}>
               {loading ? 'Fetching picks…' : showAll ? `Get All Matches (${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join('+')} filter off)` : `Get Top ${limit} Picks — ${risks.map(r => RISK_OPTIONS.find(o=>o.key===r)?.label).join(' + ')}`}
             </button>
             <button onClick={() => rerunPredictions({ scope: 'picks' })} disabled={loading || rerunning} title="Re-run the engine on the fixtures currently listed only. Fast, but a fixture that is not already in the list cannot appear — use Rerun All for that." style={{ padding: '12px 18px', borderRadius: 10, fontSize: 13, fontWeight: 800, cursor: (loading || rerunning) ? 'not-allowed' : 'pointer', background: rerunning ? '#1a2a3a' : '#1a2030', color: rerunning ? '#90cdf4' : '#4a5568', border: '1px solid #2d3748', whiteSpace: 'nowrap' }}>
@@ -583,21 +594,25 @@ export default function BetBuilder() {
                   </select>
                 </div>
                 <span style={{ fontSize: 11, color: '#4a5568' }}>Sort:</span>
-                {[['score','Score'],['prob','Model %'],['odds','Odds'],['time','Time']].map(([k,l]) => (
+                {[['prob','Model %'],['x2','1X2'],['o15','Over 1.5'],['score','Score'],['odds','Odds'],['time','Time']].map(([k,l]) => (
                   <button key={k} onClick={() => setSortBy(k)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: sortBy===k ? '#1a2a4a' : '#1a2030', color: sortBy===k ? '#90cdf4' : '#718096', border: `1px solid ${sortBy===k ? '#2b6cb0' : '#2d3748'}` }}>{l}</button>
                 ))}
               </div>
             </div>
 
-            {/* Picks table */}
-            <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 10, overflow: 'hidden' }}>
+            {/* Picks table.
+                overflowX rather than 'hidden': below ~1200px twelve columns cannot fit, and
+                squeezing them was what truncated the market and selection text. It now scrolls
+                sideways and every column keeps a readable width. */}
+            <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 10, overflowX: 'auto', overflowY: 'hidden' }}>
+              <div style={{ minWidth: 1180 }}>
 
               {/* Header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '8px 14px', background: '#0a0e1a', borderBottom: '1px solid #1f2937' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '8px 14px', background: '#0a0e1a', borderBottom: '1px solid #1f2937' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <input type="checkbox" checked={selected.size === picks.length && picks.length > 0} onChange={selectAll} style={{ cursor: 'pointer' }} />
                 </div>
-                {['Match','League','Market','Selection','Odds','Model %','Value','Reason / Blend',''].map((h,i) => (
+                {['Match','League','Market','Selection','Odds','Model %','1X2','O1.5','Value','Reason / Blend',''].map((h,i) => (
                   <div key={i} style={{ fontSize: 10, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>
                 ))}
               </div>
@@ -616,7 +631,7 @@ export default function BetBuilder() {
                                : pick.value === 'Poor value' ? '#2a0f0f'
                                : '#2a2510'
                 const optRows  = (pick.options || []).map((opt, j) => (
-                  <div key={`${pick.fixtureId ?? i}-opt-${j}`} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b0f1c', alignItems: 'center', borderLeft: '3px solid #1e3a5a' }}>
+                  <div key={`${pick.fixtureId ?? i}-opt-${j}`} style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b0f1c', alignItems: 'center', borderLeft: '3px solid #1e3a5a' }}>
                     <div />
                     <div style={{ fontSize: 10, color: '#2d4a6a' }}>└ Option {j + 2}</div>
                     <div />
@@ -624,7 +639,7 @@ export default function BetBuilder() {
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#7097b8' }}>{opt.selection}</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{opt.odds}x</div>
                     <div style={{ fontSize: 11, color: '#4a7a5a', fontWeight: 700 }}>{opt.modelProb}</div>
-                    <div /><div /><div />
+                    <div /><div /><div /><div /><div />
                   </div>
                 ))
                 // Goals line, shown only when the main pick is NOT already a goals market.
@@ -633,7 +648,7 @@ export default function BetBuilder() {
                 // instead of leaving it to be noticed in the final score.
                 const g = pick.goalsOption
                 const goalsRow = (g && !GOAL_MARKETS.includes(pick.selection)) ? (
-                  <div key={`${pick.fixtureId ?? i}-goals`} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b1410', alignItems: 'center', borderLeft: '3px solid #2f6b4a' }}>
+                  <div key={`${pick.fixtureId ?? i}-goals`} style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b1410', alignItems: 'center', borderLeft: '3px solid #2f6b4a' }}>
                     <div />
                     <div style={{ fontSize: 10, color: '#3d6b52' }}>└ ⚽ Goals</div>
                     <div />
@@ -641,12 +656,12 @@ export default function BetBuilder() {
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#68b892' }}>{g.selection}</div>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{g.odds}x{g.hasRealOdds ? '' : '*'}</div>
                     <div style={{ fontSize: 11, color: '#48bb78', fontWeight: 700 }}>{g.modelProb}</div>
-                    <div /><div /><div />
+                    <div /><div /><div /><div /><div />
                   </div>
                 ) : null
                 const aiExpanded = expandedAI.has(pick.fixtureId)
                 return [
-                  <div key={pick.fixtureId ?? i} style={{ display: 'grid', gridTemplateColumns: '32px 2fr 1.2fr 1.1fr 1.1fr 0.65fr 0.75fr 0.85fr 2fr 56px', gap: 8, padding: '10px 14px', borderTop: '1px solid #1a2030', background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : undefined, alignItems: 'center', cursor: 'pointer' }} onClick={() => pick.fixtureId && toggleSelect(pick.fixtureId)}>
+                  <div key={pick.fixtureId ?? i} style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '10px 14px', borderTop: '1px solid #1a2030', background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : undefined, alignItems: 'center', cursor: 'pointer' }} onClick={() => pick.fixtureId && toggleSelect(pick.fixtureId)}>
 
                     <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center' }}>
                       <input type="checkbox" checked={isSel} onChange={() => toggleSelect(pick.fixtureId)} disabled={!pick.fixtureId} style={{ cursor: 'pointer' }} />
@@ -711,7 +726,10 @@ export default function BetBuilder() {
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {pick.modelProb && <span style={{ fontSize: 12, color: '#68d391', fontWeight: 700 }}>{pick.modelProb}</span>}
+                      {pick.modelProb && (
+                        <span title={`Model probability for this selection${pick.certaintyScore != null ? ` · engine score ${pick.certaintyScore.toFixed(3)}` : ''}`}
+                          style={{ fontSize: 14, color: '#68d391', fontWeight: 800 }}>{pick.modelProb}</span>
+                      )}
                       {/* Edge is only meaningful against a REAL price — against estOdds it is
                           structurally zero, since estOdds is derived from modelProb itself. */}
                       {pick.hasRealOdds && pick.edge != null && (
@@ -723,7 +741,37 @@ export default function BetBuilder() {
                           {pick.edge >= 0 ? '+' : ''}{(pick.edge * 100).toFixed(0)}pp
                         </span>
                       )}
-                      {pick.certaintyScore != null && <span style={{ fontSize: 10, color: '#4a5568' }}>{pick.certaintyScore.toFixed(3)}</span>}
+                    </div>
+
+                    {/* The straight 1X2 view. A Double Chance pick at 92% and a 1X2 top
+                        outcome at 53% describe the same fixture — DC 1X is P(home)+P(draw), a
+                        strictly easier event — so showing only the pick's own probability made
+                        confident-looking picks out of matches the model sees as close. */}
+                    <div>
+                      {pick.blend ? (() => {
+                        const { home = 0, draw = 0, away = 0 } = pick.blend
+                        const top = home >= draw && home >= away ? ['H', home]
+                                  : away >= draw ? ['A', away] : ['D', draw]
+                        return (
+                          <span title={`Blended 1X2 — Home ${(home*100).toFixed(0)}% · Draw ${(draw*100).toFixed(0)}% · Away ${(away*100).toFixed(0)}%`}
+                            style={{ fontSize: 12, fontWeight: 700, color: top[1] >= 0.60 ? '#68d391' : top[1] >= 0.45 ? '#d6bcfa' : '#718096' }}>
+                            {top[0]} {(top[1]*100).toFixed(0)}%
+                          </span>
+                        )
+                      })() : <span style={{ fontSize: 11, color: '#2d3748' }}>—</span>}
+                    </div>
+
+                    {/* Over 1.5 on every row regardless of the pick's own market. It is the
+                        most reliable market in the data (80.7% on low-tier fixtures) and the
+                        one most often worth taking instead, so it belongs in the table rather
+                        than only inside the goals sub-row. */}
+                    <div>
+                      {pick.over15 != null ? (
+                        <span title="Model probability of Over 1.5 goals in this fixture"
+                          style={{ fontSize: 12, fontWeight: 700, color: pick.over15 >= 0.80 ? '#48bb78' : pick.over15 >= 0.65 ? '#68d391' : '#718096' }}>
+                          {(pick.over15 * 100).toFixed(0)}%
+                        </span>
+                      ) : <span style={{ fontSize: 11, color: '#2d3748' }}>—</span>}
                     </div>
 
                     <div>
@@ -896,6 +944,7 @@ export default function BetBuilder() {
                   ),
                 ]
               })}
+              </div>
             </div>
 
             {/* Pagination */}
