@@ -496,15 +496,18 @@ function DayFixtureList({ fixtures }) {
   const [open, setOpen] = useState(false)
   if (!fixtures?.length) return null
   const hits = fixtures.filter(f => f.correct).length
+  const o15  = fixtures.filter(f => f.o15Prob != null)
+  const o15n = o15.length
+  const o15hit = o15.filter(f => f.o15Over).length
   return (
     <div style={{ marginTop: 10 }}>
       <button onClick={() => setOpen(!open)} style={{ background: 'none', border: 'none', color: '#63b3ed', fontSize: '0.7rem', cursor: 'pointer', padding: 0, fontWeight: 700 }}>
-        {open ? '▾' : '▸'} {hits}/{fixtures.length} correct — {open ? 'hide' : 'show'} every match
+        {open ? '▾' : '▸'} {hits}/{fixtures.length} correct{o15n > 0 ? ` · Over 1.5 landed ${o15hit}/${o15n}` : ''} — {open ? 'hide' : 'show'} every match
       </button>
       {open && (
         <div style={{ marginTop: 8, maxHeight: 340, overflowY: 'auto', borderTop: '1px solid #2d3748' }}>
           {fixtures.map((f, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px 1fr 56px 86px 96px 52px', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #1a2030', fontSize: '0.7rem', background: f.disagreed ? '#1d1a12' : undefined }}>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px 1fr 52px 82px 92px 74px 48px', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #1a2030', fontSize: '0.7rem', background: f.disagreed ? '#1d1a12' : undefined }}>
               <span style={{ color: f.correct ? '#68d391' : '#fc8181', fontWeight: 700 }}>{f.correct ? '✓' : '✗'}</span>
               <span style={{ color: '#cbd5e0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.league}>{f.match}</span>
               <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{f.score}</span>
@@ -515,6 +518,10 @@ function DayFixtureList({ fixtures }) {
                     mkt {f.oddsPredicted} {f.oddsProb}%{f.disagreed ? ' ⚔' : ''}
                   </span>
                 : <span style={{ color: '#3a4658' }}>no price</span>}
+              {/* Over 1.5: probability plus whether the leg would actually have landed. */}
+              <span style={{ color: f.o15Prob == null ? '#3a4658' : f.o15Over ? '#68d391' : '#fc8181' }}>
+                {f.o15Prob == null ? '—' : `O1.5 ${f.o15Prob}% ${f.o15Over ? '✓' : '✗'}`}
+              </span>
               <span style={{ color: '#4a5568' }}>{f.actual}</span>
             </div>
           ))}
