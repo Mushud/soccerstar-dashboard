@@ -252,8 +252,18 @@ export default function BacktestView() {
             </div>
             <div style={{ fontSize: '0.7rem', color: '#718096' }}>
               {daySummary.played} played · <strong style={{ color: '#e2e8f0' }}>{daySummary.graded}</strong> graded
-              {daySummary.ungraded > 0 && <span style={{ color: '#d69e2e' }}> · {daySummary.ungraded} not backtested</span>}
+              {daySummary.ungraded > 0 && <span style={{ color: '#d69e2e' }}> · {daySummary.ungraded} no prediction</span>}
             </div>
+            {/* The nightly backtest runs at 00:30, so for today it only ever covers the
+                earliest kickoffs. Anything it missed is graded live from the prediction the
+                app actually showed — otherwise today's percentage is a biased sample of
+                whichever leagues happen to play early. */}
+            {daySummary.sources?.liveGraded > 0 && (
+              <div title="Live-graded fixtures use the stored pre-match prediction. The nightly backtest has not reached them yet."
+                style={{ fontSize: '0.65rem', color: '#63b3ed', background: '#12233a', border: '1px solid #2b4a6f', borderRadius: 5, padding: '2px 7px' }}>
+                {daySummary.sources.backtested} backtested + {daySummary.sources.liveGraded} live
+              </div>
+            )}
             {daySummary.actualOutcomes && daySummary.graded > 0 && (
               <div style={{ fontSize: '0.68rem', color: '#4a5568' }}>
                 actual: {daySummary.actualOutcomes.home}H / {daySummary.actualOutcomes.draw}D / {daySummary.actualOutcomes.away}A
