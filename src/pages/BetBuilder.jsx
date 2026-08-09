@@ -45,6 +45,11 @@ export default function BetBuilder() {
   const [analysing, setAnalysing] = useState(false)
   const [analysingId, setAnalysingId] = useState(null)
   const [sortBy, setSortBy]       = useState('score')
+  // Kickoff-window filter, independent of the sort. Sorting by Time alone answers "what is
+  // next", and sorting by 1X2 alone answers "what is strongest" — neither answers "what is
+  // strongest among the ones about to start", which is the actual question when you are
+  // building a slip against a deadline. null = no limit.
+  const [withinHours, setWithinHours] = useState(null)
   const [limit, setLimit]         = useState(1500)
   const [page, setPage]           = useState(1)
   const [showAll, setShowAll]       = useState(false)
@@ -74,8 +79,10 @@ export default function BetBuilder() {
     setExpandedAI(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   }, [])
 
+  // Operates on the visible set, not every pick — with a kickoff filter on, ticking the header
+  // box should not silently add matches that are filtered out of the table.
   function selectAll() {
-    setSelected(picks.length === selected.size ? new Set() : new Set(picks.map(p => p.fixtureId)))
+    setSelected(visible.length === selected.size ? new Set() : new Set(visible.map(p => p.fixtureId)))
   }
 
   async function runPickAndAnalyse(fixtureIds, { fast = false } = {}) {
@@ -377,10 +384,22 @@ export default function BetBuilder() {
     }
   }, [analysingId, risks, mergeAnalysis])
 
+  // Narrow first, then rank — so the sort picks the best of what is left rather than ranking
+  // everything and leaving you to scroll for the next kickoff.
+  const visible = useMemo(() => {
+    if (!withinHours) return picks
+    const cutoff = Date.now() + withinHours * 3600000
+    return picks.filter(p => {
+      if (!p.fixtureDate) return false
+      const t = new Date(p.fixtureDate).getTime()
+      return !isNaN(t) && t <= cutoff
+    })
+  }, [picks, withinHours])
+
   // Memoised because this copies and re-sorts EVERY pick, not just the twenty on screen. A full
   // slate is well over a thousand, and without this it re-ran on every unrelated state change —
   // ticking a checkbox, expanding a panel, each streamed batch.
-  const sorted = useMemo(() => [...picks].sort((a, b) => {
+  const sorted = useMemo(() => [...visible].sort((a, b) => {
     if (sortBy === 'prob')  return parseFloat(b.modelProb) - parseFloat(a.modelProb)
     if (sortBy === 'o15')   return (b.over15 ?? 0) - (a.over15 ?? 0)
     if (sortBy === 'x2') {
@@ -390,7 +409,7 @@ export default function BetBuilder() {
     if (sortBy === 'time')  return new Date(a.fixtureDate) - new Date(b.fixtureDate)
     if (sortBy === 'odds')  return (b.odds || 0) - (a.odds || 0)
     return (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0)
-  }), [picks, sortBy])
+  }), [visible, sortBy])
 
   const totalPages   = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const displayPicks = useMemo(
@@ -613,6 +632,22 @@ export default function BetBuilder() {
                 {[['prob','Model %'],['x2','1X2'],['o15','Over 1.5'],['score','Score'],['odds','Odds'],['time','Time']].map(([k,l]) => (
                   <button key={k} onClick={() => setSortBy(k)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: sortBy===k ? '#1a2a4a' : '#1a2030', color: sortBy===k ? '#90cdf4' : '#718096', border: `1px solid ${sortBy===k ? '#2b6cb0' : '#2d3748'}` }}>{l}</button>
                 ))}
+
+                {/* Kickoff window — combines with whichever sort is active. */}
+                <span style={{ fontSize: 11, color: '#4a5568', marginLeft: 6 }}>Kickoff:</span>
+                {[[null,'Any'],[3,'3h'],[6,'6h'],[12,'12h'],[24,'24h']].map(([h,l]) => (
+                  <button key={l} onClick={() => { setWithinHours(h); setPage(1) }}
+                    title={h ? `Only matches kicking off within ${h} hours — combine with a sort to rank just those` : 'No kickoff limit'}
+                    style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      background: withinHours===h ? '#2a1a3a' : '#1a2030', color: withinHours===h ? '#d6bcfa' : '#718096',
+                      border: `1px solid ${withinHours===h ? '#805ad5' : '#2d3748'}` }}>{l}</button>
+                ))}
+                {withinHours && (
+                  <span style={{ fontSize: 11, color: visible.length ? '#b794f4' : '#fc8181', fontWeight: 700 }}>
+                    {visible.length} of {picks.length} within {withinHours}h
+                    {!visible.length && ' — nothing starts that soon'}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -626,7 +661,7 @@ export default function BetBuilder() {
               {/* Header */}
               <div style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 8, padding: '8px 14px', background: '#0a0e1a', borderBottom: '1px solid #1f2937' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
-                  <input type="checkbox" checked={selected.size === picks.length && picks.length > 0} onChange={selectAll} style={{ cursor: 'pointer' }} />
+                  <input type="checkbox" checked={selected.size === visible.length && visible.length > 0} onChange={selectAll} style={{ cursor: 'pointer' }} />
                 </div>
                 {['Match','League','Market','Selection','Odds','Model %','1X2','O1.5','Value','Reason / Blend',''].map((h,i) => (
                   <div key={i} style={{ fontSize: 10, color: '#4a5568', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</div>
@@ -663,7 +698,9 @@ export default function BetBuilder() {
                 </button>
                 <span style={{ fontSize: 12, color: '#718096' }}>
                   Page <b style={{ color: '#e2e8f0' }}>{page}</b> of <b style={{ color: '#e2e8f0' }}>{totalPages}</b>
-                  <span style={{ marginLeft: 8, color: '#4a5568' }}>({picks.length} picks total)</span>
+                  <span style={{ marginLeft: 8, color: '#4a5568' }}>
+                    ({withinHours ? `${visible.length} within ${withinHours}h of ${picks.length}` : `${picks.length} picks total`})
+                  </span>
                 </span>
                 <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
                   style={{ padding: '8px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: page === totalPages ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: page === totalPages ? '#2d3748' : '#90cdf4', border: `1px solid ${page === totalPages ? '#2d3748' : '#2b6cb0'}` }}>
