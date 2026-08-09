@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo, memo } from 'react'
 import { Link } from 'react-router-dom'
 import api, { API_BASE } from '../api'
 
@@ -16,6 +16,12 @@ const RISK_OPTIONS = [
   { key: 'medium', label: 'Medium Risk', emoji: '⚖', desc: 'High or Medium confidence.',  color: '#ecc94b', bg: '#2d2a1a', border: '#744210', activeBg: '#744210' },
   { key: 'high',   label: 'High Risk',   emoji: '🔥', desc: 'Chase value, wider net.',     color: '#fc8181', bg: '#3a1a1a', border: '#742a2a', activeBg: '#742a2a' },
 ]
+
+// Shared by the header and every row variant. Hoisted so the string is identical by reference
+// across renders and is not rebuilt four times per row.
+const GRID_COLS = '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px'
+
+const GOAL_MARKETS = ['Over 1.5', 'Over 2.5', 'BTTS']
 
 function fmt(dateStr) {
   if (!dateStr) return ''
@@ -58,15 +64,19 @@ export default function BetBuilder() {
     setRisks(prev => prev.includes(key) ? (prev.length > 1 ? prev.filter(r => r !== key) : prev) : [...prev, key])
   }
 
-  function toggleSelect(id) {
+  // Identity-stable so PickRow's memo holds. Both use the updater form, so neither closes over
+  // `selected` / `expandedAI` and neither needs a dependency on them.
+  const toggleSelect = useCallback(id => {
     setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
-  }
+  }, [])
+
+  const toggleAI = useCallback(id => {
+    setExpandedAI(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }, [])
 
   function selectAll() {
     setSelected(picks.length === selected.size ? new Set() : new Set(picks.map(p => p.fixtureId)))
   }
-
-  const GOAL_MARKETS = ['Over 1.5', 'Over 2.5', 'BTTS']
 
   async function runPickAndAnalyse(fixtureIds, { fast = false } = {}) {
     setSelected(new Set(fixtureIds))
@@ -334,7 +344,7 @@ export default function BetBuilder() {
     }
   }
 
-  async function enrichOne(fixtureId, market, selection) {
+  const enrichOne = useCallback(async (fixtureId, market, selection) => {
     if (!fixtureId || enrichingId) return
     setEnrichingId(fixtureId)
     try {
@@ -348,9 +358,9 @@ export default function BetBuilder() {
     } finally {
       setEnrichingId(null)
     }
-  }
+  }, [enrichingId])
 
-  async function analyseOne(fixtureId) {
+  const analyseOne = useCallback(async (fixtureId) => {
     if (!fixtureId || analysingId) return
     setAnalysingId(fixtureId)
     try {
@@ -365,9 +375,12 @@ export default function BetBuilder() {
     } finally {
       setAnalysingId(null)
     }
-  }
+  }, [analysingId, risks, mergeAnalysis])
 
-  const sorted = [...picks].sort((a, b) => {
+  // Memoised because this copies and re-sorts EVERY pick, not just the twenty on screen. A full
+  // slate is well over a thousand, and without this it re-ran on every unrelated state change —
+  // ticking a checkbox, expanding a panel, each streamed batch.
+  const sorted = useMemo(() => [...picks].sort((a, b) => {
     if (sortBy === 'prob')  return parseFloat(b.modelProb) - parseFloat(a.modelProb)
     if (sortBy === 'o15')   return (b.over15 ?? 0) - (a.over15 ?? 0)
     if (sortBy === 'x2') {
@@ -377,10 +390,13 @@ export default function BetBuilder() {
     if (sortBy === 'time')  return new Date(a.fixtureDate) - new Date(b.fixtureDate)
     if (sortBy === 'odds')  return (b.odds || 0) - (a.odds || 0)
     return (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0)
-  })
+  }), [picks, sortBy])
 
   const totalPages   = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
-  const displayPicks = sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const displayPicks = useMemo(
+    () => sorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [sorted, page],
+  )
 
   const rOpt = RISK_OPTIONS.find(r => r.key === (risks.includes('high') ? 'high' : risks.includes('medium') ? 'medium' : 'low'))
 
@@ -608,7 +624,7 @@ export default function BetBuilder() {
               <div style={{ minWidth: 1180 }}>
 
               {/* Header */}
-              <div style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '8px 14px', background: '#0a0e1a', borderBottom: '1px solid #1f2937' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 8, padding: '8px 14px', background: '#0a0e1a', borderBottom: '1px solid #1f2937' }}>
                 <div style={{ display: 'flex', alignItems: 'center' }}>
                   <input type="checkbox" checked={selected.size === picks.length && picks.length > 0} onChange={selectAll} style={{ cursor: 'pointer' }} />
                 </div>
@@ -618,332 +634,23 @@ export default function BetBuilder() {
               </div>
 
               {/* Rows */}
-              {displayPicks.map((pick, i) => {
-                const isSel = selected.has(pick.fixtureId)
-                const hasAI = pick.hasClaudeAnalysis
-                const pickChanged = hasAI && pick.originalMarket && (
-                  pick.market !== pick.originalMarket || pick.selection !== pick.originalSelection
-                )
-                const valColor = pick.value === 'Good value' ? '#68d391'
-                               : pick.value === 'Poor value' ? '#fc8181'
-                               : '#ecc94b'
-                const valBg    = pick.value === 'Good value' ? '#0f2a1a'
-                               : pick.value === 'Poor value' ? '#2a0f0f'
-                               : '#2a2510'
-                const optRows  = (pick.options || []).map((opt, j) => (
-                  <div key={`${pick.fixtureId ?? i}-opt-${j}`} style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b0f1c', alignItems: 'center', borderLeft: '3px solid #1e3a5a' }}>
-                    <div />
-                    <div style={{ fontSize: 10, color: '#2d4a6a' }}>└ Option {j + 2}</div>
-                    <div />
-                    <div style={{ fontSize: 11, color: '#4a6080' }}>{opt.market}</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#7097b8' }}>{opt.selection}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{opt.odds}x</div>
-                    <div style={{ fontSize: 11, color: '#4a7a5a', fontWeight: 700 }}>{opt.modelProb}</div>
-                    <div /><div /><div /><div /><div />
-                  </div>
-                ))
-                // Goals line, shown only when the main pick is NOT already a goals market.
-                // High Risk picks come out as 1X2 almost every time, yet those fixtures are the
-                // highest-scoring on the card — this surfaces the goals market before kickoff
-                // instead of leaving it to be noticed in the final score.
-                const g = pick.goalsOption
-                const goalsRow = (g && !GOAL_MARKETS.includes(pick.selection)) ? (
-                  <div key={`${pick.fixtureId ?? i}-goals`} style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b1410', alignItems: 'center', borderLeft: '3px solid #2f6b4a' }}>
-                    <div />
-                    <div style={{ fontSize: 10, color: '#3d6b52' }}>└ ⚽ Goals</div>
-                    <div />
-                    <div style={{ fontSize: 11, color: '#4a806a' }}>{g.market}</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#68b892' }}>{g.selection}</div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{g.odds}x{g.hasRealOdds ? '' : '*'}</div>
-                    <div style={{ fontSize: 11, color: '#48bb78', fontWeight: 700 }}>{g.modelProb}</div>
-                    <div /><div /><div /><div /><div />
-                  </div>
-                ) : null
-                const aiExpanded = expandedAI.has(pick.fixtureId)
-                return [
-                  <div key={pick.fixtureId ?? i} style={{ display: 'grid', gridTemplateColumns: '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px', gap: 8, padding: '10px 14px', borderTop: '1px solid #1a2030', background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : undefined, alignItems: 'center', cursor: 'pointer' }} onClick={() => pick.fixtureId && toggleSelect(pick.fixtureId)}>
-
-                    <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center' }}>
-                      <input type="checkbox" checked={isSel} onChange={() => toggleSelect(pick.fixtureId)} disabled={!pick.fixtureId} style={{ cursor: 'pointer' }} />
-                    </div>
-
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                        {pick.match}
-                        {pick.tier === 'low'    && <span title="Passed Low Risk gate — high certainty pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🛡 LOW</span>}
-                        {pick.tier === 'medium' && <span title="Passed Medium Risk gate — moderate certainty" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚖ MED</span>}
-                        {pick.tier === 'high'   && <span title="High Risk pick — uncertain, value-hunting" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🔥 HIGH</span>}
-                        {pick.tier === 'none'   && <span title="Does not pass any risk tier — model confidence too low" style={{ fontSize: 9, background: '#1a1a2a', color: '#4a5568', border: '1px solid #2d3748', borderRadius: 4, padding: '1px 5px' }}>NO TIER</span>}
-                        {pick.dataVerified === 'confirmed' && <span title="Form/standings/H2H confirm this pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>✓ DATA</span>}
-                        {pick.dataVerified === 'risky'     && <span title="Data raises concerns — check flags below" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚠ CHECK</span>}
-                        {pick.dataVerified === 'mixed'     && <span title="Mixed signals from data" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>~ MIXED</span>}
-                        {pick.dataVerified === 'unverified'&& <span title="No enrichment data yet — click AI to fetch" style={{ fontSize: 9, background: '#1a1a2a', color: '#4a5568', border: '1px solid #2d3748', borderRadius: 4, padding: '1px 5px' }}>NO DATA</span>}
-                        {pick.claudeConf === 'Medium' && <span title="Claude rated this Medium confidence — not High. Review before selecting." style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px' }}>AI: Medium</span>}
-                        {pick.claudeConf === 'Low'    && <span title="Claude rated this Low confidence. High risk pick." style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px' }}>AI: Low</span>}
-                      </div>
-                      {pick.fixtureDate && <div style={{ fontSize: 10, color: '#4a5568', marginTop: 1 }}>{fmt(pick.fixtureDate)}</div>}
-                      {pick.dataFlags?.filter(f => f.type !== 'info' || pick.dataVerified === 'unverified').slice(0, 3).map((f, fi) => (
-                        <div key={fi} style={{ fontSize: 9, marginTop: 2, color: f.type === 'good' ? '#68d391' : f.type === 'warn' ? '#fc8181' : '#4a5568' }}>
-                          {f.label}
-                        </div>
-                      ))}
-                      {pick.newsSentiment && (() => {
-                        const c = pick.newsSentiment === 'Home-favoured' ? '#90cdf4'
-                                : pick.newsSentiment === 'Away-favoured' ? '#f6ad55'
-                                : pick.newsSentiment === 'Draw-likely'   ? '#b794f4'
-                                : '#718096'
-                        return (
-                          <div style={{ fontSize: 9, color: c, marginTop: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
-                            <span>News:</span>
-                            <span style={{ fontWeight: 700 }}>{pick.newsSentiment}</span>
-                            {pick.newsAgreement === false && <span style={{ color: '#fc8181' }}>⚠ conflicts model</span>}
-                            {pick.newsShift === 'Higher' && <span style={{ color: '#68d391' }}>↑</span>}
-                            {pick.newsShift === 'Lower'  && <span style={{ color: '#fc8181' }}>↓</span>}
-                          </div>
-                        )
-                      })()}
-                    </div>
-
-                    <div style={{ fontSize: 11, color: '#718096', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pick.league}</div>
-
-                    <div style={{ fontSize: 11, color: pickChanged ? '#f6ad55' : '#90cdf4' }}>
-                      {pick.market}
-                      {pickChanged && pick.market !== pick.originalMarket && (
-                        <span title={`Engine suggested: ${pick.originalMarket}`} style={{ display: 'block', fontSize: 9, color: '#718096', textDecoration: 'line-through' }}>{pick.originalMarket}</span>
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: 12, fontWeight: 700, color: pickChanged ? '#f6ad55' : '#bee3f8' }}>
-                      {pick.selection}
-                      {pickChanged && pick.selection !== pick.originalSelection && (
-                        <span title={`Engine suggested: ${pick.originalSelection}`} style={{ display: 'block', fontSize: 9, fontWeight: 400, color: '#718096', textDecoration: 'line-through' }}>{pick.originalSelection}</span>
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: 13, fontWeight: 800, color: pick.odds < 1.35 ? '#fc8181' : '#ecc94b', display: 'flex', alignItems: 'center', gap: 3 }}>
-                      {pick.odds}x
-                      {pick.odds < 1.35 && <span title="Very short odds — model may be overconfident. One loss costs many wins." style={{ fontSize: 10, color: '#fc8181' }}>⚠</span>}
-                    </div>
-
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                      {pick.modelProb && (
-                        <span title={`Model probability for this selection${pick.certaintyScore != null ? ` · engine score ${pick.certaintyScore.toFixed(3)}` : ''}`}
-                          style={{ fontSize: 14, color: '#68d391', fontWeight: 800 }}>{pick.modelProb}</span>
-                      )}
-                      {/* Edge is only meaningful against a REAL price — against estOdds it is
-                          structurally zero, since estOdds is derived from modelProb itself. */}
-                      {pick.hasRealOdds && pick.edge != null && (
-                        <span title={`Model ${pick.modelProb} vs bookmaker ${(pick.bookImplied * 100).toFixed(0)}% implied`}
-                          style={{ fontSize: 10, marginLeft: 5, fontWeight: 800, padding: '1px 5px', borderRadius: 4,
-                            background: pick.edge >= 0.10 ? '#2a2410' : pick.edge > 0 ? '#12211a' : '#241414',
-                            color: pick.edge >= 0.10 ? '#f6e05e' : pick.edge > 0 ? '#68d391' : '#fc8181',
-                            border: `1px solid ${pick.edge >= 0.10 ? '#d69e2e' : pick.edge > 0 ? '#2f6b4a' : '#742a2a'}` }}>
-                          {pick.edge >= 0 ? '+' : ''}{(pick.edge * 100).toFixed(0)}pp
-                        </span>
-                      )}
-                    </div>
-
-                    {/* The straight 1X2 view. A Double Chance pick at 92% and a 1X2 top
-                        outcome at 53% describe the same fixture — DC 1X is P(home)+P(draw), a
-                        strictly easier event — so showing only the pick's own probability made
-                        confident-looking picks out of matches the model sees as close. */}
-                    <div>
-                      {pick.blend ? (() => {
-                        const { home = 0, draw = 0, away = 0 } = pick.blend
-                        const top = home >= draw && home >= away ? ['H', home]
-                                  : away >= draw ? ['A', away] : ['D', draw]
-                        return (
-                          <span title={`Blended 1X2 — Home ${(home*100).toFixed(0)}% · Draw ${(draw*100).toFixed(0)}% · Away ${(away*100).toFixed(0)}%`}
-                            style={{ fontSize: 12, fontWeight: 700, color: top[1] >= 0.60 ? '#68d391' : top[1] >= 0.45 ? '#d6bcfa' : '#718096' }}>
-                            {top[0]} {(top[1]*100).toFixed(0)}%
-                          </span>
-                        )
-                      })() : <span style={{ fontSize: 11, color: '#2d3748' }}>—</span>}
-                    </div>
-
-                    {/* Over 1.5 on every row regardless of the pick's own market. It is the
-                        most reliable market in the data (80.7% on low-tier fixtures) and the
-                        one most often worth taking instead, so it belongs in the table rather
-                        than only inside the goals sub-row. */}
-                    <div>
-                      {pick.over15 != null ? (
-                        <span title="Model probability of Over 1.5 goals in this fixture"
-                          style={{ fontSize: 12, fontWeight: 700, color: pick.over15 >= 0.80 ? '#48bb78' : pick.over15 >= 0.65 ? '#68d391' : '#718096' }}>
-                          {(pick.over15 * 100).toFixed(0)}%
-                        </span>
-                      ) : <span style={{ fontSize: 11, color: '#2d3748' }}>—</span>}
-                    </div>
-
-                    <div>
-                      {pick.value ? (
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 7px', borderRadius: 6, background: valBg, color: valColor, border: `1px solid ${valColor}44`, whiteSpace: 'nowrap' }}>
-                          {pick.value === 'Good value' ? '↑ Good' : pick.value === 'Poor value' ? '↓ Poor' : '= Fair'}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 10, color: '#2d3748' }}>—</span>
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: 11, lineHeight: 1.4 }}>
-                      {pick.reason ? (
-                        <div>
-                          {pickChanged && (
-                            <div style={{ fontSize: 9, fontWeight: 700, color: '#f6ad55', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
-                              <span>↻ AI changed pick</span>
-                              {pick.originalSelection && pick.selection !== pick.originalSelection && (
-                                <span style={{ color: '#718096', fontWeight: 400 }}>({pick.originalSelection} → {pick.selection})</span>
-                              )}
-                            </div>
-                          )}
-                          <span style={{ color: pick.reason ? '#9ae6b4' : '#4a5568' }}>{pick.reason}</span>
-                        </div>
-                      ) : pick.blend ? (
-                        <span style={{ color: '#4a5568' }}>
-                          H{(pick.blend.home*100).toFixed(0)} D{(pick.blend.draw*100).toFixed(0)} A{(pick.blend.away*100).toFixed(0)}
-                          {pick.over25 != null && ` · O2.5 ${(pick.over25*100).toFixed(0)}%`}
-                          {pick.btts   != null && ` · BTTS ${(pick.btts*100).toFixed(0)}%`}
-                        </span>
-                      ) : (
-                        <span style={{ color: '#2d3748' }}>—</span>
-                      )}
-                    </div>
-
-                    <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      {/* Enrich button — only when no data cached yet */}
-                      {pick.dataVerified === 'unverified' && (
-                        enrichingId === pick.fixtureId ? (
-                          <span style={{ fontSize: 10, color: '#ecc94b' }}>fetching…</span>
-                        ) : (
-                          <button
-                            disabled={!!enrichingId}
-                            onClick={e => { e.stopPropagation(); enrichOne(pick.fixtureId, pick.market, pick.selection) }}
-                            title="Fetch form, standings & H2H data for this match"
-                            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: !!enrichingId ? 'not-allowed' : 'pointer', background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', opacity: (!!enrichingId && enrichingId !== pick.fixtureId) ? 0.4 : 1 }}
-                          >
-                            + Data
-                          </button>
-                        )
-                      )}
-                      {/* AI button */}
-                      {analysingId === pick.fixtureId ? (
-                        <span style={{ fontSize: 10, color: '#718096' }}>…</span>
-                      ) : hasAI ? (
-                        <button
-                          onClick={e => { e.stopPropagation(); setExpandedAI(prev => { const s = new Set(prev); s.has(pick.fixtureId) ? s.delete(pick.fixtureId) : s.add(pick.fixtureId); return s }) }}
-                          title={aiExpanded ? 'Hide AI analysis' : 'Show AI analysis'}
-                          style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: aiExpanded ? '#1a3a1a' : '#0b1f0b', color: '#68d391', border: '1px solid #276749' }}
-                        >
-                          {aiExpanded ? '▲ AI' : '▼ AI'}
-                        </button>
-                      ) : (
-                        <button
-                          disabled={!pick.fixtureId || !!analysingId}
-                          onClick={e => { e.stopPropagation(); analyseOne(pick.fixtureId) }}
-                          title="Run Claude analysis on this pick"
-                          style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: (!pick.fixtureId || !!analysingId) ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: '#90cdf4', border: '1px solid #2b6cb0', opacity: (!!analysingId && analysingId !== pick.fixtureId) ? 0.4 : 1 }}
-                        >
-                          AI
-                        </button>
-                      )}
-                    </div>
-                  </div>,
-                  ...(goalsRow ? [goalsRow] : []),
-                  ...optRows,
-                  hasAI && aiExpanded && (
-                    <div key={`${pick.fixtureId ?? i}-ai`} style={{ borderTop: '1px solid #1a3a1a', background: '#080f08', padding: '12px 18px 14px 46px' }}>
-                      {/* Toggle collapse */}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#68d391', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI Analysis</span>
-                          {pickChanged && (
-                            <span style={{ fontSize: 10, fontWeight: 700, color: '#f6ad55', background: '#2a1a05', border: '1px solid #744210', borderRadius: 5, padding: '2px 7px' }}>
-                              ↻ Changed: {pick.originalMarket !== pick.market ? `${pick.originalMarket} → ${pick.market}` : ''}{pick.originalSelection !== pick.selection ? (pick.originalMarket !== pick.market ? ' · ' : '') + `${pick.originalSelection} → ${pick.selection}` : ''}
-                            </span>
-                          )}
-                        </div>
-                        <button onClick={e => { e.stopPropagation(); setExpandedAI(prev => { const s = new Set(prev); s.delete(pick.fixtureId); return s }) }}
-                          style={{ background: 'none', border: 'none', color: '#4a5568', cursor: 'pointer', fontSize: 13, padding: '0 4px' }}>▲ hide</button>
-                      </div>
-                      {/* Pick decision reason — shown first when AI changed the pick */}
-                      {pick.reason && (
-                        <div style={{ marginBottom: 12, background: pickChanged ? '#1a120a' : '#0b130b', border: `1px solid ${pickChanged ? '#744210' : '#1a3a1a'}`, borderRadius: 7, padding: '8px 12px' }}>
-                          {pickChanged && <div style={{ fontSize: 9, fontWeight: 700, color: '#f6ad55', textTransform: 'uppercase', marginBottom: 4 }}>Why AI changed this pick</div>}
-                          {!pickChanged && <div style={{ fontSize: 9, fontWeight: 700, color: '#4a7a4a', textTransform: 'uppercase', marginBottom: 4 }}>Pick reasoning</div>}
-                          <div style={{ fontSize: 12, color: '#c6f6d5', lineHeight: 1.5 }}>{pick.reason}</div>
-                        </div>
-                      )}
-
-                      <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                        {/* Verdict block */}
-                        <div style={{ minWidth: 180 }}>
-                          {pick.verdict && (
-                            <div style={{ marginBottom: 6 }}>
-                              <span style={{ fontSize: 11, color: '#4a5568' }}>Verdict: </span>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: pick.verdict === 'Home Win' ? '#90cdf4' : pick.verdict === 'Away Win' ? '#f6ad55' : '#b794f4' }}>{pick.verdict}</span>
-                              {pick.claudeConf && <span style={{ fontSize: 10, color: pick.claudeConf === 'High' ? '#68d391' : pick.claudeConf === 'Medium' ? '#ecc94b' : '#fc8181', marginLeft: 6, fontWeight: 700 }}>{pick.claudeConf}</span>}
-                              {pick.predictedScore && <span style={{ fontSize: 11, color: '#718096', marginLeft: 8 }}>({pick.predictedScore})</span>}
-                            </div>
-                          )}
-                          {pick.modelAgreement && (
-                            <div style={{ fontSize: 10, color: pick.modelAgreement === 'Strong' ? '#68d391' : pick.modelAgreement === 'Conflicting' ? '#fc8181' : '#ecc94b', marginBottom: 4 }}>
-                              Models: {pick.modelAgreement}
-                            </div>
-                          )}
-                          {pick.riskFactor && <div style={{ fontSize: 10, color: '#fc8181', marginBottom: 4 }}>Risk: {pick.riskFactor}</div>}
-                          {pick.formEdge && pick.formEdge !== 'Neutral' && <div style={{ fontSize: 10, color: '#90cdf4', marginBottom: 4 }}>Form edge: {pick.formEdge}</div>}
-                          {pick.injuryImpact && pick.injuryImpact !== 'None' && <div style={{ fontSize: 10, color: '#f6ad55', marginBottom: 4 }}>Injuries: {pick.injuryImpact} impact</div>}
-                        </div>
-
-                        {/* Best/Value bets */}
-                        <div style={{ minWidth: 200 }}>
-                          {pick.bestBet && (
-                            <div style={{ marginBottom: 8 }}>
-                              <div style={{ fontSize: 10, color: '#68d391', textTransform: 'uppercase', marginBottom: 3 }}>Best Bet</div>
-                              <div style={{ fontSize: 12, color: '#9ae6b4', lineHeight: 1.4 }}>{pick.bestBet}</div>
-                            </div>
-                          )}
-                          {pick.valueBet && (
-                            <div>
-                              <div style={{ fontSize: 10, color: '#ecc94b', textTransform: 'uppercase', marginBottom: 3 }}>Value Bet</div>
-                              <div style={{ fontSize: 12, color: '#faf089', lineHeight: 1.4 }}>{pick.valueBet}</div>
-                            </div>
-                          )}
-                          {pick.updatedBestBet && (
-                            <div style={{ marginTop: 8 }}>
-                              <div style={{ fontSize: 10, color: '#90cdf4', textTransform: 'uppercase', marginBottom: 3 }}>News-updated Pick</div>
-                              <div style={{ fontSize: 12, color: '#bee3f8', lineHeight: 1.4 }}>{pick.updatedBestBet}</div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Key factors + full analysis */}
-                        <div style={{ flex: 1, minWidth: 220 }}>
-                          {pick.keyFactors?.length > 0 && (
-                            <div style={{ marginBottom: 8 }}>
-                              <div style={{ fontSize: 10, color: '#718096', textTransform: 'uppercase', marginBottom: 4 }}>Key Factors</div>
-                              {pick.keyFactors.map((f, fi) => (
-                                <div key={fi} style={{ fontSize: 11, color: '#a0aec0', marginBottom: 2 }}>· {f}</div>
-                              ))}
-                            </div>
-                          )}
-                          {pick.fullAnalysis && (
-                            <div>
-                              <div style={{ fontSize: 10, color: '#718096', textTransform: 'uppercase', marginBottom: 4 }}>Analysis</div>
-                              <div style={{ fontSize: 11, color: '#718096', lineHeight: 1.5 }}>{pick.fullAnalysis}</div>
-                            </div>
-                          )}
-                          {pick.newsAnalysisText && (
-                            <div style={{ marginTop: 8 }}>
-                              <div style={{ fontSize: 10, color: '#90cdf4', textTransform: 'uppercase', marginBottom: 4 }}>News</div>
-                              <div style={{ fontSize: 11, color: '#718096', lineHeight: 1.5 }}>{pick.newsAnalysisText}</div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ),
-                ]
-              })}
+              {displayPicks.map((pick, i) => (
+                <PickRow
+                  key={pick.fixtureId ?? i}
+                  pick={pick}
+                  idx={i}
+                  isSel={selected.has(pick.fixtureId)}
+                  aiExpanded={expandedAI.has(pick.fixtureId)}
+                  isAnalysing={analysingId === pick.fixtureId}
+                  anyAnalysing={!!analysingId}
+                  isEnriching={enrichingId === pick.fixtureId}
+                  anyEnriching={!!enrichingId}
+                  onToggleSelect={toggleSelect}
+                  onToggleAI={toggleAI}
+                  onEnrich={enrichOne}
+                  onAnalyse={analyseOne}
+                />
+              ))}
               </div>
             </div>
 
@@ -1046,3 +753,341 @@ export default function BetBuilder() {
     </div>
   )
 }
+
+
+/**
+ * One pick: the main row, its goals sub-row, alternative-option sub-rows, and the expandable
+ * AI panel. Memoised on primitive props rather than the parent Sets so that ticking one
+ * checkbox re-renders one row instead of all twenty — with a full slate in state a plain
+ * re-render of the table measured 79-96ms on a throttled machine, which blocked scrolling
+ * for the whole of that time.
+ */
+const PickRow = memo(function PickRow({
+  pick, idx, isSel, aiExpanded, isAnalysing, anyAnalysing, isEnriching, anyEnriching,
+  onToggleSelect, onToggleAI, onEnrich, onAnalyse,
+}) {
+  const hasAI = pick.hasClaudeAnalysis
+  const pickChanged = hasAI && pick.originalMarket && (
+    pick.market !== pick.originalMarket || pick.selection !== pick.originalSelection
+  )
+  const valColor = pick.value === 'Good value' ? '#68d391'
+                 : pick.value === 'Poor value' ? '#fc8181'
+                 : '#ecc94b'
+  const valBg    = pick.value === 'Good value' ? '#0f2a1a'
+                 : pick.value === 'Poor value' ? '#2a0f0f'
+                 : '#2a2510'
+  const optRows  = (pick.options || []).map((opt, j) => (
+    <div key={`${pick.fixtureId ?? idx}-opt-${j}`} style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b0f1c', alignItems: 'center', borderLeft: '3px solid #1e3a5a' }}>
+      <div />
+      <div style={{ fontSize: 10, color: '#2d4a6a' }}>└ Option {j + 2}</div>
+      <div />
+      <div style={{ fontSize: 11, color: '#4a6080' }}>{opt.market}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#7097b8' }}>{opt.selection}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{opt.odds}x</div>
+      <div style={{ fontSize: 11, color: '#4a7a5a', fontWeight: 700 }}>{opt.modelProb}</div>
+      <div /><div /><div /><div /><div />
+    </div>
+  ))
+  // Goals line, shown only when the main pick is NOT already a goals market.
+  // High Risk picks come out as 1X2 almost every time, yet those fixtures are the
+  // highest-scoring on the card — this surfaces the goals market before kickoff
+  // instead of leaving it to be noticed in the final score.
+  const g = pick.goalsOption
+  const goalsRow = (g && !GOAL_MARKETS.includes(pick.selection)) ? (
+    <div key={`${pick.fixtureId ?? idx}-goals`} style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 8, padding: '5px 14px 5px 28px', borderTop: '1px solid #111827', background: '#0b1410', alignItems: 'center', borderLeft: '3px solid #2f6b4a' }}>
+      <div />
+      <div style={{ fontSize: 10, color: '#3d6b52' }}>└ ⚽ Goals</div>
+      <div />
+      <div style={{ fontSize: 11, color: '#4a806a' }}>{g.market}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#68b892' }}>{g.selection}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: '#8a7a40' }}>{g.odds}x{g.hasRealOdds ? '' : '*'}</div>
+      <div style={{ fontSize: 11, color: '#48bb78', fontWeight: 700 }}>{g.modelProb}</div>
+      <div /><div /><div /><div /><div />
+    </div>
+  ) : null
+  return (
+    <>
+    <div key={pick.fixtureId ?? idx} style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 8, padding: '10px 14px', borderTop: '1px solid #1a2030', background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : undefined, alignItems: 'center', cursor: 'pointer' }} onClick={() => pick.fixtureId && onToggleSelect(pick.fixtureId)}>
+
+      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center' }}>
+        <input type="checkbox" checked={isSel} onChange={() => onToggleSelect(pick.fixtureId)} disabled={!pick.fixtureId} style={{ cursor: 'pointer' }} />
+      </div>
+
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {pick.match}
+          {pick.tier === 'low'    && <span title="Passed Low Risk gate — high certainty pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🛡 LOW</span>}
+          {pick.tier === 'medium' && <span title="Passed Medium Risk gate — moderate certainty" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚖ MED</span>}
+          {pick.tier === 'high'   && <span title="High Risk pick — uncertain, value-hunting" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>🔥 HIGH</span>}
+          {pick.tier === 'none'   && <span title="Does not pass any risk tier — model confidence too low" style={{ fontSize: 9, background: '#1a1a2a', color: '#4a5568', border: '1px solid #2d3748', borderRadius: 4, padding: '1px 5px' }}>NO TIER</span>}
+          {pick.dataVerified === 'confirmed' && <span title="Form/standings/H2H confirm this pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>✓ DATA</span>}
+          {pick.dataVerified === 'risky'     && <span title="Data raises concerns — check flags below" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚠ CHECK</span>}
+          {pick.dataVerified === 'mixed'     && <span title="Mixed signals from data" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>~ MIXED</span>}
+          {pick.dataVerified === 'unverified'&& <span title="No enrichment data yet — click AI to fetch" style={{ fontSize: 9, background: '#1a1a2a', color: '#4a5568', border: '1px solid #2d3748', borderRadius: 4, padding: '1px 5px' }}>NO DATA</span>}
+          {pick.claudeConf === 'Medium' && <span title="Claude rated this Medium confidence — not High. Review before selecting." style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px' }}>AI: Medium</span>}
+          {pick.claudeConf === 'Low'    && <span title="Claude rated this Low confidence. High risk pick." style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px' }}>AI: Low</span>}
+        </div>
+        {pick.fixtureDate && <div style={{ fontSize: 10, color: '#4a5568', marginTop: 1 }}>{fmt(pick.fixtureDate)}</div>}
+        {pick.dataFlags?.filter(f => f.type !== 'info' || pick.dataVerified === 'unverified').slice(0, 3).map((f, fi) => (
+          <div key={fi} style={{ fontSize: 9, marginTop: 2, color: f.type === 'good' ? '#68d391' : f.type === 'warn' ? '#fc8181' : '#4a5568' }}>
+            {f.label}
+          </div>
+        ))}
+        {pick.newsSentiment && (() => {
+          const c = pick.newsSentiment === 'Home-favoured' ? '#90cdf4'
+                  : pick.newsSentiment === 'Away-favoured' ? '#f6ad55'
+                  : pick.newsSentiment === 'Draw-likely'   ? '#b794f4'
+                  : '#718096'
+          return (
+            <div style={{ fontSize: 9, color: c, marginTop: 3, display: 'flex', alignItems: 'center', gap: 3 }}>
+              <span>News:</span>
+              <span style={{ fontWeight: 700 }}>{pick.newsSentiment}</span>
+              {pick.newsAgreement === false && <span style={{ color: '#fc8181' }}>⚠ conflicts model</span>}
+              {pick.newsShift === 'Higher' && <span style={{ color: '#68d391' }}>↑</span>}
+              {pick.newsShift === 'Lower'  && <span style={{ color: '#fc8181' }}>↓</span>}
+            </div>
+          )
+        })()}
+      </div>
+
+      <div style={{ fontSize: 11, color: '#718096', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pick.league}</div>
+
+      <div style={{ fontSize: 11, color: pickChanged ? '#f6ad55' : '#90cdf4' }}>
+        {pick.market}
+        {pickChanged && pick.market !== pick.originalMarket && (
+          <span title={`Engine suggested: ${pick.originalMarket}`} style={{ display: 'block', fontSize: 9, color: '#718096', textDecoration: 'line-through' }}>{pick.originalMarket}</span>
+        )}
+      </div>
+
+      <div style={{ fontSize: 12, fontWeight: 700, color: pickChanged ? '#f6ad55' : '#bee3f8' }}>
+        {pick.selection}
+        {pickChanged && pick.selection !== pick.originalSelection && (
+          <span title={`Engine suggested: ${pick.originalSelection}`} style={{ display: 'block', fontSize: 9, fontWeight: 400, color: '#718096', textDecoration: 'line-through' }}>{pick.originalSelection}</span>
+        )}
+      </div>
+
+      <div style={{ fontSize: 13, fontWeight: 800, color: pick.odds < 1.35 ? '#fc8181' : '#ecc94b', display: 'flex', alignItems: 'center', gap: 3 }}>
+        {pick.odds}x
+        {pick.odds < 1.35 && <span title="Very short odds — model may be overconfident. One loss costs many wins." style={{ fontSize: 10, color: '#fc8181' }}>⚠</span>}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {pick.modelProb && (
+          <span title={`Model probability for this selection${pick.certaintyScore != null ? ` · engine score ${pick.certaintyScore.toFixed(3)}` : ''}`}
+            style={{ fontSize: 14, color: '#68d391', fontWeight: 800 }}>{pick.modelProb}</span>
+        )}
+        {/* Edge is only meaningful against a REAL price — against estOdds it is
+            structurally zero, since estOdds is derived from modelProb itself. */}
+        {pick.hasRealOdds && pick.edge != null && (
+          <span title={`Model ${pick.modelProb} vs bookmaker ${(pick.bookImplied * 100).toFixed(0)}% implied`}
+            style={{ fontSize: 10, marginLeft: 5, fontWeight: 800, padding: '1px 5px', borderRadius: 4,
+              background: pick.edge >= 0.10 ? '#2a2410' : pick.edge > 0 ? '#12211a' : '#241414',
+              color: pick.edge >= 0.10 ? '#f6e05e' : pick.edge > 0 ? '#68d391' : '#fc8181',
+              border: `1px solid ${pick.edge >= 0.10 ? '#d69e2e' : pick.edge > 0 ? '#2f6b4a' : '#742a2a'}` }}>
+            {pick.edge >= 0 ? '+' : ''}{(pick.edge * 100).toFixed(0)}pp
+          </span>
+        )}
+      </div>
+
+      {/* The straight 1X2 view. A Double Chance pick at 92% and a 1X2 top
+          outcome at 53% describe the same fixture — DC 1X is P(home)+P(draw), a
+          strictly easier event — so showing only the pick's own probability made
+          confident-looking picks out of matches the model sees as close. */}
+      <div>
+        {pick.blend ? (() => {
+          const { home = 0, draw = 0, away = 0 } = pick.blend
+          const top = home >= draw && home >= away ? ['H', home]
+                    : away >= draw ? ['A', away] : ['D', draw]
+          return (
+            <span title={`Blended 1X2 — Home ${(home*100).toFixed(0)}% · Draw ${(draw*100).toFixed(0)}% · Away ${(away*100).toFixed(0)}%`}
+              style={{ fontSize: 12, fontWeight: 700, color: top[1] >= 0.60 ? '#68d391' : top[1] >= 0.45 ? '#d6bcfa' : '#718096' }}>
+              {top[0]} {(top[1]*100).toFixed(0)}%
+            </span>
+          )
+        })() : <span style={{ fontSize: 11, color: '#2d3748' }}>—</span>}
+      </div>
+
+      {/* Over 1.5 on every row regardless of the pick's own market. It is the
+          most reliable market in the data (80.7% on low-tier fixtures) and the
+          one most often worth taking instead, so it belongs in the table rather
+          than only inside the goals sub-row. */}
+      <div>
+        {pick.over15 != null ? (
+          <span title="Model probability of Over 1.5 goals in this fixture"
+            style={{ fontSize: 12, fontWeight: 700, color: pick.over15 >= 0.80 ? '#48bb78' : pick.over15 >= 0.65 ? '#68d391' : '#718096' }}>
+            {(pick.over15 * 100).toFixed(0)}%
+          </span>
+        ) : <span style={{ fontSize: 11, color: '#2d3748' }}>—</span>}
+      </div>
+
+      <div>
+        {pick.value ? (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 7px', borderRadius: 6, background: valBg, color: valColor, border: `1px solid ${valColor}44`, whiteSpace: 'nowrap' }}>
+            {pick.value === 'Good value' ? '↑ Good' : pick.value === 'Poor value' ? '↓ Poor' : '= Fair'}
+          </span>
+        ) : (
+          <span style={{ fontSize: 10, color: '#2d3748' }}>—</span>
+        )}
+      </div>
+
+      <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+        {pick.reason ? (
+          <div>
+            {pickChanged && (
+              <div style={{ fontSize: 9, fontWeight: 700, color: '#f6ad55', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span>↻ AI changed pick</span>
+                {pick.originalSelection && pick.selection !== pick.originalSelection && (
+                  <span style={{ color: '#718096', fontWeight: 400 }}>({pick.originalSelection} → {pick.selection})</span>
+                )}
+              </div>
+            )}
+            <span style={{ color: pick.reason ? '#9ae6b4' : '#4a5568' }}>{pick.reason}</span>
+          </div>
+        ) : pick.blend ? (
+          <span style={{ color: '#4a5568' }}>
+            H{(pick.blend.home*100).toFixed(0)} D{(pick.blend.draw*100).toFixed(0)} A{(pick.blend.away*100).toFixed(0)}
+            {pick.over25 != null && ` · O2.5 ${(pick.over25*100).toFixed(0)}%`}
+            {pick.btts   != null && ` · BTTS ${(pick.btts*100).toFixed(0)}%`}
+          </span>
+        ) : (
+          <span style={{ color: '#2d3748' }}>—</span>
+        )}
+      </div>
+
+      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        {/* Enrich button — only when no data cached yet */}
+        {pick.dataVerified === 'unverified' && (
+          isEnriching ? (
+            <span style={{ fontSize: 10, color: '#ecc94b' }}>fetching…</span>
+          ) : (
+            <button
+              disabled={anyEnriching}
+              onClick={e => { e.stopPropagation(); onEnrich(pick.fixtureId, pick.market, pick.selection) }}
+              title="Fetch form, standings & H2H data for this match"
+              style={{ padding: '4px 8px', borderRadius: 6, fontSize: 10, fontWeight: 700, cursor: anyEnriching ? 'not-allowed' : 'pointer', background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', opacity: (anyEnriching && !isEnriching) ? 0.4 : 1 }}
+            >
+              + Data
+            </button>
+          )
+        )}
+        {/* AI button */}
+        {isAnalysing ? (
+          <span style={{ fontSize: 10, color: '#718096' }}>…</span>
+        ) : hasAI ? (
+          <button
+            onClick={e => { e.stopPropagation(); onToggleAI(pick.fixtureId) }}
+            title={aiExpanded ? 'Hide AI analysis' : 'Show AI analysis'}
+            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', background: aiExpanded ? '#1a3a1a' : '#0b1f0b', color: '#68d391', border: '1px solid #276749' }}
+          >
+            {aiExpanded ? '▲ AI' : '▼ AI'}
+          </button>
+        ) : (
+          <button
+            disabled={!pick.fixtureId || anyAnalysing}
+            onClick={e => { e.stopPropagation(); onAnalyse(pick.fixtureId) }}
+            title="Run Claude analysis on this pick"
+            style={{ padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: (!pick.fixtureId || anyAnalysing) ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: '#90cdf4', border: '1px solid #2b6cb0', opacity: (anyAnalysing && !isAnalysing) ? 0.4 : 1 }}
+          >
+            AI
+          </button>
+        )}
+      </div>
+    </div>
+      {goalsRow}
+      {optRows}
+    {hasAI && aiExpanded && (
+      <div key={`${pick.fixtureId ?? idx}-ai`} style={{ borderTop: '1px solid #1a3a1a', background: '#080f08', padding: '12px 18px 14px 46px' }}>
+        {/* Toggle collapse */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#68d391', textTransform: 'uppercase', letterSpacing: '0.06em' }}>AI Analysis</span>
+            {pickChanged && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#f6ad55', background: '#2a1a05', border: '1px solid #744210', borderRadius: 5, padding: '2px 7px' }}>
+                ↻ Changed: {pick.originalMarket !== pick.market ? `${pick.originalMarket} → ${pick.market}` : ''}{pick.originalSelection !== pick.selection ? (pick.originalMarket !== pick.market ? ' · ' : '') + `${pick.originalSelection} → ${pick.selection}` : ''}
+              </span>
+            )}
+          </div>
+          <button onClick={e => { e.stopPropagation(); onToggleAI(pick.fixtureId) }}
+            style={{ background: 'none', border: 'none', color: '#4a5568', cursor: 'pointer', fontSize: 13, padding: '0 4px' }}>▲ hide</button>
+        </div>
+        {/* Pick decision reason — shown first when AI changed the pick */}
+        {pick.reason && (
+          <div style={{ marginBottom: 12, background: pickChanged ? '#1a120a' : '#0b130b', border: `1px solid ${pickChanged ? '#744210' : '#1a3a1a'}`, borderRadius: 7, padding: '8px 12px' }}>
+            {pickChanged && <div style={{ fontSize: 9, fontWeight: 700, color: '#f6ad55', textTransform: 'uppercase', marginBottom: 4 }}>Why AI changed this pick</div>}
+            {!pickChanged && <div style={{ fontSize: 9, fontWeight: 700, color: '#4a7a4a', textTransform: 'uppercase', marginBottom: 4 }}>Pick reasoning</div>}
+            <div style={{ fontSize: 12, color: '#c6f6d5', lineHeight: 1.5 }}>{pick.reason}</div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+          {/* Verdict block */}
+          <div style={{ minWidth: 180 }}>
+            {pick.verdict && (
+              <div style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: '#4a5568' }}>Verdict: </span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: pick.verdict === 'Home Win' ? '#90cdf4' : pick.verdict === 'Away Win' ? '#f6ad55' : '#b794f4' }}>{pick.verdict}</span>
+                {pick.claudeConf && <span style={{ fontSize: 10, color: pick.claudeConf === 'High' ? '#68d391' : pick.claudeConf === 'Medium' ? '#ecc94b' : '#fc8181', marginLeft: 6, fontWeight: 700 }}>{pick.claudeConf}</span>}
+                {pick.predictedScore && <span style={{ fontSize: 11, color: '#718096', marginLeft: 8 }}>({pick.predictedScore})</span>}
+              </div>
+            )}
+            {pick.modelAgreement && (
+              <div style={{ fontSize: 10, color: pick.modelAgreement === 'Strong' ? '#68d391' : pick.modelAgreement === 'Conflicting' ? '#fc8181' : '#ecc94b', marginBottom: 4 }}>
+                Models: {pick.modelAgreement}
+              </div>
+            )}
+            {pick.riskFactor && <div style={{ fontSize: 10, color: '#fc8181', marginBottom: 4 }}>Risk: {pick.riskFactor}</div>}
+            {pick.formEdge && pick.formEdge !== 'Neutral' && <div style={{ fontSize: 10, color: '#90cdf4', marginBottom: 4 }}>Form edge: {pick.formEdge}</div>}
+            {pick.injuryImpact && pick.injuryImpact !== 'None' && <div style={{ fontSize: 10, color: '#f6ad55', marginBottom: 4 }}>Injuries: {pick.injuryImpact} impact</div>}
+          </div>
+
+          {/* Best/Value bets */}
+          <div style={{ minWidth: 200 }}>
+            {pick.bestBet && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: '#68d391', textTransform: 'uppercase', marginBottom: 3 }}>Best Bet</div>
+                <div style={{ fontSize: 12, color: '#9ae6b4', lineHeight: 1.4 }}>{pick.bestBet}</div>
+              </div>
+            )}
+            {pick.valueBet && (
+              <div>
+                <div style={{ fontSize: 10, color: '#ecc94b', textTransform: 'uppercase', marginBottom: 3 }}>Value Bet</div>
+                <div style={{ fontSize: 12, color: '#faf089', lineHeight: 1.4 }}>{pick.valueBet}</div>
+              </div>
+            )}
+            {pick.updatedBestBet && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 10, color: '#90cdf4', textTransform: 'uppercase', marginBottom: 3 }}>News-updated Pick</div>
+                <div style={{ fontSize: 12, color: '#bee3f8', lineHeight: 1.4 }}>{pick.updatedBestBet}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Key factors + full analysis */}
+          <div style={{ flex: 1, minWidth: 220 }}>
+            {pick.keyFactors?.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, color: '#718096', textTransform: 'uppercase', marginBottom: 4 }}>Key Factors</div>
+                {pick.keyFactors.map((f, fi) => (
+                  <div key={fi} style={{ fontSize: 11, color: '#a0aec0', marginBottom: 2 }}>· {f}</div>
+                ))}
+              </div>
+            )}
+            {pick.fullAnalysis && (
+              <div>
+                <div style={{ fontSize: 10, color: '#718096', textTransform: 'uppercase', marginBottom: 4 }}>Analysis</div>
+                <div style={{ fontSize: 11, color: '#718096', lineHeight: 1.5 }}>{pick.fullAnalysis}</div>
+              </div>
+            )}
+            {pick.newsAnalysisText && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 10, color: '#90cdf4', textTransform: 'uppercase', marginBottom: 4 }}>News</div>
+                <div style={{ fontSize: 11, color: '#718096', lineHeight: 1.5 }}>{pick.newsAnalysisText}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
+    </>
+  )
+})
