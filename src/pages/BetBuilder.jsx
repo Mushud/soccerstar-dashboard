@@ -50,6 +50,10 @@ export default function BetBuilder() {
   // strongest among the ones about to start", which is the actual question when you are
   // building a slip against a deadline. null = no limit.
   const [withinHours, setWithinHours] = useState(null)
+  // A specific kickoff slot ('YYYY-MM-DDTHH', local). Narrows to matches starting in that hour —
+  // what you want when the legs of an accumulator should all kick off together, where a rolling
+  // "within N hours" window still spans everything before it.
+  const [kickoffHour, setKickoffHour] = useState(null)
   const [limit, setLimit]         = useState(1500)
   const [page, setPage]           = useState(1)
   const [showAll, setShowAll]       = useState(false)
@@ -386,7 +390,7 @@ export default function BetBuilder() {
 
   // Narrow first, then rank — so the sort picks the best of what is left rather than ranking
   // everything and leaving you to scroll for the next kickoff.
-  const visible = useMemo(() => {
+  const windowed = useMemo(() => {
     if (!withinHours) return picks
     const cutoff = Date.now() + withinHours * 3600000
     return picks.filter(p => {
@@ -395,6 +399,42 @@ export default function BetBuilder() {
       return !isNaN(t) && t <= cutoff
     })
   }, [picks, withinHours])
+
+  // Kickoff slots present in the current window. Keyed by local date AND hour, never hour
+  // alone: across a multi-day window "18:00" would otherwise merge Saturday's 18:00 kickoffs
+  // with Sunday's, which is the opposite of what picking a slot is for.
+  const hourOptions = useMemo(() => {
+    const p2 = n => String(n).padStart(2, '0')
+    const counts = new Map()
+    for (const p of windowed) {
+      if (!p.fixtureDate) continue
+      const d = new Date(p.fixtureDate)
+      if (isNaN(d.getTime())) continue
+      const key = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}`
+      if (!counts.has(key)) {
+        counts.set(key, {
+          key, count: 0, sort: d.getTime(),
+          label: `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, ${p2(d.getHours())}:00`,
+        })
+      }
+      counts.get(key).count++
+    }
+    return [...counts.values()].sort((a, b) => a.sort - b.sort)
+  }, [windowed])
+
+  // A slot chosen before a regenerate may no longer exist. Fall back to the whole window rather
+  // than showing an empty table under a stale selection.
+  const activeHour = hourOptions.some(o => o.key === kickoffHour) ? kickoffHour : null
+
+  const visible = useMemo(() => {
+    if (!activeHour) return windowed
+    const p2 = n => String(n).padStart(2, '0')
+    return windowed.filter(p => {
+      const d = new Date(p.fixtureDate)
+      if (isNaN(d.getTime())) return false
+      return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}` === activeHour
+    })
+  }, [windowed, activeHour])
 
   // Memoised because this copies and re-sorts EVERY pick, not just the twenty on screen. A full
   // slate is well over a thousand, and without this it re-ran on every unrelated state change —
@@ -636,16 +676,30 @@ export default function BetBuilder() {
                 {/* Kickoff window — combines with whichever sort is active. */}
                 <span style={{ fontSize: 11, color: '#4a5568', marginLeft: 6 }}>Kickoff:</span>
                 {[[null,'Any'],[1,'1h'],[2,'2h'],[3,'3h'],[6,'6h'],[12,'12h'],[24,'24h']].map(([h,l]) => (
-                  <button key={l} onClick={() => { setWithinHours(h); setPage(1) }}
+                  <button key={l} onClick={() => { setWithinHours(h); setKickoffHour(null); setPage(1) }}
                     title={h ? `Only matches kicking off within ${h} hours — combine with a sort to rank just those` : 'No kickoff limit'}
                     style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
                       background: withinHours===h ? '#2a1a3a' : '#1a2030', color: withinHours===h ? '#d6bcfa' : '#718096',
                       border: `1px solid ${withinHours===h ? '#805ad5' : '#2d3748'}` }}>{l}</button>
                 ))}
-                {withinHours && (
+                {/* Exact kickoff slot. Options come from the current window, so every entry
+                    yields results and the counts tell you how big each slot is before you pick. */}
+                {hourOptions.length > 0 && (
+                  <select value={activeHour ?? ''} onChange={e => { setKickoffHour(e.target.value || null); setPage(1) }}
+                    title="Show only matches kicking off in one specific hour — useful when every leg should start together"
+                    style={{ padding: '5px 8px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                      background: activeHour ? '#2a1a3a' : '#1a2030', color: activeHour ? '#d6bcfa' : '#718096',
+                      border: `1px solid ${activeHour ? '#805ad5' : '#2d3748'}` }}>
+                    <option value="">At any hour</option>
+                    {hourOptions.map(o => <option key={o.key} value={o.key}>{o.label} ({o.count})</option>)}
+                  </select>
+                )}
+                {(withinHours || activeHour) && (
                   <span style={{ fontSize: 11, color: visible.length ? '#b794f4' : '#fc8181', fontWeight: 700 }}>
-                    {visible.length} of {picks.length} within {withinHours}h
-                    {!visible.length && ' — nothing starts that soon'}
+                    {visible.length} of {picks.length}
+                    {withinHours ? ` within ${withinHours}h` : ''}
+                    {activeHour ? ` at ${hourOptions.find(o => o.key === activeHour)?.label}` : ''}
+                    {!visible.length && ' — nothing matches'}
                   </span>
                 )}
               </div>
@@ -699,7 +753,9 @@ export default function BetBuilder() {
                 <span style={{ fontSize: 12, color: '#718096' }}>
                   Page <b style={{ color: '#e2e8f0' }}>{page}</b> of <b style={{ color: '#e2e8f0' }}>{totalPages}</b>
                   <span style={{ marginLeft: 8, color: '#4a5568' }}>
-                    ({withinHours ? `${visible.length} within ${withinHours}h of ${picks.length}` : `${picks.length} picks total`})
+                    ({(withinHours || activeHour)
+                      ? `${visible.length} shown of ${picks.length}${withinHours ? ` · within ${withinHours}h` : ''}${activeHour ? ` · ${hourOptions.find(o => o.key === activeHour)?.label}` : ''}`
+                      : `${picks.length} picks total`})
                   </span>
                 </span>
                 <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
