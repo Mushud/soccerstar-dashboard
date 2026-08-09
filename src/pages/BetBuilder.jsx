@@ -635,7 +635,7 @@ export default function BetBuilder() {
 
                 {/* Kickoff window — combines with whichever sort is active. */}
                 <span style={{ fontSize: 11, color: '#4a5568', marginLeft: 6 }}>Kickoff:</span>
-                {[[null,'Any'],[3,'3h'],[6,'6h'],[12,'12h'],[24,'24h']].map(([h,l]) => (
+                {[[null,'Any'],[1,'1h'],[2,'2h'],[3,'3h'],[6,'6h'],[12,'12h'],[24,'24h']].map(([h,l]) => (
                   <button key={l} onClick={() => { setWithinHours(h); setPage(1) }}
                     title={h ? `Only matches kicking off within ${h} hours — combine with a sort to rank just those` : 'No kickoff limit'}
                     style={{ padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer',
