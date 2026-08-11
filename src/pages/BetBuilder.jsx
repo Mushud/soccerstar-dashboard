@@ -426,6 +426,31 @@ export default function BetBuilder() {
   // than showing an empty table under a stale selection.
   const activeHour = hourOptions.some(o => o.key === kickoffHour) ? kickoffHour : null
 
+  // What the selected legs are actually worth as one slip.
+  //
+  // Why this is here at all: the panel already showed combined ODDS, which grows as you add
+  // legs and so reads as the slip getting better. The probability moves the other way. Ten legs
+  // at an honest 88% win 29% of the time, and at 78% they win 8% — so a 10-leg card built from
+  // well-calibrated legs still loses far more often than it wins. Eight of ten landing feels
+  // like the model was wrong when it is exactly what 88%-per-leg predicts.
+  //
+  // Independence caveat: this is a plain product, which is right for legs on DIFFERENT fixtures
+  // and wrong for two legs on the same one (Over 1.5 and BTTS on one match are strongly
+  // correlated). `sameFixture` counts that case so the readout can say so rather than quietly
+  // overstate. Correlated legs make the true probability HIGHER than the product, not lower.
+  const slip = useMemo(() => {
+    const legs = picks.filter(p => selected.has(p.fixtureId))
+    if (!legs.length) return null
+    const priced = legs.filter(p => p.modelProbRaw != null && p.modelProbRaw > 0)
+    const winProb = priced.length === legs.length
+      ? priced.reduce((s, p) => s * p.modelProbRaw, 1)
+      : null
+    const odds = legs.every(p => p.odds > 1) ? legs.reduce((s, p) => s * p.odds, 1) : null
+    const seen = new Set(), dup = new Set()
+    for (const p of legs) { if (seen.has(p.match)) dup.add(p.match); seen.add(p.match) }
+    return { n: legs.length, winProb, odds, missing: legs.length - priced.length, sameFixture: dup.size }
+  }, [picks, selected])
+
   const visible = useMemo(() => {
     if (!activeHour) return windowed
     const p2 = n => String(n).padStart(2, '0')
@@ -620,6 +645,26 @@ export default function BetBuilder() {
                 </div>
                 <div style={{ fontSize: 11, color: '#718096' }}>
                   {picks.filter(p=>p.hasClaudeAnalysis).length} AI-analysed · {selected.size} selected · page {page}/{totalPages}
+                  {slip && (
+                    <span style={{ marginLeft: 8 }}>
+                      · <b style={{ color: '#e2e8f0' }}>slip:</b>{' '}
+                      {slip.winProb != null ? (
+                        <span title={`Model probability that ALL ${slip.n} legs land. This is the product of each leg's own probability — adding legs always lowers it, however good each one looks. Ten legs at 88% each win 29% of the time.`}
+                          style={{ fontWeight: 800, color: slip.winProb >= 0.5 ? '#68d391' : slip.winProb >= 0.25 ? '#ecc94b' : '#fc8181' }}>
+                          {(slip.winProb * 100).toFixed(slip.winProb < 0.1 ? 1 : 0)}% to win all {slip.n}
+                        </span>
+                      ) : (
+                        <span title={`${slip.missing} of ${slip.n} legs have no model probability, so an honest combined figure cannot be computed`} style={{ color: '#718096' }}>
+                          — ({slip.missing} leg{slip.missing === 1 ? '' : 's'} unpriced)
+                        </span>
+                      )}
+                      {slip.odds && <span style={{ color: '#8a7a40', marginLeft: 6 }}>@ {slip.odds.toFixed(2)}x</span>}
+                      {slip.sameFixture > 0 && (
+                        <span title="Legs on the same fixture are correlated, so the true chance is higher than this product suggests. One leg per match keeps the figure accurate."
+                          style={{ color: '#f6ad55', marginLeft: 6 }}>⚠ {slip.sameFixture} same-match</span>
+                      )}
+                    </span>
+                  )}
                   {meta?.failedEnrichment > 0 && (
                     <span title="Picks excluded because form/standings/H2H contradicted the model" style={{ marginLeft: 8, color: '#fc8181' }}>
                       · {meta.failedEnrichment} blocked by data
