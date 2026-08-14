@@ -745,8 +745,9 @@ function FixtureCard({ item, result, running, onRun }) {
                 {/* Double Chance */}
                 {m.doubleChance && (
                   <MarketTable title="Double Chance" rows={[
-                    { label: '1X (H or D)', prob: m.doubleChance.homeOrDraw?.prob, correct: m.doubleChance.homeOrDraw?.correct, actual: m.doubleChance.homeOrDraw?.actual },
-                    { label: 'X2 (D or A)', prob: m.doubleChance.awayOrDraw?.prob, correct: m.doubleChance.awayOrDraw?.correct, actual: m.doubleChance.awayOrDraw?.actual },
+                    { label: '1X (H or D)', side: 'home', prob: m.doubleChance.homeOrDraw?.prob, correct: m.doubleChance.homeOrDraw?.correct, actual: m.doubleChance.homeOrDraw?.actual },
+                    { label: 'X2 (D or A)', side: 'away', prob: m.doubleChance.awayOrDraw?.prob, correct: m.doubleChance.awayOrDraw?.correct, actual: m.doubleChance.awayOrDraw?.actual },
+                    // 12 backs both teams — no single side to colour.
                     { label: '12 (H or A)', prob: m.doubleChance.homeOrAway?.prob, correct: m.doubleChance.homeOrAway?.correct, actual: m.doubleChance.homeOrAway?.actual }
                   ]} dcMode isLive={isLive} />
                 )}
@@ -817,13 +818,25 @@ function Boxes1X2({ m, actual1X2, fixture, isLive }) {
   )
 }
 
+// `row.side` tints the label and prefixes a 1/2 tag, matching the bet builder card and the
+// accuracy badges above. Rows without a side (Over/Under, BTTS, and Double Chance's 12, which
+// backs both teams) render unchanged.
 function MarketTable({ title, rows, dcMode, isLive }) {
   return (
     <div style={{ minWidth: '160px' }}>
       <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>{title}</div>
-      {rows.map((row, i) => (
+      {rows.map((row, i) => {
+        const st = row.side ? SIDE_STYLE[row.side] : null
+        return (
         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', gap: '8px', fontSize: '0.75rem' }}>
-          <span style={{ color: '#a0aec0' }}>{row.label}</span>
+          <span style={{ color: st?.color ?? '#a0aec0', display: 'flex', alignItems: 'center', gap: 4 }}>
+            {st?.tag && (
+              <span title={st.title} style={{ fontSize: '0.55rem', fontWeight: 800, lineHeight: 1, padding: '1px 3px', borderRadius: 2, border: `1px solid ${st.color}`, opacity: 0.85 }}>
+                {st.tag}
+              </span>
+            )}
+            {row.label}
+          </span>
           <span style={{ color: '#718096' }}>{pct(row.prob)}</span>
           {!dcMode && <span style={{ fontSize: '0.68rem', color: '#718096' }}>{row.predicted}</span>}
           {!isLive && (
@@ -832,7 +845,8 @@ function MarketTable({ title, rows, dcMode, isLive }) {
             </span>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
