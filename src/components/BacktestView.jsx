@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import api from '../api'
+import { SIDE_STYLE } from '../marketSides'
 
 function yesterday() {
   const d = new Date()
@@ -283,8 +284,8 @@ export default function BacktestView() {
                 <AccBadge label="Over 2.5"    data={daySummary.markets.over25} />
                 <AccBadge label="Over 3.5"    data={daySummary.markets.over35} />
                 <AccBadge label="BTTS"        data={daySummary.markets.btts} />
-                <AccBadge label="DC 1X"       data={daySummary.markets.dc1X} />
-                <AccBadge label="DC X2"       data={daySummary.markets.dcX2} />
+                <AccBadge label="DC 1X"       data={daySummary.markets.dc1X} side="home" />
+                <AccBadge label="DC X2"       data={daySummary.markets.dcX2} side="away" />
               </div>
               {/* The badges above put Odds on a different denominator from the rest, so this
                   block re-measures every model on the SAME fixtures — the priced subset, and
@@ -337,8 +338,8 @@ export default function BacktestView() {
             <AccBadge label="Over 1.5"     data={accuracy.poisson?.over15} />
             <AccBadge label="Over 2.5"     data={accuracy.blended?.over25 || accuracy.poisson?.over25} />
             <AccBadge label="Over 3.5"     data={accuracy.poisson?.over35} />
-            <AccBadge label="DC 1X"        data={accuracy.poisson?.dc_homeOrDraw} />
-            <AccBadge label="DC X2"        data={accuracy.poisson?.dc_awayOrDraw} />
+            <AccBadge label="DC 1X"        data={accuracy.poisson?.dc_homeOrDraw} side="home" />
+            <AccBadge label="DC X2"        data={accuracy.poisson?.dc_awayOrDraw} side="away" />
             {accuracy.claude && <AccBadge label="Claude" data={accuracy.claude} highlight />}
           </div>
           {(accuracy.blended?.byOutcome || accuracy.poisson?.byOutcome) && (
@@ -540,7 +541,11 @@ function DayFixtureList({ fixtures, correctScore }) {
   )
 }
 
-function AccBadge({ label, data, highlight }) {
+// `side` marks which team a market backs — 'home' for DC 1X, 'away' for DC X2. It tints the
+// badge's label and border and prefixes a 1/2 tag, matching the bet builder card so the same
+// bet reads the same way in both places. Markets with no side (the 1X2 model badges, Over/Under,
+// BTTS) pass nothing and render exactly as before.
+function AccBadge({ label, data, highlight, side }) {
   if (!data || data.total === 0) return null
   const pctVal = data.pct ?? (data.total ? Math.round(data.correct / data.total * 100) : null)
   // For Over/Under markets, show precision (when model said Over, was it right?) instead of
@@ -549,9 +554,26 @@ function AccBadge({ label, data, highlight }) {
   const displayPct = prec ? prec.pct : pctVal
   const displaySub = prec ? `${prec.correct}/${prec.total} picks` : `${data.correct}/${data.total}`
   const good = displayPct >= 50
+  const sideStyle = side ? SIDE_STYLE[side] : null
   return (
-    <div style={{ background: highlight ? (good ? '#1c4532' : '#2d2020') : '#2d3748', border: highlight ? `1px solid ${good ? '#276749' : '#742a2a'}` : '1px solid transparent', borderRadius: '8px', padding: '5px 10px', textAlign: 'center', minWidth: '70px' }}>
-      <div style={{ fontSize: '0.6rem', color: '#718096', marginBottom: 1 }}>{label}</div>
+    <div
+      title={sideStyle ? `${label} — ${sideStyle.title.toLowerCase()}` : undefined}
+      style={{
+        background: highlight ? (good ? '#1c4532' : '#2d2020') : '#2d3748',
+        border: highlight
+          ? `1px solid ${good ? '#276749' : '#742a2a'}`
+          : sideStyle ? `1px solid ${sideStyle.color}44` : '1px solid transparent',
+        borderRadius: '8px', padding: '5px 10px', textAlign: 'center', minWidth: '70px',
+      }}
+    >
+      <div style={{ fontSize: '0.6rem', color: sideStyle?.color ?? '#718096', marginBottom: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+        {sideStyle?.tag && (
+          <span style={{ fontSize: '0.5rem', fontWeight: 800, lineHeight: 1, padding: '1px 3px', borderRadius: 2, border: `1px solid ${sideStyle.color}`, opacity: 0.85 }}>
+            {sideStyle.tag}
+          </span>
+        )}
+        {label}
+      </div>
       <div style={{ fontSize: '0.95rem', fontWeight: 700, color: good ? '#68d391' : '#fc8181' }}>{displayPct}%</div>
       <div style={{ fontSize: '0.6rem', color: '#718096' }}>{displaySub}</div>
       {prec && <div style={{ fontSize: '0.55rem', color: '#4a5568' }}>when picked</div>}

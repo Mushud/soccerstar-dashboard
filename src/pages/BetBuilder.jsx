@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, memo } from 'react'
 import { Link } from 'react-router-dom'
 import api, { API_BASE } from '../api'
+import { SIDE, SIDE_STYLE, selectionSide, pairedOutcome } from '../marketSides'
 
 
 const DURATION_LABELS = {
@@ -22,57 +23,6 @@ const RISK_OPTIONS = [
 const GRID_COLS = '32px 1.9fr 1.0fr 1.0fr 1.0fr 0.6fr 0.75fr 0.62fr 0.52fr 0.72fr 1.7fr 56px'
 
 const GOAL_MARKETS = ['Over 1.5', 'Over 2.5', 'BTTS']
-
-// ── Which side a selection backs ─────────────────────────────────────────────
-//
-// A Double Chance 1X and a straight Home Win are the same directional call — 1X just also
-// collects the draw. The builder overwhelmingly picks 1X/X2 rather than straight wins (they
-// carry the higher probability, and the low-risk score is p^2.5), so a card read top to bottom
-// is mostly Double Chance rows whose market column says nothing about WHICH team is favoured.
-// Colouring by side makes that scannable, and pairing each selection with its counterpart's
-// probability shows how much of a Double Chance is actually the draw.
-const SIDE = { HOME: 'home', AWAY: 'away', DRAW: 'draw', GOALS: 'goals' }
-
-const SIDE_STYLE = {
-  [SIDE.HOME]:  { color: '#90cdf4', tag: '1' },
-  [SIDE.AWAY]:  { color: '#f6ad55', tag: '2' },
-  [SIDE.DRAW]:  { color: '#b794f4', tag: 'X' },
-  [SIDE.GOALS]: { color: '#4fd1c5', tag: null },
-}
-
-function selectionSide(market, selection) {
-  const m = market || '', s = selection || ''
-  if (GOAL_MARKETS.includes(s) || /Over|Under|BTTS|Both Teams/i.test(`${m} ${s}`)) return SIDE.GOALS
-  // Test the Double Chance codes before the plain words: "X2 (Away or Draw)" contains both
-  // "Away" and "Draw", so a naive word match would classify half the card as a draw bet.
-  if (/^1X\b/.test(s) || /Home or Draw/i.test(s)) return SIDE.HOME
-  if (/^X2\b/.test(s) || /Away or Draw/i.test(s)) return SIDE.AWAY
-  if (/^12\b|Home or Away/i.test(s)) return null
-  if (/Home/i.test(s)) return SIDE.HOME
-  if (/Away/i.test(s)) return SIDE.AWAY
-  if (/Draw/i.test(s)) return SIDE.DRAW
-  return null
-}
-
-// The same call expressed the other way round: for a Double Chance, the straight win it
-// contains; for a straight win, the Double Chance that covers it. Returns null when `blend`
-// is missing — this is an annotation, never a substitute for the pick itself.
-function pairedOutcome(market, selection, blend) {
-  if (!blend || blend.home == null) return null
-  const s = selection || ''
-  const pct = v => `${Math.round(v * 100)}%`
-  const isDC = /Double Chance/i.test(market || '') || /^1X\b|^X2\b/.test(s)
-
-  if (isDC) {
-    const side = selectionSide(market, s)
-    if (side === SIDE.HOME) return { label: 'straight 1', detail: `${pct(blend.home)} win · ${pct(blend.draw)} draw` }
-    if (side === SIDE.AWAY) return { label: 'straight 2', detail: `${pct(blend.away)} win · ${pct(blend.draw)} draw` }
-    return null
-  }
-  if (/Home Win/i.test(s)) return { label: 'as 1X', detail: `${pct(blend.home + blend.draw)} with the draw` }
-  if (/Away Win/i.test(s)) return { label: 'as X2', detail: `${pct(blend.away + blend.draw)} with the draw` }
-  return null
-}
 
 function fmt(dateStr) {
   if (!dateStr) return ''
