@@ -962,6 +962,8 @@ const PickRow = memo(function PickRow({
           {pick.dataVerified === 'risky'     && <span title="Data raises concerns — check flags below" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>⚠ CHECK</span>}
           {pick.dataVerified === 'mixed'     && <span title="Mixed signals from data" style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>~ MIXED</span>}
           {pick.dataVerified === 'unverified'&& <span title="No enrichment data yet — click AI to fetch" style={{ fontSize: 9, background: '#1a1a2a', color: '#4a5568', border: '1px solid #2d3748', borderRadius: 4, padding: '1px 5px' }}>NO DATA</span>}
+          {pick.historyVerdict === 'contradicted' && <span title="Both teams' recent goals/results history argues against this pick — see the history line below" style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>📉 HIST</span>}
+          {pick.historyVerdict === 'supported' && pick.historyScore >= 0.8 && <span title="Both teams' recent goals/results history backs this pick" style={{ fontSize: 9, background: '#0f2a1a', color: '#68d391', border: '1px solid #276749', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>📈 HIST</span>}
           {pick.claudeConf === 'Medium' && <span title="Claude rated this Medium confidence — not High. Review before selecting." style={{ fontSize: 9, background: '#2a2510', color: '#ecc94b', border: '1px solid #744210', borderRadius: 4, padding: '1px 5px' }}>AI: Medium</span>}
           {pick.claudeConf === 'Low'    && <span title="Claude rated this Low confidence. High risk pick." style={{ fontSize: 9, background: '#2a0f0f', color: '#fc8181', border: '1px solid #742a2a', borderRadius: 4, padding: '1px 5px' }}>AI: Low</span>}
         </div>
@@ -970,6 +972,22 @@ const PickRow = memo(function PickRow({
           <div key={fi} style={{ fontSize: 9, marginTop: 2, color: f.type === 'good' ? '#68d391' : f.type === 'warn' ? '#fc8181' : '#4a5568' }}>
             {f.label}
           </div>
+        ))}
+        {/* Point-in-time goals/results history for both clubs, computed from our own graded
+            fixtures. This is the raw "do these two teams actually produce goals/wins" line —
+            the badge above summarises it, this shows the numbers behind it. */}
+        {pick.history && (pick.history.home || pick.history.away) && (
+          <div style={{ fontSize: 9, color: '#718096', marginTop: 3, lineHeight: 1.5 }}>
+            <span style={{ color: '#4a5568' }}>Last {pick.history.window}: </span>
+            {pick.history.home && <span>H {Math.round(pick.history.home.over15 * 100)}% o1.5 · {pick.history.home.meanGoals} gls · {Math.round(pick.history.home.nonLoss * 100)}% unb</span>}
+            {pick.history.home && pick.history.away && <span style={{ color: '#2d3748' }}>  |  </span>}
+            {pick.history.away && <span>A {Math.round(pick.history.away.over15 * 100)}% o1.5 · {pick.history.away.meanGoals} gls · {Math.round(pick.history.away.nonLoss * 100)}% unb</span>}
+            {pick.history.h2h && <span style={{ color: '#a0aec0' }}>  |  H2H {pick.history.h2h.matches}: {Math.round(pick.history.h2h.over15 * 100)}% o1.5, {pick.history.h2h.meanGoals} gls</span>}
+            {pick.history.league && <span style={{ color: '#a0aec0' }}>  |  Lg {Math.round(pick.history.league.over15 * 100)}% o1.5, {pick.history.league.meanGoals} gls</span>}
+          </div>
+        )}
+        {pick.historyFlags?.filter(f => f.type === 'warn').slice(0, 2).map((f, fi) => (
+          <div key={`h${fi}`} style={{ fontSize: 9, marginTop: 2, color: '#fc8181' }}>📉 {f.message}</div>
         ))}
         {pick.newsSentiment && (() => {
           const c = pick.newsSentiment === 'Home-favoured' ? '#90cdf4'
