@@ -974,18 +974,54 @@ const PickRow = memo(function PickRow({
           </div>
         ))}
         {/* Point-in-time goals/results history for both clubs, computed from our own graded
-            fixtures. This is the raw "do these two teams actually produce goals/wins" line —
-            the badge above summarises it, this shows the numbers behind it. */}
-        {pick.history && (pick.history.home || pick.history.away) && (
-          <div style={{ fontSize: 9, color: '#718096', marginTop: 3, lineHeight: 1.5 }}>
-            <span style={{ color: '#4a5568' }}>Last {pick.history.window}: </span>
-            {pick.history.home && <span>H {Math.round(pick.history.home.over15 * 100)}% o1.5 · {pick.history.home.meanGoals} gls · {Math.round(pick.history.home.nonLoss * 100)}% unb</span>}
-            {pick.history.home && pick.history.away && <span style={{ color: '#2d3748' }}>  |  </span>}
-            {pick.history.away && <span>A {Math.round(pick.history.away.over15 * 100)}% o1.5 · {pick.history.away.meanGoals} gls · {Math.round(pick.history.away.nonLoss * 100)}% unb</span>}
-            {pick.history.h2h && <span style={{ color: '#a0aec0' }}>  |  H2H {pick.history.h2h.matches}: {Math.round(pick.history.h2h.over15 * 100)}% o1.5, {pick.history.h2h.meanGoals} gls</span>}
-            {pick.history.league && <span style={{ color: '#a0aec0' }}>  |  Lg {Math.round(pick.history.league.over15 * 100)}% o1.5, {pick.history.league.meanGoals} gls</span>}
-          </div>
-        )}
+            fixtures. The badge above summarises it; this shows the numbers behind it.
+            Only the rows relevant to the PICK are shown — a goals leg does not need to know
+            who is unbeaten, and a Double Chance leg does not need the over-1.5 counts.
+            Counts ("9 of 10") rather than percentages: the window is 10 matches, and a reader
+            can sanity-check a count against a form guide in a way they cannot with "90%". */}
+        {pick.history && (pick.history.home || pick.history.away) && (() => {
+          const h = pick.history
+          const isGoals = /over|under|btts|both teams/i.test(`${pick.market} ${pick.selection}`)
+          const w = h.window
+          const g = v => v == null ? '–' : v.toFixed(1)
+          // Denominator is the team's OWN match count, which is <= the window whenever a club
+          // has played fewer games than that (new season, promoted side, cup-only entrant).
+          // Using the nominal window there would overstate the count.
+          const cnt = (r, n) => r == null ? '–' : `${Math.round(r * n)} of ${n}`
+          const row = (label, body) => (
+            <div style={{ display: 'flex', gap: 5 }}>
+              <span style={{ color: '#4a5568', minWidth: 74, flexShrink: 0 }}>{label}</span>
+              <span>{body}</span>
+            </div>
+          )
+          return (
+            <div
+              title={isGoals
+                ? `How often each side's recent matches produced goals. "6 of 10 over 1.5" means 6 of that team's last 10 matches had 2 or more goals in them. "goals/game" is the average total goals in those matches, both teams combined. Up to ${w} matches per side.`
+                : `Each side's recent results. "unbeaten" counts wins and draws. "pts/game" is league points per match (win 3, draw 1) — the gap between the two sides is the form edge. Up to ${w} matches per side.`}
+              style={{ fontSize: 9, color: '#718096', marginTop: 4, lineHeight: 1.6, cursor: 'help' }}
+            >
+              <div style={{ color: '#4a5568', fontWeight: 700, marginBottom: 1 }}>
+                {isGoals ? 'Goals history' : 'Results history'}
+              </div>
+              {h.home && row('Home form', isGoals
+                ? `${cnt(h.home.over15, h.home.matches)} over 1.5 · ${g(h.home.meanGoals)} goals/game`
+                : `${cnt(h.home.nonLoss, h.home.matches)} unbeaten · ${g(h.home.ppg)} pts/game`)}
+              {h.away && row('Away form', isGoals
+                ? `${cnt(h.away.over15, h.away.matches)} over 1.5 · ${g(h.away.meanGoals)} goals/game`
+                : `${cnt(h.away.nonLoss, h.away.matches)} unbeaten · ${g(h.away.ppg)} pts/game`)}
+              {isGoals && h.h2h && row('Past meetings',
+                <span>
+                  {Math.round(h.h2h.over15 * h.h2h.matches)} of {h.h2h.matches} over 1.5 · {g(h.h2h.meanGoals)} goals/game
+                  {/* Under 4 meetings the H2H is corroboration at best — say so rather than
+                      letting a 2-of-3 read like a trend. */}
+                  {h.h2h.matches < 4 && <span style={{ color: '#4a5568' }}> (small sample)</span>}
+                </span>
+              )}
+              {isGoals && h.league && row('This league', `${Math.round(h.league.over15 * 100)}% over 1.5 · ${g(h.league.meanGoals)} goals/game`)}
+            </div>
+          )
+        })()}
         {pick.historyFlags?.filter(f => f.type === 'warn').slice(0, 2).map((f, fi) => (
           <div key={`h${fi}`} style={{ fontSize: 9, marginTop: 2, color: '#fc8181' }}>📉 {f.message}</div>
         ))}
