@@ -58,8 +58,12 @@ const TIER = {
   high:   { label: '🔥 High risk', cls: 'pill-neg' },
 }
 
-export default function PredictionCard({ fixture, prediction, onPredict, computing, flushTop }) {
+export default function PredictionCard({ fixture, prediction, onPredict, computing, flushTop, dense = false }) {
+  // Two levels, because there are two useful amounts of detail. `expanded` opens the card body
+  // (the model/Claude columns) — only meaningful in dense mode, where the body starts hidden.
+  // `deep` opens the blend breakdown, double chance, half-time and full analysis under it.
   const [expanded, setExpanded] = useState(false)
+  const [deep, setDeep] = useState(false)
 
   const blended    = prediction?.blended ?? null
   const activeData = prediction
@@ -86,7 +90,7 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
 
   return (
     <div
-      className="card pc card-hover"
+      className={`card pc card-hover${dense ? ' dense' : ''}`}
       style={flushTop ? { borderRadius: '0 0 var(--r-lg) var(--r-lg)', marginBottom: 0 } : undefined}
     >
 
@@ -120,6 +124,31 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
       {/* ── Prediction panel ── */}
       {activeData ? (
         <>
+          {/* Dense summary: the pick, its probability, the goals markets and Claude's verdict on
+              one line. Everything below is the same card as before, revealed by "More". */}
+          {dense && !expanded && (
+            <div className="pc-strip">
+              <VerdictPill verdict={modelVerdict} />
+              <span className="num" style={{ fontSize: 12.5, fontWeight: 700 }}>{pct(modelProb)}</span>
+              <div className="bar">
+                <span className="who">{modelVerdict === 'Away Win' ? fixture.awayTeamName : modelVerdict === 'Draw' ? 'Draw' : fixture.homeTeamName}</span>
+                <div className="meter">
+                  <i className={modelVerdict === 'Away Win' ? 'info' : modelVerdict === 'Draw' ? 'warn' : 'pos'} style={{ width: pct(modelProb) }} />
+                </div>
+              </div>
+              <OUStrip ou={activeData.overUnder} />
+              {claude?.verdict && (
+                <span className={`pill pill-${CONF[claude.confidence] ?? ''}`} title={claude.bestBet || undefined}>
+                  AI: {claude.verdict}
+                </span>
+              )}
+              <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setExpanded(true)}>
+                More ▼
+              </button>
+            </div>
+          )}
+
+          {(!dense || expanded) && (
           <div className="pc-split">
 
             {/* Model column */}
@@ -196,16 +225,27 @@ export default function PredictionCard({ fixture, prediction, onPredict, computi
             </div>
           </div>
 
+          )}
+
           {/* O/U strip + expand toggle */}
+          {(!dense || expanded) && (
           <div className="pc-foot">
             <OUStrip ou={activeData.overUnder} />
-            <button className="btn btn-sm btn-ghost" onClick={() => setExpanded(e => !e)}>
-              {expanded ? 'Hide ▲' : 'More ▼'}
-            </button>
+            <div className="toolbar" style={{ gap: 4 }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => setDeep(d => !d)}>
+                {deep ? 'Less ▲' : 'More ▼'}
+              </button>
+              {dense && (
+                <button className="btn btn-sm btn-ghost" onClick={() => { setExpanded(false); setDeep(false) }}>
+                  Collapse
+                </button>
+              )}
+            </div>
           </div>
+          )}
 
           {/* Expanded: blended breakdown + double chance + HT + analysis */}
-          {expanded && (
+          {deep && (
             <div style={{ borderTop: '1px solid var(--line-soft)', padding: '14px 16px', background: 'var(--bg-soft)' }}>
 
               {isBlended && blended.result1X2 && (

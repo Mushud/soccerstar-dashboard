@@ -745,8 +745,18 @@ input[type='range']:disabled { opacity: 0.45; cursor: not-allowed; }
   padding: 9px 12px; font-size: 12.5px;
   border-bottom: 1px solid var(--line-soft);
 }
-.leg:last-child { border-bottom: none; }
-.leg:nth-child(even) { background: var(--bg-soft); }
+/* Compact: match and pick share one line instead of stacking, so a fifteen-leg slip is
+   readable without scrolling. Kickoff and score keep their own columns. */
+.leg-list.tight .leg { padding: 5px 12px; font-size: 12px; gap: 8px; }
+.leg-list.tight .leg .n { font-size: 9.5px; }
+.leg-list.tight .leg .pick { font-size: 11px; }
+.leg-list.tight .leg .stack { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.leg-list.tight .leg .stack .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.leg-list.tight .leg .stack .pick { white-space: nowrap; flex-shrink: 0; }
+@media (max-width: 599px) {
+  .leg-list.tight .leg .stack { flex-direction: column; gap: 0; }
+  .leg-list.tight .leg .stack .pick { white-space: normal; }
+}
 .leg .n { font-size: 10px; color: var(--tx-4); font-variant-numeric: tabular-nums; }
 .leg .pick { color: var(--tx-3); font-size: 11.5px; }
 .leg .p { color: var(--pos); font-weight: 700; font-variant-numeric: tabular-nums; font-size: 11.5px; }
@@ -757,3 +767,46 @@ input[type='range']:disabled { opacity: 0.45; cursor: not-allowed; }
   color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-dim);
   border-radius: var(--r-lg); padding: 14px 20px; text-align: center; word-break: break-all;
 }
+
+/* ── Dense prediction card ───────────────────────────────────────────────────
+   One line per fixture instead of a 200px card. The full two-column breakdown is
+   still there, behind the row's own expander — a slate of 187 fixtures is a list to
+   scan, not 187 cards to scroll past. */
+
+.pc.dense { margin-bottom: 6px; }
+.pc.dense .pc-head { padding: 9px 14px; gap: 8px; }
+.pc.dense .pc-teams { font-size: 13px; }
+.pc.dense .pc-meta { font-size: 10.5px; margin-top: 1px; }
+
+.pc-strip {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 0 14px 9px;
+}
+.pc-strip .bar { display: flex; align-items: center; gap: 6px; min-width: 130px; flex: 0 1 190px; }
+.pc-strip .who { font-size: 11.5px; color: var(--tx-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 110px; }
+.pc-strip .val { font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 599px) {
+  .pc-strip { gap: 6px; }
+  .pc-strip .bar { flex: 1 1 100%; }
+}
+
+/* ── Live booking codes on the dashboard ─────────────────────────────────── */
+
+.slip-strip { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.slip-strip::-webkit-scrollbar { display: none; }
+.slip-chip {
+  flex: 0 0 auto; min-width: 208px;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--r-lg); padding: 11px 13px;
+  transition: border-color 0.14s, background 0.14s;
+}
+.slip-chip:hover { border-color: var(--accent-dim); background: var(--surface-2); }
+.slip-chip .top { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+.slip-chip .code { font-family: var(--mono); font-size: 12.5px; font-weight: 700; color: var(--info); }
+.slip-chip .odds { margin-left: auto; font-size: 13px; font-weight: 800; color: var(--warn); font-variant-numeric: tabular-nums; }
+.slip-chip .meta { font-size: 11px; color: var(--tx-3); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.slip-chip.won  { border-color: var(--pos-dim); background: var(--pos-soft); }
+.slip-chip.lost { border-color: var(--neg-dim); background: var(--neg-soft); }
+.slip-chip.won:hover  { border-color: var(--pos); }
+.slip-chip.lost:hover { border-color: var(--neg); }

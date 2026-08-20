@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import api from '../api'
+import { Link } from 'react-router-dom'
 import AppShell from '../components/AppShell'
 import PredictionCard from '../components/PredictionCard'
 import BacktestView from '../components/BacktestView'
+
+const SLIP_SOURCE = { 'smart-pick': 'Smart Pick', manual: 'Manual', imported: 'Imported' }
 
 function todayStr() {
   return new Date().toISOString().slice(0, 10)
@@ -39,6 +42,12 @@ export default function Dashboard() {
   const setView = v => setParams(v === 'upcoming' ? {} : { view: v }, { replace: true })
 
   const [selectedDate, setSelectedDate] = useState(() => sessionStorage.getItem('ss_date') || todayStr())
+  // Density sticks, because it is a reading preference rather than a per-visit choice.
+  const [dense, setDense] = useState(() => sessionStorage.getItem('ss_dense') !== '0')
+
+  // Booking codes still in play. Read-only here — settling is the Booked Slips page's job, so
+  // this passes settle=false and stays cheap enough to run on every dashboard load.
+  const [liveSlips, setLiveSlips] = useState([])
 
   // Upcoming
   const [upcomingFixtures, setUpcomingFixtures] = useState([])
@@ -164,6 +173,30 @@ export default function Dashboard() {
       setLiveComputing(c => ({ ...c, [fixtureId]: false }))
     }
   }
+
+  useEffect(() => {
+    let cancelled = false
+    api.get('/api/betbuilder/slips', { params: { limit: 40, settle: 'false' } })
+      .then(({ data }) => {
+        if (cancelled) return
+        // Still running, plus anything that resolved in the last three days. A slip that just
+        // landed is the most interesting thing on the page, and it disappearing the moment its
+        // last leg finished was the wrong behaviour.
+        const cutoff = Date.now() - 3 * 86400000
+        const rows = (data.slips || []).filter(sl =>
+          sl.status === 'pending' ||
+          ((sl.status === 'won' || sl.status === 'lost') &&
+            new Date(sl.settledAt || sl.updatedAt || 0).getTime() > cutoff))
+        // Running first, then most recently settled.
+        rows.sort((a, b) => {
+          if ((a.status === 'pending') !== (b.status === 'pending')) return a.status === 'pending' ? -1 : 1
+          return new Date(b.settledAt || b.createdAt) - new Date(a.settledAt || a.createdAt)
+        })
+        setLiveSlips(rows.slice(0, 10))
+      })
+      .catch(() => { /* the strip is supplementary — a failure here must not affect the slate */ })
+    return () => { cancelled = true }
+  }, [])
 
   // ── Search ────────────────────────────────────────────────────────────────
 
@@ -399,6 +432,71 @@ export default function Dashboard() {
             </div>
           </div>
 
+
+          {/* Booking codes still running. Put here because the dashboard is where you land, and
+              "which of my slips are still alive" is the first thing worth knowing. */}
+          {liveSlips.length > 0 && (
+            <section style={{ marginBottom: 18 }}>
+              <div className="section-head" style={{ marginBottom: 10 }}>
+                <div>
+                  <div className="section-title" style={{ fontSize: 14 }}>Your slips</div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {(() => {
+                      const running = liveSlips.filter(sl => sl.status === 'pending').length
+                      const settled = liveSlips.length - running
+                      return [
+                        running ? `${running} still running` : null,
+                        settled ? `${settled} settled recently` : null,
+                      ].filter(Boolean).join(' · ')
+                    })()}
+                  </div>
+                </div>
+                <Link to="/slips" className="btn btn-sm">All slips →</Link>
+              </div>
+              <div className="slip-strip">
+                {liveSlips.map(sl => {
+                  const done = sl.status === 'won' || sl.status === 'lost'
+                  const kicks = sl.legs.map(l => l.kickoff).filter(Boolean).map(d => new Date(d)).sort((a, b) => a - b)
+                  const next = kicks.find(k => k > new Date()) || kicks[0]
+                  return (
+                    <Link key={sl.code} to="/slips"
+                      className={`slip-chip${sl.status === 'won' ? ' won' : sl.status === 'lost' ? ' lost' : ''}`}>
+                      <div className="top">
+                        <span className="code">{sl.code}</span>
+                        {done
+                          ? <span className={`pill pill-${sl.status === 'won' ? 'pos' : 'neg'}`}>
+                              {sl.status === 'won' ? '✓ Won' : '✗ Lost'}
+                            </span>
+                          : sl.legsLost > 0
+                            ? <span className="pill pill-neg">{sl.legsLost} down</span>
+                            : sl.legsWon > 0
+                              ? <span className="pill pill-pos">{sl.legsWon} up</span>
+                              : <span className="pill">{SLIP_SOURCE[sl.source] || sl.source}</span>}
+                        <span className="odds">{sl.totalOdds > 0 ? `${sl.totalOdds}x` : '—'}</span>
+                      </div>
+                      <div className="meta">
+                        <span>{sl.legs.length} legs</span>
+                        <span className="muted2">·</span>
+                        <span style={{ color: 'var(--pos)' }}>{sl.legsWon}✓</span>
+                        {sl.legsLost > 0 && <span style={{ color: 'var(--neg)' }}>{sl.legsLost}✗</span>}
+                        {!done && <span className="muted2">{sl.legsPending} to play</span>}
+                      </div>
+                      <div className="meta" style={{ marginTop: 3 }}>
+                        {done
+                          ? <span className="muted2">
+                              settled {new Date(sl.settledAt || sl.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          : next && (
+                            <span>⏱ {next.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                          )}
+                      </div>
+                    </Link>
+                  )
+                })}
+              </div>
+            </section>
+          )}
+
           {/* Controls */}
           <div className="card card-pad" style={{ marginBottom: 18, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
             <div className="search-wrap" style={{ flex: '1 1 280px' }}>
@@ -423,6 +521,12 @@ export default function Dashboard() {
               onChange={e => { setSelectedDate(e.target.value); sessionStorage.setItem('ss_date', e.target.value) }}
               style={{ width: 'auto', flex: '0 0 auto' }}
             />
+            <div className="seg seg-accent">
+              {[[true, 'Compact'], [false, 'Detailed']].map(([v, l]) => (
+                <button key={l} className={dense === v ? 'on' : ''}
+                  onClick={() => { setDense(v); sessionStorage.setItem('ss_dense', v ? '1' : '0') }}>{l}</button>
+              ))}
+            </div>
             <button className="btn" onClick={loadUpcoming} disabled={upcomingLoading}>
               {upcomingLoading ? <span className="spin" /> : '↻'} Refresh
             </button>
@@ -480,6 +584,7 @@ export default function Dashboard() {
                   prediction={predictions[f._id] || null}
                   onPredict={() => handlePredict(f._id)}
                   computing={!!computing[f._id]}
+                  dense={dense}
                 />
               ))}
             </>
@@ -514,6 +619,7 @@ export default function Dashboard() {
                       prediction={predictions[f._id] || null}
                       onPredict={() => handlePredict(f._id)}
                       computing={!!computing[f._id]}
+                      dense={dense}
                     />
                   ))}
                 </section>

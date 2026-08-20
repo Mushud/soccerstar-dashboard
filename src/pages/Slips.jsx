@@ -83,7 +83,7 @@ function SlipRow({ s }) {
       </div>
 
       {open && (
-        <div style={{ borderTop: '1px solid var(--line-soft)' }}>
+        <div className="leg-list tight" style={{ borderTop: '1px solid var(--line-soft)', border: 'none', borderRadius: 0 }}>
           {s.legs.map((l, i) => {
             const tone = l.won === true ? 'pos' : l.won === false ? 'neg' : null
             return (
@@ -92,12 +92,12 @@ function SlipRow({ s }) {
               // own line.
               <div key={i} className="leg" style={{ gridTemplateColumns: '22px minmax(0,1fr) auto auto auto 16px' }}>
                 <span className="n">{i + 1}</span>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.match}</div>
-                  <div className="pick">
+                <div className="stack">
+                  <span className="name">{l.match}</span>
+                  <span className="pick">
                     {l.market}: {l.selection}
                     {kickoff(l.kickoff) && <span className="muted2"> · {kickoff(l.kickoff)}</span>}
-                  </div>
+                  </span>
                 </div>
                 <span className="num muted" style={{ fontSize: 11.5 }}>
                   {l.actual?.goalsHome != null ? `${l.actual.goalsHome}–${l.actual.goalsAway}` : ''}
