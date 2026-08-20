@@ -1,19 +1,19 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
 import api, { API_BASE } from '../api'
+import AppShell from '../components/AppShell'
 import PredictionCard from '../components/PredictionCard'
 
 
 const CONTINENT_ORDER = ['World', 'Europe', 'Americas', 'Asia', 'Africa', 'Oceania']
 const CONTINENT_COLOR = {
-  World: '#d69e2e', Europe: '#276749', Americas: '#2b6cb0',
-  Asia: '#744210', Africa: '#c05621', Oceania: '#553c9a',
+  World: 'var(--warn)', Europe: 'var(--pos-dim)', Americas: 'var(--info-dim)',
+  Asia: 'var(--warn-dim)', Africa: 'var(--warn)', Oceania: 'var(--accent-dim)',
 }
 
 const RISK_OPTIONS = [
-  { key: 'low',    label: 'Low Risk',    emoji: '🛡', color: '#68d391', bg: '#0f2a1a', border: '#276749' },
-  { key: 'medium', label: 'Medium Risk', emoji: '⚖', color: '#ecc94b', bg: '#2d2a1a', border: '#744210' },
-  { key: 'high',   label: 'High Risk',   emoji: '🔥', color: '#fc8181', bg: '#2a0f0f', border: '#742a2a' },
+  { key: 'low',    label: 'Low Risk',    emoji: '🛡', color: 'var(--pos)', bg: 'var(--pos-soft)', border: 'var(--pos-dim)' },
+  { key: 'medium', label: 'Medium Risk', emoji: '⚖', color: 'var(--warn)', bg: 'var(--warn-soft)', border: 'var(--warn-dim)' },
+  { key: 'high',   label: 'High Risk',   emoji: '🔥', color: 'var(--neg)', bg: 'var(--neg-soft)', border: 'var(--neg-dim)' },
 ]
 
 function fmt(dateStr) {
@@ -25,11 +25,11 @@ function sideBtn(bg) {
   return { background: bg, color: '#fff', border: 'none', borderRadius: '8px', padding: '6px 14px', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600 }
 }
 
-function tabBtn(active, color = '#276749') {
+function tabBtn(active, color = 'var(--pos-dim)') {
   return {
     background: active ? color : 'transparent',
-    color: active ? '#fff' : '#718096',
-    border: `1px solid ${active ? color : '#2d3748'}`,
+    color: active ? '#fff' : 'var(--tx-3)',
+    border: `1px solid ${active ? color : 'var(--line-strong)'}`,
     borderRadius: '8px', padding: '6px 16px',
     cursor: 'pointer', fontSize: '0.82rem', fontWeight: 600,
   }
@@ -336,39 +336,29 @@ export default function Tournaments() {
     return (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0)
   })
 
-  const TIER_COLORS = { low: '#68d391', medium: '#ecc94b', high: '#fc8181', none: '#4a5568' }
+  const TIER_COLORS = { low: 'var(--pos)', medium: 'var(--warn)', high: 'var(--neg)', none: 'var(--tx-4)' }
   const TIER_LABELS = { low: '🛡 LOW', medium: '⚖ MED', high: '🔥 HIGH', none: 'NO TIER' }
 
   return (
-    <>
-      <header>
-        <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Link to="/" style={{ color: '#718096', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 400 }}>← Dashboard</Link>
-            <span style={{ color: '#4a5568' }}>/</span>
-            Tournaments
-          </h1>
-          {selectedLeague && (
-            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-              <button onClick={handleSync} disabled={syncing} style={sideBtn('#2b6cb0')}>
-                {syncing ? 'Syncing…' : 'Sync Fixtures'}
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
+    <AppShell
+      title="Tournaments"
+      subtitle={selectedLeague ? selectedLeague.name : 'Pick a competition to see its fixtures and picks'}
+      actions={selectedLeague && (
+        <button className="btn btn-sm btn-info" onClick={handleSync} disabled={syncing}>
+          {syncing ? <><span className="spin" /> Syncing…</> : 'Sync fixtures'}
+        </button>
+      )}
+    >
+        <div className="tour-layout">
 
-      <main className="container">
-        <div style={{ display: 'flex', gap: '1.5rem', alignItems: 'flex-start' }}>
-
-          {/* ── League sidebar ── */}
-          <div style={{ width: '210px', flexShrink: 0 }}>
+          {/* ── League rail ── */}
+          <div className="tour-rail">
             <div style={{ marginBottom: '0.75rem' }}>
-              <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '6px' }}>Region</div>
+              <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '6px' }}>Region</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                 {continents.map(c => (
                   <button key={c} onClick={() => setContinentFilter(c)}
-                    style={{ background: continentFilter === c ? (CONTINENT_COLOR[c] || '#2d3748') : 'transparent', color: continentFilter === c ? '#fff' : '#718096', border: `1px solid ${continentFilter === c ? (CONTINENT_COLOR[c] || '#2d3748') : '#2d3748'}`, borderRadius: '6px', padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}>
+                    style={{ background: continentFilter === c ? (CONTINENT_COLOR[c] || 'var(--line-strong)') : 'transparent', color: continentFilter === c ? '#fff' : 'var(--tx-3)', border: `1px solid ${continentFilter === c ? (CONTINENT_COLOR[c] || 'var(--line-strong)') : 'var(--line-strong)'}`, borderRadius: '6px', padding: '3px 8px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}>
                     {c}
                   </button>
                 ))}
@@ -376,26 +366,26 @@ export default function Tournaments() {
             </div>
 
             {leaguesLoading ? (
-              <div style={{ color: '#718096', fontSize: '0.8rem' }}>Loading…</div>
+              <div style={{ color: 'var(--tx-3)', fontSize: '0.8rem' }}>Loading…</div>
             ) : (
               Object.entries(groupedLeagues).map(([continent, group]) => (
                 <div key={continent} style={{ marginBottom: '1rem' }}>
-                  <div style={{ fontSize: '0.6rem', fontWeight: 700, color: CONTINENT_COLOR[continent] ?? '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '5px', paddingBottom: '3px', borderBottom: `1px solid ${(CONTINENT_COLOR[continent] ?? '#2d3748')}33` }}>
+                  <div style={{ fontSize: '0.6rem', fontWeight: 700, color: CONTINENT_COLOR[continent] ?? 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '5px', paddingBottom: '3px', borderBottom: `1px solid ${(CONTINENT_COLOR[continent] ?? 'var(--line-strong)')}33` }}>
                     {continent}
                   </div>
                   {group.map(league => (
                     <button key={league.id} onClick={() => selectLeague(league)} style={{
                       display: 'block', width: '100%', textAlign: 'left',
-                      background: selectedLeague?.id === league.id ? '#2d3748' : 'transparent',
-                      color: selectedLeague?.id === league.id ? '#e2e8f0' : '#a0aec0',
-                      border: `1px solid ${selectedLeague?.id === league.id ? '#4a5568' : 'transparent'}`,
+                      background: selectedLeague?.id === league.id ? 'var(--line-strong)' : 'transparent',
+                      color: selectedLeague?.id === league.id ? 'var(--tx)' : 'var(--tx-2)',
+                      border: `1px solid ${selectedLeague?.id === league.id ? 'var(--tx-4)' : 'transparent'}`,
                       borderRadius: '6px', padding: '5px 8px', cursor: 'pointer',
                       fontSize: '0.78rem', fontWeight: selectedLeague?.id === league.id ? 600 : 400,
                       marginBottom: '2px'
                     }}>
                       {league.name}
                       {league.upcomingCount > 0 && (
-                        <span style={{ float: 'right', fontSize: '0.65rem', color: '#4a5568', background: '#2d3748', borderRadius: '10px', padding: '1px 5px' }}>
+                        <span style={{ float: 'right', fontSize: '0.65rem', color: 'var(--tx-4)', background: 'var(--line-strong)', borderRadius: '10px', padding: '1px 5px' }}>
                           {league.upcomingCount}
                         </span>
                       )}
@@ -410,9 +400,10 @@ export default function Tournaments() {
           <div style={{ flex: 1, minWidth: 0 }}>
 
             {!selectedLeague && (
-              <div style={{ color: '#718096', textAlign: 'center', padding: '5rem 0' }}>
-                <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>🏆</div>
-                <p style={{ fontSize: '0.9rem', margin: 0 }}>Select a tournament on the left.</p>
+              <div className="card empty">
+                <div className="empty-ico">🏆</div>
+                <div className="empty-title">Pick a competition</div>
+                <div className="empty-sub">Choose one from the list to see its fixtures, table and picks.</div>
               </div>
             )}
 
@@ -421,14 +412,14 @@ export default function Tournaments() {
                 {/* League header + tabs */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                   <div>
-                    <div style={{ fontSize: '1rem', fontWeight: 700, color: '#e2e8f0' }}>{selectedLeague.name}</div>
-                    {syncMsg && <div style={{ fontSize: '0.72rem', color: '#68d391', marginTop: 2 }}>{syncMsg}</div>}
+                    <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--tx)' }}>{selectedLeague.name}</div>
+                    {syncMsg && <div style={{ fontSize: '0.72rem', color: 'var(--pos)', marginTop: 2 }}>{syncMsg}</div>}
                   </div>
                   <div style={{ display: 'flex', gap: '6px' }}>
-                    <button onClick={() => setActiveTab('fixtures')} style={tabBtn(activeTab === 'fixtures', '#276749')}>
+                    <button onClick={() => setActiveTab('fixtures')} style={tabBtn(activeTab === 'fixtures', 'var(--pos-dim)')}>
                       Fixtures {fixtures.length > 0 ? `(${fixtures.length})` : ''}
                     </button>
-                    <button onClick={() => setActiveTab('builder')} style={tabBtn(activeTab === 'builder', '#744210')}>
+                    <button onClick={() => setActiveTab('builder')} style={tabBtn(activeTab === 'builder', 'var(--warn-dim)')}>
                       🎯 Bet Builder {picks.length > 0 ? `(${picks.length})` : ''}
                     </button>
                   </div>
@@ -438,14 +429,14 @@ export default function Tournaments() {
                 {activeTab === 'fixtures' && (
                   <div>
                     {fixturesLoading && (
-                      <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0', fontSize: '0.85rem' }}>Loading fixtures…</div>
+                      <div style={{ color: 'var(--tx-3)', textAlign: 'center', padding: '3rem 0', fontSize: '0.85rem' }}>Loading fixtures…</div>
                     )}
 
                     {!fixturesLoading && fixtures.length === 0 && (
-                      <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0' }}>
+                      <div style={{ color: 'var(--tx-3)', textAlign: 'center', padding: '3rem 0' }}>
                         <p style={{ marginBottom: '0.5rem' }}>No upcoming fixtures for {selectedLeague.name}.</p>
                         <p style={{ fontSize: '0.8rem', marginBottom: '1rem' }}>Sync to fetch the latest schedule.</p>
-                        <button onClick={handleSync} disabled={syncing} style={sideBtn('#2b6cb0')}>
+                        <button onClick={handleSync} disabled={syncing} style={sideBtn('var(--info-dim)')}>
                           {syncing ? 'Syncing…' : 'Sync Now'}
                         </button>
                       </div>
@@ -453,7 +444,7 @@ export default function Tournaments() {
 
                     {!fixturesLoading && sortedDays.map(day => (
                       <div key={day} style={{ marginBottom: '1.5rem' }}>
-                        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: day === '🔴 Live Now' ? '#fc8181' : '#718096', textTransform: day === '🔴 Live Now' ? 'none' : 'uppercase', letterSpacing: '0.6px', marginBottom: '0.5rem', paddingBottom: '4px', borderBottom: `1px solid ${day === '🔴 Live Now' ? '#742a2a' : '#2d3748'}` }}>
+                        <div style={{ fontSize: '0.68rem', fontWeight: 700, color: day === '🔴 Live Now' ? 'var(--neg)' : 'var(--tx-3)', textTransform: day === '🔴 Live Now' ? 'none' : 'uppercase', letterSpacing: '0.6px', marginBottom: '0.5rem', paddingBottom: '4px', borderBottom: `1px solid ${day === '🔴 Live Now' ? 'var(--neg-dim)' : 'var(--line-strong)'}` }}>
                           {day}
                         </div>
                         {fixturesByDate[day].map(f => (
@@ -476,20 +467,20 @@ export default function Tournaments() {
 
                     {/* ── Fixture picker ── */}
                     {fixtures.length > 0 && (
-                      <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                      <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8, flexWrap: 'wrap' }}>
-                          <div style={{ fontSize: '0.68rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+                          <div style={{ fontSize: '0.68rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
                             Pick Fixtures ({selectedFixtures.size}/{fixtures.length} selected)
                           </div>
                           <div style={{ display: 'flex', gap: 6 }}>
-                            <button onClick={selectAllFixtures} style={{ padding: '4px 10px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', background: '#1a2030', color: '#90cdf4', border: '1px solid #2b6cb0' }}>
+                            <button onClick={selectAllFixtures} style={{ padding: '4px 10px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', background: 'var(--surface-2)', color: 'var(--info)', border: '1px solid var(--info-dim)' }}>
                               {selectedFixtures.size === fixtures.length ? 'Deselect All' : 'Select All'}
                             </button>
                             {selectedFixtures.size > 0 && (
                               <button
                                 onClick={buildForSelectedFixtures}
                                 disabled={picksLoading}
-                                style={{ padding: '4px 14px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800, cursor: picksLoading ? 'not-allowed' : 'pointer', background: picksLoading ? '#1a3a2a' : 'linear-gradient(135deg,#744210,#c05621)', color: picksLoading ? '#68d391' : '#fff', border: '1px solid #c05621', whiteSpace: 'nowrap' }}>
+                                style={{ padding: '4px 14px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 800, cursor: picksLoading ? 'not-allowed' : 'pointer', background: picksLoading ? 'var(--pos-soft)' : 'linear-gradient(135deg,var(--warn-dim),var(--warn))', color: picksLoading ? 'var(--pos)' : '#fff', border: '1px solid var(--warn)', whiteSpace: 'nowrap' }}>
                                 {picksLoading ? 'Building…' : `Build Bets for ${selectedFixtures.size} Fixture${selectedFixtures.size !== 1 ? 's' : ''}`}
                               </button>
                             )}
@@ -502,16 +493,16 @@ export default function Tournaments() {
                             const isLive = f.status === 'live'
                             const hasPred = !!predictions[f._id]
                             return (
-                              <label key={f._id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 6, cursor: 'pointer', background: isSel ? '#0f1a2a' : 'transparent', border: `1px solid ${isSel ? '#2b6cb0' : '#1f2937'}` }}>
+                              <label key={f._id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', borderRadius: 6, cursor: 'pointer', background: isSel ? 'var(--info-soft)' : 'transparent', border: `1px solid ${isSel ? 'var(--info-dim)' : 'var(--line)'}` }}>
                                 <input type="checkbox" checked={isSel} onChange={() => toggleFixture(f._id)} style={{ cursor: 'pointer', flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                    {f.homeTeamName} <span style={{ color: '#4a5568', fontWeight: 400 }}>vs</span> {f.awayTeamName}
-                                    {isLive && <span style={{ fontSize: '0.6rem', color: '#fc8181', fontWeight: 800 }}>● LIVE</span>}
+                                  <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--tx)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    {f.homeTeamName} <span style={{ color: 'var(--tx-4)', fontWeight: 400 }}>vs</span> {f.awayTeamName}
+                                    {isLive && <span style={{ fontSize: '0.6rem', color: 'var(--neg)', fontWeight: 800 }}>● LIVE</span>}
                                   </div>
-                                  <div style={{ fontSize: '0.65rem', color: '#4a5568', marginTop: 1 }}>{fmt(f.date)}</div>
+                                  <div style={{ fontSize: '0.65rem', color: 'var(--tx-4)', marginTop: 1 }}>{fmt(f.date)}</div>
                                 </div>
-                                <span style={{ fontSize: '0.65rem', color: hasPred ? '#68d391' : '#4a5568', flexShrink: 0 }}>
+                                <span style={{ fontSize: '0.65rem', color: hasPred ? 'var(--pos)' : 'var(--tx-4)', flexShrink: 0 }}>
                                   {hasPred ? '✓ predicted' : 'no prediction'}
                                 </span>
                               </label>
@@ -522,15 +513,15 @@ export default function Tournaments() {
                     )}
 
                     {/* Controls */}
-                    <div style={{ background: '#111827', border: '1px solid #1f2937', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+                    <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 12, padding: 16, marginBottom: 16 }}>
                       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
                         {/* Date window */}
                         <div>
-                          <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Date Window</div>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Date Window</div>
                           <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                             {Object.entries(DURATION_LABELS).map(([k, l]) => (
-                              <button key={k} onClick={() => setDuration(k)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: '0.75rem', cursor: 'pointer', background: duration === k ? '#1a2a4a' : '#1a2030', color: duration === k ? '#90cdf4' : '#718096', border: `1px solid ${duration === k ? '#2b6cb0' : '#2d3748'}`, fontWeight: duration === k ? 700 : 400 }}>
+                              <button key={k} onClick={() => setDuration(k)} style={{ padding: '5px 10px', borderRadius: 6, fontSize: '0.75rem', cursor: 'pointer', background: duration === k ? 'var(--info-soft)' : 'var(--surface-2)', color: duration === k ? 'var(--info)' : 'var(--tx-3)', border: `1px solid ${duration === k ? 'var(--info-dim)' : 'var(--line-strong)'}`, fontWeight: duration === k ? 700 : 400 }}>
                                 {l}
                               </button>
                             ))}
@@ -539,12 +530,12 @@ export default function Tournaments() {
 
                         {/* Risk */}
                         <div style={{ flex: 1, minWidth: 200 }}>
-                          <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Risk Level</div>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Risk Level</div>
                           <div style={{ display: 'flex', gap: 6 }}>
                             {RISK_OPTIONS.map(r => {
                               const active = risks.includes(r.key)
                               return (
-                                <button key={r.key} onClick={() => toggleRisk(r.key)} style={{ flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: active ? r.bg : '#1a2030', border: `2px solid ${active ? r.color : r.border}`, textAlign: 'left' }}>
+                                <button key={r.key} onClick={() => toggleRisk(r.key)} style={{ flex: 1, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', background: active ? r.bg : 'var(--surface-2)', border: `2px solid ${active ? r.color : r.border}`, textAlign: 'left' }}>
                                   {active && <span style={{ float: 'right', fontSize: 10, color: r.color, fontWeight: 800 }}>✓</span>}
                                   <div style={{ fontSize: 12, fontWeight: 700, color: r.color }}>{r.emoji} {r.label}</div>
                                 </button>
@@ -556,20 +547,20 @@ export default function Tournaments() {
                         {/* Generate button */}
                         <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
                           <div style={{ fontSize: '0.6rem', color: 'transparent', marginBottom: 6 }}>.</div>
-                          <button onClick={generatePicks} disabled={picksLoading} style={{ padding: '10px 20px', borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: picksLoading ? 'not-allowed' : 'pointer', background: picksLoading ? '#1a3a2a' : 'linear-gradient(135deg,#276749,#2f855a)', color: picksLoading ? '#48bb78' : '#f0fff4', border: '1px solid #48bb78', whiteSpace: 'nowrap' }}>
+                          <button onClick={generatePicks} disabled={picksLoading} style={{ padding: '10px 20px', borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: picksLoading ? 'not-allowed' : 'pointer', background: picksLoading ? 'var(--pos-soft)' : 'linear-gradient(135deg,var(--pos-dim),var(--pos))', color: picksLoading ? 'var(--pos)' : 'var(--pos)', border: '1px solid var(--pos)', whiteSpace: 'nowrap' }}>
                             {picksLoading ? 'Loading picks…' : `Auto-Pick Best Bets`}
                           </button>
                         </div>
                       </div>
 
                       {loadMsg && (
-                        <div style={{ fontSize: '0.72rem', color: '#718096', marginTop: 10, textAlign: 'center' }}>{loadMsg}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--tx-3)', marginTop: 10, textAlign: 'center' }}>{loadMsg}</div>
                       )}
                     </div>
 
                     {/* Error */}
                     {picksError && (
-                      <div style={{ background: '#2a0f0f', border: '1px solid #742a2a', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#fc8181', fontSize: '0.82rem' }}>
+                      <div style={{ background: 'var(--neg-soft)', border: '1px solid var(--neg-dim)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: 'var(--neg)', fontSize: '0.82rem' }}>
                         {picksError}
                       </div>
                     )}
@@ -578,38 +569,38 @@ export default function Tournaments() {
                     {picks.length > 0 && (
                       <div>
                         {/* Summary + sort + actions */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10, background: '#111827', border: '1px solid #1f2937', borderRadius: 8, padding: '10px 14px' }}>
-                          <div style={{ fontSize: '0.72rem', color: '#718096', lineHeight: 1.7 }}>
-                            <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{picks.length}</span> picks ·{' '}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, marginBottom: 10, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 8, padding: '10px 14px' }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--tx-3)', lineHeight: 1.7 }}>
+                            <span style={{ color: 'var(--tx)', fontWeight: 700 }}>{picks.length}</span> picks ·{' '}
                             <span>{picksMeta?.fixturesScanned ?? '?'} fixtures scanned</span>
                             {picksMeta?.debug?.noPred > 0 && (
-                              <span style={{ color: '#fc8181' }}> · {picksMeta.debug.noPred} no prediction yet</span>
+                              <span style={{ color: 'var(--neg)' }}> · {picksMeta.debug.noPred} no prediction yet</span>
                             )}
                             {picksMeta?.debug?.failedGate > 0 && (
-                              <span style={{ color: '#ecc94b' }}> · {picksMeta.debug.failedGate} below probability threshold</span>
+                              <span style={{ color: 'var(--warn)' }}> · {picksMeta.debug.failedGate} below probability threshold</span>
                             )}
                             {picksMeta?.failedEnrichment > 0 && (
-                              <span style={{ color: '#718096' }}> · {picksMeta.failedEnrichment} blocked by data</span>
+                              <span style={{ color: 'var(--tx-3)' }}> · {picksMeta.failedEnrichment} blocked by data</span>
                             )}
-                            {selected.size > 0 && <span> · <span style={{ color: '#90cdf4', fontWeight: 700 }}>{selected.size} selected</span></span>}
+                            {selected.size > 0 && <span> · <span style={{ color: 'var(--info)', fontWeight: 700 }}>{selected.size} selected</span></span>}
                           </div>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                             {picksMeta?.debug?.noPred > 0 && (
-                              <button onClick={runPredictions} disabled={runningPreds || picksLoading} title="Run the prediction engine on all fixtures in this tournament that have no prediction yet, then reload picks" style={{ padding: '5px 12px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700, cursor: (runningPreds || picksLoading) ? 'not-allowed' : 'pointer', background: '#2a1a3a', color: '#d6bcfa', border: '1px solid #553c9a' }}>
+                              <button onClick={runPredictions} disabled={runningPreds || picksLoading} title="Run the prediction engine on all fixtures in this tournament that have no prediction yet, then reload picks" style={{ padding: '5px 12px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700, cursor: (runningPreds || picksLoading) ? 'not-allowed' : 'pointer', background: 'var(--accent-soft)', color: 'var(--accent-2)', border: '1px solid var(--accent-dim)' }}>
                                 {runningPreds ? '⚙️ Running…' : `⚙️ Run ${picksMeta.debug.noPred} Predictions`}
                               </button>
                             )}
-                            <button onClick={() => { setShowAll(v => !v) }} title={showAll ? 'Showing all matches — risk gate off' : 'Only showing matches that pass the risk gate'} style={{ padding: '5px 10px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', background: showAll ? '#2a1a3a' : '#1a2030', color: showAll ? '#b794f4' : '#718096', border: `1px solid ${showAll ? '#805ad5' : '#2d3748'}` }}>
+                            <button onClick={() => { setShowAll(v => !v) }} title={showAll ? 'Showing all matches — risk gate off' : 'Only showing matches that pass the risk gate'} style={{ padding: '5px 10px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer', background: showAll ? 'var(--accent-soft)' : 'var(--surface-2)', color: showAll ? 'var(--accent-2)' : 'var(--tx-3)', border: `1px solid ${showAll ? 'var(--accent)' : 'var(--line-strong)'}` }}>
                               {showAll ? '🔓 All matches' : '🎯 Filtered'}
                             </button>
                             {selected.size > 0 && (
-                              <button onClick={analyseSelected} disabled={analysing} style={{ padding: '5px 12px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700, cursor: analysing ? 'not-allowed' : 'pointer', background: '#1a2a4a', color: analysing ? '#718096' : '#90cdf4', border: '1px solid #2b6cb0' }}>
+                              <button onClick={analyseSelected} disabled={analysing} style={{ padding: '5px 12px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 700, cursor: analysing ? 'not-allowed' : 'pointer', background: 'var(--info-soft)', color: analysing ? 'var(--tx-3)' : 'var(--info)', border: '1px solid var(--info-dim)' }}>
                                 {analysing ? 'Running Claude…' : `Analyse ${selected.size} Selected`}
                               </button>
                             )}
-                            <span style={{ fontSize: '0.68rem', color: '#4a5568' }}>Sort:</span>
+                            <span style={{ fontSize: '0.68rem', color: 'var(--tx-4)' }}>Sort:</span>
                             {[['score','Score'],['prob','Model %'],['odds','Odds'],['time','Time']].map(([k, l]) => (
-                              <button key={k} onClick={() => setSortBy(k)} style={{ padding: '4px 8px', borderRadius: 5, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', background: sortBy === k ? '#1a2a4a' : '#1a2030', color: sortBy === k ? '#90cdf4' : '#718096', border: `1px solid ${sortBy === k ? '#2b6cb0' : '#2d3748'}` }}>{l}</button>
+                              <button key={k} onClick={() => setSortBy(k)} style={{ padding: '4px 8px', borderRadius: 5, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', background: sortBy === k ? 'var(--info-soft)' : 'var(--surface-2)', color: sortBy === k ? 'var(--info)' : 'var(--tx-3)', border: `1px solid ${sortBy === k ? 'var(--info-dim)' : 'var(--line-strong)'}` }}>{l}</button>
                             ))}
                           </div>
                         </div>
@@ -620,38 +611,38 @@ export default function Tournaments() {
                             const isSel = selected.has(pick.fixtureId)
                             const hasAI = pick.hasClaudeAnalysis
                             const aiExp = expandedAI.has(pick.fixtureId)
-                            const tierColor = TIER_COLORS[pick.tier] ?? '#4a5568'
-                            const valColor = pick.value === 'Good value' ? '#68d391' : pick.value === 'Poor value' ? '#fc8181' : '#ecc94b'
+                            const tierColor = TIER_COLORS[pick.tier] ?? 'var(--tx-4)'
+                            const valColor = pick.value === 'Good value' ? 'var(--pos)' : pick.value === 'Poor value' ? 'var(--neg)' : 'var(--warn)'
 
                             return (
                               <div key={pick.fixtureId ?? i}
                                 onClick={() => pick.fixtureId && toggleSelect(pick.fixtureId)}
-                                style={{ background: isSel ? '#0f1a2a' : hasAI ? '#0b140b' : '#111827', border: `1px solid ${isSel ? '#2b6cb0' : '#1f2937'}`, borderRadius: 10, overflow: 'hidden', cursor: 'pointer' }}>
+                                style={{ background: isSel ? 'var(--info-soft)' : hasAI ? 'var(--pos-soft)' : 'var(--surface)', border: `1px solid ${isSel ? 'var(--info-dim)' : 'var(--line)'}`, borderRadius: 10, overflow: 'hidden', cursor: 'pointer' }}>
 
                                 {/* Main row */}
                                 <div style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                                   <input type="checkbox" checked={isSel} onChange={() => toggleSelect(pick.fixtureId)} onClick={e => e.stopPropagation()} disabled={!pick.fixtureId} style={{ cursor: 'pointer', flexShrink: 0 }} />
 
                                   <div style={{ flex: '2', minWidth: 150 }}>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--tx)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                       {pick.match}
                                       <span style={{ fontSize: '0.6rem', fontWeight: 800, padding: '2px 5px', borderRadius: 3, color: tierColor, border: `1px solid ${tierColor}44`, background: `${tierColor}11` }}>
                                         {TIER_LABELS[pick.tier] ?? pick.tier}
                                       </span>
-                                      {pick.dataVerified === 'confirmed' && <span style={{ fontSize: '0.6rem', color: '#68d391' }}>✓ DATA</span>}
-                                      {pick.dataVerified === 'risky'     && <span style={{ fontSize: '0.6rem', color: '#fc8181' }}>⚠ CHECK</span>}
+                                      {pick.dataVerified === 'confirmed' && <span style={{ fontSize: '0.6rem', color: 'var(--pos)' }}>✓ DATA</span>}
+                                      {pick.dataVerified === 'risky'     && <span style={{ fontSize: '0.6rem', color: 'var(--neg)' }}>⚠ CHECK</span>}
                                     </div>
-                                    <div style={{ fontSize: '0.68rem', color: '#4a5568', marginTop: 2 }}>{fmt(pick.fixtureDate)}</div>
+                                    <div style={{ fontSize: '0.68rem', color: 'var(--tx-4)', marginTop: 2 }}>{fmt(pick.fixtureDate)}</div>
                                   </div>
 
-                                  <div style={{ fontSize: '0.75rem', color: '#90cdf4', fontWeight: 600, minWidth: 90 }}>{pick.market}</div>
-                                  <div style={{ fontSize: '0.82rem', color: '#bee3f8', fontWeight: 700, minWidth: 100 }}>{pick.selection}</div>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--info)', fontWeight: 600, minWidth: 90 }}>{pick.market}</div>
+                                  <div style={{ fontSize: '0.82rem', color: 'var(--info)', fontWeight: 700, minWidth: 100 }}>{pick.selection}</div>
 
-                                  <div style={{ fontSize: '0.9rem', fontWeight: 800, color: pick.odds < 1.35 ? '#fc8181' : '#ecc94b', minWidth: 48 }}>
+                                  <div style={{ fontSize: '0.9rem', fontWeight: 800, color: pick.odds < 1.35 ? 'var(--neg)' : 'var(--warn)', minWidth: 48 }}>
                                     {pick.odds}x
                                   </div>
 
-                                  <div style={{ fontSize: '0.75rem', color: '#68d391', fontWeight: 700, minWidth: 44 }}>{pick.modelProb}</div>
+                                  <div style={{ fontSize: '0.75rem', color: 'var(--pos)', fontWeight: 700, minWidth: 44 }}>{pick.modelProb}</div>
 
                                   {pick.value && (
                                     <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 6px', borderRadius: 5, color: valColor, border: `1px solid ${valColor}44`, background: `${valColor}11` }}>
@@ -662,7 +653,7 @@ export default function Tournaments() {
                                   {/* AI toggle */}
                                   {hasAI && (
                                     <button onClick={e => { e.stopPropagation(); setExpandedAI(prev => { const s = new Set(prev); s.has(pick.fixtureId) ? s.delete(pick.fixtureId) : s.add(pick.fixtureId); return s }) }}
-                                      style={{ padding: '3px 8px', borderRadius: 5, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', background: aiExp ? '#1a3a1a' : '#0b1f0b', color: '#68d391', border: '1px solid #276749' }}>
+                                      style={{ padding: '3px 8px', borderRadius: 5, fontSize: '0.68rem', fontWeight: 700, cursor: 'pointer', background: aiExp ? 'var(--pos-soft)' : 'var(--pos-soft)', color: 'var(--pos)', border: '1px solid var(--pos-dim)' }}>
                                       {aiExp ? '▲ AI' : '▼ AI'}
                                     </button>
                                   )}
@@ -670,33 +661,33 @@ export default function Tournaments() {
 
                                 {/* Reason row */}
                                 {pick.reason && (
-                                  <div style={{ padding: '6px 14px 8px 44px', borderTop: '1px solid #1a2030', fontSize: '0.72rem', color: '#9ae6b4', lineHeight: 1.4 }}>
+                                  <div style={{ padding: '6px 14px 8px 44px', borderTop: '1px solid var(--surface-2)', fontSize: '0.72rem', color: 'var(--pos)', lineHeight: 1.4 }}>
                                     {pick.reason}
                                   </div>
                                 )}
 
                                 {/* AI expanded */}
                                 {hasAI && aiExp && (
-                                  <div style={{ borderTop: '1px solid #1a3a1a', background: '#080f08', padding: '10px 14px 12px 44px' }}>
+                                  <div style={{ borderTop: '1px solid var(--pos-soft)', background: 'var(--pos-soft)', padding: '10px 14px 12px 44px' }}>
                                     <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                                       {pick.verdict && (
                                         <div>
-                                          <div style={{ fontSize: '0.6rem', color: '#4a5568', textTransform: 'uppercase', marginBottom: 3 }}>Verdict</div>
-                                          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: '#90cdf4' }}>{pick.verdict}</div>
-                                          {pick.claudeConf && <div style={{ fontSize: '0.65rem', color: pick.claudeConf === 'High' ? '#68d391' : pick.claudeConf === 'Medium' ? '#ecc94b' : '#fc8181' }}>{pick.claudeConf}</div>}
-                                          {pick.predictedScore && <div style={{ fontSize: '0.65rem', color: '#718096', marginTop: 2 }}>Score: {pick.predictedScore}</div>}
+                                          <div style={{ fontSize: '0.6rem', color: 'var(--tx-4)', textTransform: 'uppercase', marginBottom: 3 }}>Verdict</div>
+                                          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--info)' }}>{pick.verdict}</div>
+                                          {pick.claudeConf && <div style={{ fontSize: '0.65rem', color: pick.claudeConf === 'High' ? 'var(--pos)' : pick.claudeConf === 'Medium' ? 'var(--warn)' : 'var(--neg)' }}>{pick.claudeConf}</div>}
+                                          {pick.predictedScore && <div style={{ fontSize: '0.65rem', color: 'var(--tx-3)', marginTop: 2 }}>Score: {pick.predictedScore}</div>}
                                         </div>
                                       )}
                                       {pick.bestBet && (
                                         <div>
-                                          <div style={{ fontSize: '0.6rem', color: '#68d391', textTransform: 'uppercase', marginBottom: 3 }}>Best Bet</div>
-                                          <div style={{ fontSize: '0.72rem', color: '#9ae6b4' }}>{pick.bestBet}</div>
+                                          <div style={{ fontSize: '0.6rem', color: 'var(--pos)', textTransform: 'uppercase', marginBottom: 3 }}>Best Bet</div>
+                                          <div style={{ fontSize: '0.72rem', color: 'var(--pos)' }}>{pick.bestBet}</div>
                                         </div>
                                       )}
                                       {pick.keyFactors?.length > 0 && (
                                         <div style={{ flex: 1, minWidth: 180 }}>
-                                          <div style={{ fontSize: '0.6rem', color: '#718096', textTransform: 'uppercase', marginBottom: 3 }}>Key Factors</div>
-                                          {pick.keyFactors.map((f, fi) => <div key={fi} style={{ fontSize: '0.68rem', color: '#a0aec0' }}>· {f}</div>)}
+                                          <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)', textTransform: 'uppercase', marginBottom: 3 }}>Key Factors</div>
+                                          {pick.keyFactors.map((f, fi) => <div key={fi} style={{ fontSize: '0.68rem', color: 'var(--tx-2)' }}>· {f}</div>)}
                                         </div>
                                       )}
                                     </div>
@@ -710,7 +701,7 @@ export default function Tournaments() {
                     )}
 
                     {!picksLoading && !picksError && picks.length === 0 && (
-                      <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0' }}>
+                      <div style={{ color: 'var(--tx-3)', textAlign: 'center', padding: '3rem 0' }}>
                         <p>Choose risk level and date window, then click Get Picks.</p>
                         <p style={{ fontSize: '0.8rem', marginTop: '0.5rem' }}>
                           Make sure fixtures are synced and predictions are run first (Fixtures tab → Predict buttons).
@@ -723,7 +714,6 @@ export default function Tournaments() {
             )}
           </div>
         </div>
-      </main>
-    </>
+    </AppShell>
   )
 }

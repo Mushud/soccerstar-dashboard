@@ -14,10 +14,10 @@
 export const SIDE = { HOME: 'home', AWAY: 'away', DRAW: 'draw', GOALS: 'goals' }
 
 export const SIDE_STYLE = {
-  [SIDE.HOME]:  { color: '#90cdf4', tag: '1', title: 'Backs the home side' },
-  [SIDE.AWAY]:  { color: '#f6ad55', tag: '2', title: 'Backs the away side' },
-  [SIDE.DRAW]:  { color: '#b794f4', tag: 'X', title: 'Backs the draw' },
-  [SIDE.GOALS]: { color: '#4fd1c5', tag: null, title: 'Goals market — neither side' },
+  [SIDE.HOME]:  { color: 'var(--info)',     tag: '1', title: 'Backs the home side' },
+  [SIDE.AWAY]:  { color: 'var(--warn)',     tag: '2', title: 'Backs the away side' },
+  [SIDE.DRAW]:  { color: 'var(--accent-2)', tag: 'X', title: 'Backs the draw' },
+  [SIDE.GOALS]: { color: '#4fd1c5',         tag: null, title: 'Goals market — neither side' },
 }
 
 const GOAL_SELECTIONS = ['Over 1.5', 'Over 2.5', 'BTTS']

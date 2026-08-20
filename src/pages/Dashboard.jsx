@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import api from '../api'
+import AppShell from '../components/AppShell'
 import PredictionCard from '../components/PredictionCard'
 import BacktestView from '../components/BacktestView'
 
@@ -22,8 +23,21 @@ function liveTimeLabel(liveStatus, elapsed) {
   return `${LIVE_STATUS_LABEL[liveStatus]} ${elapsed}' (${realMin}')`
 }
 
+/** Top 1X2 probability across whichever model output is active. Drives the tier chips. */
+function topProb(pred) {
+  const b = (pred?.blended?.result1X2 ? pred.blended : null) || pred?.modeB || pred?.modeA
+  if (!b?.result1X2) return null
+  const { home = 0, draw = 0, away = 0 } = b.result1X2
+  return Math.max(home, draw, away)
+}
+
 export default function Dashboard() {
-  const [view, setView] = useState(() => sessionStorage.getItem('ss_view') || 'upcoming')
+  // The view lives in the URL so the sidebar can deep-link straight to Live or Backtest,
+  // and so a reload or a shared link lands on the same screen.
+  const [params, setParams] = useSearchParams()
+  const view = params.get('view') || 'upcoming'
+  const setView = v => setParams(v === 'upcoming' ? {} : { view: v }, { replace: true })
+
   const [selectedDate, setSelectedDate] = useState(() => sessionStorage.getItem('ss_date') || todayStr())
 
   // Upcoming
@@ -226,265 +240,288 @@ export default function Dashboard() {
 
   // ── Derived ───────────────────────────────────────────────────────────────
 
-  const fixturesByLeague = upcomingFixtures.reduce((acc, f) => {
-    if (!acc[f.league]) acc[f.league] = []
-    acc[f.league].push(f)
+  const fixturesByLeague = useMemo(() => upcomingFixtures.reduce((acc, f) => {
+    (acc[f.league] ||= []).push(f)
     return acc
-  }, {})
+  }, {}), [upcomingFixtures])
 
   const liveByLeague = liveFixtures.reduce((acc, f) => {
-    if (!acc[f.league]) acc[f.league] = []
-    acc[f.league].push(f)
+    (acc[f.league] ||= []).push(f)
     return acc
   }, {})
 
   const isSearching = query.trim().length >= 2
 
+  /** Headline numbers for the tile strip — cheap derivations, no extra requests. */
+  const stats = useMemo(() => {
+    const predicted = upcomingFixtures.filter(f => predictions[f._id]).length
+    const probs = upcomingFixtures.map(f => topProb(predictions[f._id])).filter(p => p != null)
+    const strong = probs.filter(p => p >= 0.56).length
+    const best = probs.length ? Math.max(...probs) : null
+    return {
+      fixtures: upcomingFixtures.length,
+      leagues: Object.keys(fixturesByLeague).length,
+      predicted,
+      strong,
+      best,
+    }
+  }, [upcomingFixtures, predictions, fixturesByLeague])
+
+  const prettyDate = selectedDate === todayStr()
+    ? 'Today'
+    : new Date(selectedDate).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
+
+  const TITLE = { upcoming: 'Matches', live: 'Live Now', backtest: 'Model & Backtest' }
+  const SUBTITLE = {
+    upcoming: `${prettyDate} · ${stats.fixtures} fixtures across ${stats.leagues} competitions`,
+    live: `${liveFixtures.length} in play · refreshes every 60s`,
+    backtest: 'Calibration, accuracy and blend weights',
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
 
-  return (
+  const actions = (
     <>
-      <header>
-        <div className="container" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <h1>SoccerStar</h1>
-          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <button onClick={() => { setView('upcoming'); sessionStorage.setItem('ss_view', 'upcoming') }} style={tabBtnStyle(view === 'upcoming')}>Upcoming</button>
-            <button onClick={() => { setView('live'); sessionStorage.setItem('ss_view', 'live') }} style={{
-              ...tabBtnStyle(view === 'live'),
-              ...(view === 'live' ? { background: '#742a2a', borderColor: '#fc8181', color: '#fc8181' } : {})
-            }}>
-              {view === 'live' && liveRefreshing ? '● Live…' : '● Live'}
-            </button>
-            <button onClick={() => { setView('backtest'); sessionStorage.setItem('ss_view', 'backtest') }} style={tabBtnStyle(view === 'backtest')}>Test Model</button>
-            <Link to="/tournaments" style={{ ...btnStyle('#553c9a'), marginLeft: '6px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>🏆 Tournaments</Link>
-            <Link to="/betslip" style={{ ...btnStyle('#276749'), marginLeft: '4px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>⚡ Bet Slip</Link>
-            <Link to="/bet-builder" style={{ ...btnStyle('#744210'), marginLeft: '4px', textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>🎯 Bet Builder</Link>
-            <button onClick={handleQuickSync} disabled={quickSyncing || syncing} style={{ ...btnStyle('#276749'), marginLeft: '6px' }}>
-              {quickSyncing ? 'Syncing...' : 'Sync Fixtures'}
-            </button>
-            <button onClick={handleSync} disabled={syncing || quickSyncing} style={{ ...btnStyle('#2b6cb0') }}>
-              {syncing ? 'Syncing...' : 'Sync + xG'}
-            </button>
-          </div>
-        </div>
-      </header>
+      <button className="btn btn-sm hide-sm" onClick={handleQuickSync} disabled={quickSyncing || syncing}>
+        {quickSyncing ? <><span className="spin" /> Syncing</> : 'Sync fixtures'}
+      </button>
+      <button className="btn btn-sm btn-accent" onClick={handleSync} disabled={syncing || quickSyncing}>
+        {syncing ? <><span className="spin" /> Syncing</> : <>Sync <span className="hide-sm">+ xG</span></>}
+      </button>
+    </>
+  )
 
-      <main className="container">
+  return (
+    <AppShell title={TITLE[view] ?? 'Matches'} subtitle={SUBTITLE[view]} actions={actions}>
 
-        {/* ── Backtest ── */}
-        {view === 'backtest' && <BacktestView />}
+      <div className="seg seg-accent" style={{ marginBottom: 18 }}>
+        {[['upcoming', 'Upcoming'], ['live', liveRefreshing && view === 'live' ? '● Live…' : '● Live'], ['backtest', 'Test Model']].map(([k, l]) => (
+          <button key={k} className={view === k ? 'on' : ''} onClick={() => setView(k)}>{l}</button>
+        ))}
+      </div>
 
-        {/* ── Live ── */}
-        {view === 'live' && (
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-              <div>
-                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fc8181' }}>
-                  ● Live Now
-                </div>
-                <div style={{ fontSize: '0.72rem', color: '#718096', marginTop: 2 }}>
-                  {liveLoading ? 'Fetching live matches…' : `${liveFixtures.length} match${liveFixtures.length !== 1 ? 'es' : ''} in play · auto-refreshes every 60s`}
-                </div>
+      {/* ── Backtest ── */}
+      {view === 'backtest' && <BacktestView />}
+
+      {/* ── Live ── */}
+      {view === 'live' && (
+        <>
+          <div className="section-head">
+            <div>
+              <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="dot dot-live" style={{ color: 'var(--neg)' }} /> Live Now
               </div>
-              <button onClick={() => loadLive(true)} disabled={liveLoading} style={btnStyle('#742a2a')}>
-                {liveLoading ? '…' : 'Refresh'}
-              </button>
+              <div className="muted" style={{ fontSize: 12.5, marginTop: 3 }}>
+                {liveLoading
+                  ? 'Fetching live matches…'
+                  : `${liveFixtures.length} match${liveFixtures.length !== 1 ? 'es' : ''} in play · auto-refreshes every 60s`}
+              </div>
             </div>
-
-            {liveLoading && (
-              <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0', fontSize: '0.85rem' }}>
-                Fetching live matches…
-              </div>
-            )}
-
-            {!liveLoading && liveFixtures.length === 0 && (
-              <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0' }}>
-                <p style={{ marginBottom: '0.5rem' }}>No live matches right now.</p>
-                <p style={{ fontSize: '0.8rem' }}>Come back when matches are in play.</p>
-              </div>
-            )}
-
-            {!liveLoading && Object.entries(liveByLeague).map(([league, fixtures]) => (
-              <div key={league} style={{ marginBottom: '1.5rem' }}>
-                <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#718096', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '0.5rem', paddingBottom: '4px', borderBottom: '1px solid #2d3748' }}>
-                  {league}
-                </div>
-                {fixtures.map(f => (
-                  <div key={f._id}>
-                    {/* Live score banner */}
-                    <div style={{
-                      background: '#2d2020', border: '1px solid #742a2a', borderRadius: '8px 8px 0 0',
-                      padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap'
-                    }}>
-                      <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#fc8181', background: '#742a2a', borderRadius: '4px', padding: '1px 6px' }}>
-                        {liveTimeLabel(f.liveStatus, f.elapsed)}
-                      </span>
-                      <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#e2e8f0' }}>
-                        {f.homeTeamName} <span style={{ color: '#fc8181' }}>{f.goalsHome ?? 0} – {f.goalsAway ?? 0}</span> {f.awayTeamName}
-                      </span>
-                    </div>
-                    <div style={{ borderRadius: '0 0 12px 12px', overflow: 'hidden', marginBottom: '0.75rem' }}>
-                      <PredictionCard
-                        fixture={f}
-                        prediction={livePredictions[f._id] || null}
-                        onPredict={() => handleLivePredict(f._id)}
-                        computing={!!liveComputing[f._id]}
-                        isLive
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
+            <button className="btn btn-sm" onClick={() => loadLive(true)} disabled={liveLoading}>
+              {liveLoading ? <span className="spin" /> : 'Refresh'}
+            </button>
           </div>
-        )}
 
-        {/* ── Upcoming ── */}
-        {view === 'upcoming' && (
-          <div>
-            <div style={{ position: 'relative', marginBottom: '1.5rem' }}>
+          {liveLoading && (
+            <div style={{ display: 'grid', gap: 10 }}>
+              {[0, 1, 2].map(i => <div key={i} className="skel" style={{ height: 128 }} />)}
+            </div>
+          )}
+
+          {!liveLoading && liveFixtures.length === 0 && (
+            <div className="card empty">
+              <div className="empty-ico">📡</div>
+              <div className="empty-title">No live matches right now</div>
+              <div className="empty-sub">Come back when matches are in play.</div>
+            </div>
+          )}
+
+          {!liveLoading && Object.entries(liveByLeague).map(([league, fixtures]) => (
+            <section key={league} style={{ marginBottom: 22 }}>
+              <div className="league-head">{league}<span className="count">{fixtures.length}</span></div>
+              {fixtures.map(f => (
+                <div key={f._id} style={{ marginBottom: 12 }}>
+                  <div style={{
+                    background: 'var(--neg-soft)', border: '1px solid var(--neg-dim)', borderBottom: 'none',
+                    borderRadius: 'var(--r-lg) var(--r-lg) 0 0', padding: '8px 16px',
+                    display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap'
+                  }}>
+                    <span className="pill pill-neg"><span className="dot dot-live" /> {liveTimeLabel(f.liveStatus, f.elapsed)}</span>
+                    <span style={{ fontSize: 13.5, fontWeight: 650 }}>
+                      {f.homeTeamName}
+                      <span className="num" style={{ color: 'var(--neg)', margin: '0 8px', fontWeight: 800 }}>
+                        {f.goalsHome ?? 0}–{f.goalsAway ?? 0}
+                      </span>
+                      {f.awayTeamName}
+                    </span>
+                  </div>
+                  <PredictionCard
+                    fixture={f}
+                    prediction={livePredictions[f._id] || null}
+                    onPredict={() => handleLivePredict(f._id)}
+                    computing={!!liveComputing[f._id]}
+                    flushTop
+                    isLive
+                  />
+                </div>
+              ))}
+            </section>
+          ))}
+        </>
+      )}
+
+      {/* ── Upcoming ── */}
+      {view === 'upcoming' && (
+        <>
+          {/* Stat strip */}
+          <div className="stat-grid" style={{ marginBottom: 18 }}>
+            <div className="stat">
+              <div className="stat-label">Fixtures</div>
+              <div className="stat-value">{stats.fixtures}</div>
+              <div className="stat-foot">{prettyDate} · {stats.leagues} competitions</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Predicted</div>
+              <div className="stat-value" style={{ color: 'var(--accent-2)' }}>
+                {stats.predicted}<small>/{stats.fixtures || 0}</small>
+              </div>
+              <div className="stat-foot">Model has run on these</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Strong picks</div>
+              <div className="stat-value" style={{ color: 'var(--pos)' }}>{stats.strong}</div>
+              <div className="stat-foot">≥56% on the favourite</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Best edge</div>
+              <div className="stat-value">{stats.best != null ? `${Math.round(stats.best * 100)}%` : '—'}</div>
+              <div className="stat-foot">Highest single-outcome probability</div>
+            </div>
+          </div>
+
+          {/* Controls */}
+          <div className="card card-pad" style={{ marginBottom: 18, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <div className="search-wrap" style={{ flex: '1 1 280px' }}>
+              <span className="search-ico">🔍</span>
               <input
+                className="field"
                 type="text"
                 value={query}
                 onChange={e => setQuery(e.target.value)}
-                placeholder="Search for a team or match (e.g. Arsenal, Man City vs Liverpool...)"
-                style={inputStyle}
+                placeholder="Search a team or match…"
               />
               {searching && (
-                <span style={{ position: 'absolute', right: '14px', top: '50%', transform: 'translateY(-50%)', color: '#718096', fontSize: '0.8rem' }}>
-                  Searching...
+                <span className="muted" style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 11.5 }}>
+                  <span className="spin" />
                 </span>
               )}
             </div>
-
-            {error && <p style={{ color: '#fc8181', marginBottom: '1rem' }}>{error}</p>}
-
-            {syncReport && (
-              <div style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '10px', padding: '1rem', marginBottom: '1.5rem' }}>
-                <div style={{ fontSize: '0.7rem', color: '#68d391', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                  Sync complete — {syncReport.leaguesTargeted} leagues · Tier {syncReport.tier}
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px' }}>
-                  {(syncReport.upcoming || []).map(r => {
-                    const xg   = syncReport.xg?.find(x => x.league === r.league)
-                    const fdco = syncReport.fdco?.find(x => x.league === r.league)
-                    const hasErr = r.error || xg?.error
-                    return (
-                      <div key={r.league} style={{ background: hasErr ? '#2d2020' : '#2d3748', borderRadius: '6px', padding: '5px 9px', fontSize: '0.7rem' }}>
-                        <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{r.league}</span>
-                        <span style={{ color: '#718096', marginLeft: 5 }}>
-                          {r.synced ?? '?'} upcoming
-                          {fdco?.synced != null && ` · ${fdco.synced} hist`}
-                          {xg?.updated != null && ` · ${xg.updated} xG`}
-                          {hasErr && ' ⚠'}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {isSearching && (
-              <div>
-                {searchResults.length === 0 && !searching && (
-                  <p style={{ color: '#718096' }}>No fixtures found for "{query}". Try syncing data first.</p>
-                )}
-                {searchResults.map(f => (
-                  <PredictionCard
-                    key={f._id}
-                    fixture={f}
-                    prediction={predictions[f._id] || null}
-                    onPredict={() => handlePredict(f._id)}
-                    computing={!!computing[f._id]}
-                  />
-                ))}
-              </div>
-            )}
-
-            {!isSearching && (
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
-                  <div>
-                    <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e2e8f0' }}>
-                      {selectedDate === todayStr() ? 'Today' : new Date(selectedDate).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}
-                    </div>
-                    <div style={{ fontSize: '0.72rem', color: '#718096', marginTop: 2 }}>
-                      {upcomingLoading ? 'Loading...' : `${upcomingFixtures.length} fixture${upcomingFixtures.length !== 1 ? 's' : ''}`}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                    <input
-                      type="date"
-                      value={selectedDate}
-                      onChange={e => { setSelectedDate(e.target.value); sessionStorage.setItem('ss_date', e.target.value) }}
-                      style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '8px', color: '#e2e8f0', padding: '5px 10px', fontSize: '0.8rem', outline: 'none', cursor: 'pointer' }}
-                    />
-                    <button onClick={loadUpcoming} disabled={upcomingLoading} style={btnStyle('#2d3748')}>
-                      {upcomingLoading ? '...' : 'Refresh'}
-                    </button>
-                  </div>
-                </div>
-
-                {upcomingLoading && (
-                  <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0', fontSize: '0.85rem' }}>
-                    Loading fixtures...
-                  </div>
-                )}
-
-                {!upcomingLoading && upcomingFixtures.length === 0 && (
-                  <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0' }}>
-                    <p style={{ marginBottom: '0.5rem' }}>No fixtures found for this date.</p>
-                    <p style={{ fontSize: '0.8rem' }}>Try syncing data to fetch the latest schedule.</p>
-                  </div>
-                )}
-
-                {!upcomingLoading && Object.entries(fixturesByLeague).map(([league, fixtures]) => (
-                  <div key={league} style={{ marginBottom: '1.5rem' }}>
-                    <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#718096', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '0.5rem', paddingBottom: '4px', borderBottom: '1px solid #2d3748' }}>
-                      {league}
-                    </div>
-                    {fixtures.map(f => (
-                      <PredictionCard
-                        key={f._id}
-                        fixture={f}
-                        prediction={predictions[f._id] || null}
-                        onPredict={() => handlePredict(f._id)}
-                        computing={!!computing[f._id]}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            )}
+            <input
+              className="field"
+              type="date"
+              value={selectedDate}
+              onChange={e => { setSelectedDate(e.target.value); sessionStorage.setItem('ss_date', e.target.value) }}
+              style={{ width: 'auto', flex: '0 0 auto' }}
+            />
+            <button className="btn" onClick={loadUpcoming} disabled={upcomingLoading}>
+              {upcomingLoading ? <span className="spin" /> : '↻'} Refresh
+            </button>
           </div>
-        )}
 
-      </main>
-    </>
+          {error && (
+            <div className="card card-pad" style={{ borderColor: 'var(--neg-dim)', background: 'var(--neg-soft)', color: 'var(--neg)', marginBottom: 16, fontSize: 13 }}>
+              {error}
+            </div>
+          )}
+
+          {syncReport && (
+            <div className="card card-pad" style={{ marginBottom: 18 }}>
+              <div className="eyebrow" style={{ color: 'var(--pos)', marginBottom: 10 }}>
+                Sync complete — {syncReport.leaguesTargeted} leagues · Tier {syncReport.tier}
+              </div>
+              <div className="chip-row">
+                {(syncReport.upcoming || []).map(r => {
+                  const xg = syncReport.xg?.find(x => x.league === r.league)
+                  const fdco = syncReport.fdco?.find(x => x.league === r.league)
+                  const hasErr = r.error || xg?.error
+                  return (
+                    <span key={r.league} className={`pill${hasErr ? ' pill-neg' : ''}`} style={{ fontWeight: 500 }}>
+                      <b style={{ color: hasErr ? 'inherit' : 'var(--tx)' }}>{r.league}</b>
+                      <span className="muted2">
+                        {r.synced ?? '?'} upcoming
+                        {fdco?.synced != null && ` · ${fdco.synced} hist`}
+                        {xg?.updated != null && ` · ${xg.updated} xG`}
+                        {hasErr && ' ⚠'}
+                      </span>
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {isSearching && (
+            <>
+              <div className="section-head">
+                <div className="section-title">Results for “{query}”</div>
+                <span className="muted" style={{ fontSize: 12.5 }}>{searchResults.length} match{searchResults.length !== 1 ? 'es' : ''}</span>
+              </div>
+              {searchResults.length === 0 && !searching && (
+                <div className="card empty">
+                  <div className="empty-ico">🔍</div>
+                  <div className="empty-title">Nothing found for “{query}”</div>
+                  <div className="empty-sub">Try syncing fixtures first, or check the team alias list.</div>
+                </div>
+              )}
+              {searchResults.map(f => (
+                <PredictionCard
+                  key={f._id}
+                  fixture={f}
+                  prediction={predictions[f._id] || null}
+                  onPredict={() => handlePredict(f._id)}
+                  computing={!!computing[f._id]}
+                />
+              ))}
+            </>
+          )}
+
+          {!isSearching && (
+            <>
+              {upcomingLoading && (
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {[0, 1, 2, 3].map(i => <div key={i} className="skel" style={{ height: 136 }} />)}
+                </div>
+              )}
+
+              {!upcomingLoading && upcomingFixtures.length === 0 && (
+                <div className="card empty">
+                  <div className="empty-ico">📅</div>
+                  <div className="empty-title">No fixtures for {prettyDate.toLowerCase()}</div>
+                  <div className="empty-sub">Sync fixtures to pull the latest schedule for this date.</div>
+                  <button className="btn btn-accent" style={{ marginTop: 16 }} onClick={handleQuickSync} disabled={quickSyncing}>
+                    {quickSyncing ? <><span className="spin" /> Syncing…</> : 'Sync this date'}
+                  </button>
+                </div>
+              )}
+
+              {!upcomingLoading && Object.entries(fixturesByLeague).map(([league, fixtures]) => (
+                <section key={league} style={{ marginBottom: 22 }}>
+                  <div className="league-head">{league}<span className="count">{fixtures.length}</span></div>
+                  {fixtures.map(f => (
+                    <PredictionCard
+                      key={f._id}
+                      fixture={f}
+                      prediction={predictions[f._id] || null}
+                      onPredict={() => handlePredict(f._id)}
+                      computing={!!computing[f._id]}
+                    />
+                  ))}
+                </section>
+              ))}
+            </>
+          )}
+        </>
+      )}
+    </AppShell>
   )
-}
-
-const inputStyle = {
-  width: '100%', background: '#1a1f2e', border: '1px solid #2d3748',
-  borderRadius: '10px', color: '#e2e8f0', fontSize: '0.95rem',
-  padding: '12px 16px', outline: 'none'
-}
-
-function btnStyle(bg) {
-  return {
-    background: bg, color: '#fff', border: 'none',
-    borderRadius: '8px', padding: '6px 14px',
-    cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600
-  }
-}
-
-function tabBtnStyle(active) {
-  return {
-    background: active ? '#2d3748' : 'transparent',
-    color: active ? '#e2e8f0' : '#718096',
-    border: '1px solid ' + (active ? '#4a5568' : '#2d3748'),
-    borderRadius: '8px', padding: '5px 14px',
-    cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600
-  }
 }

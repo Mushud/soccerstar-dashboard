@@ -13,9 +13,9 @@ function today() {
 }
 
 function pct(n) { return n != null ? (n * 100).toFixed(1) + '%' : '—' }
-const CORRECT   = '#68d391'
-const WRONG     = '#fc8181'
-const NEUTRAL   = '#a0aec0'
+const CORRECT   = 'var(--pos)'
+const WRONG     = 'var(--neg)'
+const NEUTRAL   = 'var(--tx-2)'
 
 export default function BacktestView() {
   const [date, setDate]         = useState(yesterday())
@@ -169,44 +169,34 @@ export default function BacktestView() {
   return (
     <div>
       {/* Controls */}
-      <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
+      <div className="card card-pad" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 18, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: '0.7rem', color: '#718096', marginBottom: '4px' }}>Select date</div>
-          <input
-            type="date" value={date} max={today()}
-            onChange={e => setDate(e.target.value)}
-            style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '8px', color: '#e2e8f0', padding: '8px 12px', fontSize: '0.875rem', outline: 'none' }}
-          />
+          <span className="label">Select date</span>
+          <input className="field" type="date" value={date} max={today()} onChange={e => setDate(e.target.value)} style={{ width: 'auto' }} />
         </div>
-        <button onClick={loadFixtures} disabled={loading || syncing}
-          style={{ background: loading ? '#2d3748' : '#2b6cb0', color: loading ? '#718096' : '#fff', border: 'none', borderRadius: '8px', padding: '9px 20px', cursor: loading ? 'default' : 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
-          {loading ? 'Loading...' : 'Load Fixtures'}
+        <button className="btn btn-info" onClick={loadFixtures} disabled={loading || syncing}>
+          {loading ? <><span className="spin" /> Loading…</> : 'Load fixtures'}
         </button>
-        <button onClick={syncResults} disabled={syncing || loading}
-          style={{ background: syncing ? '#2d3748' : '#276749', color: syncing ? '#718096' : '#fff', border: 'none', borderRadius: '8px', padding: '9px 20px', cursor: syncing ? 'default' : 'pointer', fontSize: '0.875rem', fontWeight: 600 }}>
-          {syncing ? 'Syncing…' : 'Sync Results'}
+        <button className="btn btn-pos" onClick={syncResults} disabled={syncing || loading}>
+          {syncing ? <><span className="spin" /> Syncing…</> : 'Sync results'}
         </button>
 
         {/* Backfill Results — syncs all leagues for recent days, then runs batch backtest */}
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <div>
-            <div style={{ fontSize: '0.7rem', color: '#718096', marginBottom: '4px' }}>Days back</div>
-            <select value={backfillDays} onChange={e => setBackfillDays(parseInt(e.target.value))}
-              disabled={backfilling}
-              style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '8px', color: '#e2e8f0', padding: '8px 10px', fontSize: '0.875rem', outline: 'none', cursor: 'pointer' }}>
+            <span className="label">Days back</span>
+            <select className="field" value={backfillDays} onChange={e => setBackfillDays(parseInt(e.target.value))} disabled={backfilling} style={{ width: 'auto' }}>
               {[1, 2, 3, 5, 7, 14].map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </div>
-          <button onClick={backfillAndRun} disabled={backfilling || loading}
-            style={{ background: backfilling ? '#2d3748' : '#744210', color: backfilling ? '#718096' : '#fbd38d', border: '1px solid #b7791f', borderRadius: '8px', padding: '9px 18px', cursor: backfilling ? 'default' : 'pointer', fontSize: '0.875rem', fontWeight: 700, whiteSpace: 'nowrap', alignSelf: 'flex-end' }}>
-            {backfilling ? 'Backfilling…' : 'Backfill Results'}
+          <button className="btn btn-warn" onClick={backfillAndRun} disabled={backfilling || loading}>
+            {backfilling ? <><span className="spin" /> Backfilling…</> : 'Backfill results'}
           </button>
         </div>
 
         <div>
-          <div style={{ fontSize: '0.7rem', color: '#718096', marginBottom: '4px' }}>Accuracy filter</div>
-          <select value={accRisk} onChange={e => { setAccRisk(e.target.value); refreshAccuracy(e.target.value) }}
-            style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '8px', color: '#e2e8f0', padding: '8px 12px', fontSize: '0.875rem', outline: 'none', cursor: 'pointer' }}>
+          <span className="label">Accuracy filter</span>
+          <select className="field" value={accRisk} onChange={e => { setAccRisk(e.target.value); refreshAccuracy(e.target.value) }} style={{ width: 'auto' }}>
             <option value="">All predictions</option>
             <option value="low">Bet Builder – Low risk</option>
             <option value="medium">Bet Builder – Medium risk</option>
@@ -215,29 +205,29 @@ export default function BacktestView() {
         </div>
       </div>
 
-      {error && <p style={{ color: '#fc8181', marginBottom: '1rem' }}>{error}</p>}
+      {error && <p style={{ color: 'var(--neg)', marginBottom: '1rem' }}>{error}</p>}
 
       {/* Backfill result panel */}
       {backfillResult && (
-        <div style={{ background: '#1a1f2e', border: `1px solid ${backfillResult.error ? '#742a2a' : '#744210'}`, borderRadius: '12px', padding: '0.875rem 1.25rem', marginBottom: '1rem', fontSize: '0.78rem' }}>
+        <div style={{ background: 'var(--surface)', border: `1px solid ${backfillResult.error ? 'var(--neg-dim)' : 'var(--warn-dim)'}`, borderRadius: 'var(--r-lg)', padding: '0.875rem 1.25rem', marginBottom: '1rem', fontSize: '0.78rem' }}>
           {backfillResult.error ? (
-            <span style={{ color: '#fc8181' }}>Backfill failed: {backfillResult.error}</span>
+            <span style={{ color: 'var(--neg)' }}>Backfill failed: {backfillResult.error}</span>
           ) : (
             <div>
-              <div style={{ fontWeight: 700, color: '#fbd38d', marginBottom: '4px' }}>Backfill complete — covered last {backfillResult.effectiveDays} days to reach {date}</div>
-              <div style={{ color: '#a0aec0' }}>
-                Synced <strong style={{ color: '#e2e8f0' }}>{backfillResult.syncData?.totalSynced ?? '?'}</strong> fixtures · backtest results loading in background (auto-refreshes in ~8s)</div>
-              <div style={{ color: '#a0aec0' }}>
+              <div style={{ fontWeight: 700, color: 'var(--warn)', marginBottom: '4px' }}>Backfill complete — covered last {backfillResult.effectiveDays} days to reach {date}</div>
+              <div style={{ color: 'var(--tx-2)' }}>
+                Synced <strong style={{ color: 'var(--tx)' }}>{backfillResult.syncData?.totalSynced ?? '?'}</strong> fixtures · backtest results loading in background (auto-refreshes in ~8s)</div>
+              <div style={{ color: 'var(--tx-2)' }}>
                 {backfillResult.syncData?.results?.map(r => (
-                  <span key={r.date} style={{ marginLeft: 8, color: '#4a5568', fontSize: '0.7rem' }}>
-                    {r.date}: {r.error ? <span style={{ color: '#fc8181' }}>err</span> : r.synced}
+                  <span key={r.date} style={{ marginLeft: 8, color: 'var(--tx-4)', fontSize: '0.7rem' }}>
+                    {r.date}: {r.error ? <span style={{ color: 'var(--neg)' }}>err</span> : r.synced}
                   </span>
                 ))}
               </div>
-              <div style={{ color: '#a0aec0', marginTop: '4px' }}>
-                Backtest: <strong style={{ color: '#e2e8f0' }}>{backfillResult.runData?.toProcess ?? 0}</strong> new fixtures queued
-                {backfillResult.runData?.skipped > 0 && <span style={{ color: '#718096', marginLeft: 6 }}>({backfillResult.runData.skipped} already done)</span>}
-                <span style={{ color: '#718096', marginLeft: 6 }}>— calibration curves updating in background</span>
+              <div style={{ color: 'var(--tx-2)', marginTop: '4px' }}>
+                Backtest: <strong style={{ color: 'var(--tx)' }}>{backfillResult.runData?.toProcess ?? 0}</strong> new fixtures queued
+                {backfillResult.runData?.skipped > 0 && <span style={{ color: 'var(--tx-3)', marginLeft: 6 }}>({backfillResult.runData.skipped} already done)</span>}
+                <span style={{ color: 'var(--tx-3)', marginLeft: 6 }}>— calibration curves updating in background</span>
               </div>
             </div>
           )}
@@ -246,14 +236,14 @@ export default function BacktestView() {
 
       {/* This matchday only — distinct from the rolling 60-day panel below it. */}
       {daySummary && (
-        <div style={{ background: '#141a28', border: '1px solid #2b4a6f', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1rem' }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--info-dim)', borderRadius: 'var(--r-lg)', padding: '1rem 1.25rem', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-            <div style={{ fontSize: '0.7rem', color: '#63b3ed', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
+            <div style={{ fontSize: '0.7rem', color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700 }}>
               This day · {daySummary.date}
             </div>
-            <div style={{ fontSize: '0.7rem', color: '#718096' }}>
-              {daySummary.played} played · <strong style={{ color: '#e2e8f0' }}>{daySummary.graded}</strong> graded
-              {daySummary.ungraded > 0 && <span style={{ color: '#d69e2e' }}> · {daySummary.ungraded} no prediction</span>}
+            <div style={{ fontSize: '0.7rem', color: 'var(--tx-3)' }}>
+              {daySummary.played} played · <strong style={{ color: 'var(--tx)' }}>{daySummary.graded}</strong> graded
+              {daySummary.ungraded > 0 && <span style={{ color: 'var(--warn)' }}> · {daySummary.ungraded} no prediction</span>}
             </div>
             {/* The nightly backtest runs at 00:30, so for today it only ever covers the
                 earliest kickoffs. Anything it missed is graded live from the prediction the
@@ -261,18 +251,18 @@ export default function BacktestView() {
                 whichever leagues happen to play early. */}
             {daySummary.sources?.liveGraded > 0 && (
               <div title="Live-graded fixtures use the stored pre-match prediction. The nightly backtest has not reached them yet."
-                style={{ fontSize: '0.65rem', color: '#63b3ed', background: '#12233a', border: '1px solid #2b4a6f', borderRadius: 5, padding: '2px 7px' }}>
+                style={{ fontSize: '0.65rem', color: 'var(--info)', background: 'var(--info-soft)', border: '1px solid var(--info-dim)', borderRadius: 5, padding: '2px 7px' }}>
                 {daySummary.sources.backtested} backtested + {daySummary.sources.liveGraded} live
               </div>
             )}
             {daySummary.actualOutcomes && daySummary.graded > 0 && (
-              <div style={{ fontSize: '0.68rem', color: '#4a5568' }}>
+              <div style={{ fontSize: '0.68rem', color: 'var(--tx-4)' }}>
                 actual: {daySummary.actualOutcomes.home}H / {daySummary.actualOutcomes.draw}D / {daySummary.actualOutcomes.away}A
               </div>
             )}
           </div>
           {daySummary.graded === 0 ? (
-            <div style={{ fontSize: '0.75rem', color: '#718096' }}>{daySummary.note}</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--tx-3)' }}>{daySummary.note}</div>
           ) : (
             <>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -291,8 +281,8 @@ export default function BacktestView() {
                   block re-measures every model on the SAME fixtures — the priced subset, and
                   its complement — which is the only fair comparison. */}
               {daySummary.headToHead?.withOdds?.n > 0 && (
-                <div style={{ marginTop: 12, borderTop: '1px solid #2d3748', paddingTop: 10 }}>
-                  <div style={{ fontSize: '0.65rem', color: '#63b3ed', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, marginBottom: 6 }}>
+                <div style={{ marginTop: 12, borderTop: '1px solid var(--line-strong)', paddingTop: 10 }}>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--info)', textTransform: 'uppercase', letterSpacing: '0.5px', fontWeight: 700, marginBottom: 6 }}>
                     Like-for-like · same fixtures, every model
                   </div>
                   <HeadToHeadRow label={`Priced (${daySummary.headToHead.withOdds.n})`} block={daySummary.headToHead.withOdds} showOdds />
@@ -300,12 +290,12 @@ export default function BacktestView() {
                     <HeadToHeadRow label={`No price (${daySummary.headToHead.withoutOdds.n})`} block={daySummary.headToHead.withoutOdds} />
                   )}
                   {daySummary.headToHead.disagreements && (
-                    <div style={{ marginTop: 8, fontSize: '0.7rem', color: '#a0aec0' }}>
-                      Model and market named different winners <strong style={{ color: '#e2e8f0' }}>{daySummary.headToHead.disagreements.total}</strong> times —
-                      <span style={{ color: '#68d391', fontWeight: 700 }}> model right {daySummary.headToHead.disagreements.modelRight}</span>,
-                      <span style={{ color: '#fc8181', fontWeight: 700 }}> market right {daySummary.headToHead.disagreements.marketRight}</span>,
-                      <span style={{ color: '#718096' }}> both wrong {daySummary.headToHead.disagreements.bothWrong}</span>.
-                      <span style={{ color: '#4a5568' }}> Agreement tells you nothing; only these say who has an edge.</span>
+                    <div style={{ marginTop: 8, fontSize: '0.7rem', color: 'var(--tx-2)' }}>
+                      Model and market named different winners <strong style={{ color: 'var(--tx)' }}>{daySummary.headToHead.disagreements.total}</strong> times —
+                      <span style={{ color: 'var(--pos)', fontWeight: 700 }}> model right {daySummary.headToHead.disagreements.modelRight}</span>,
+                      <span style={{ color: 'var(--neg)', fontWeight: 700 }}> market right {daySummary.headToHead.disagreements.marketRight}</span>,
+                      <span style={{ color: 'var(--tx-3)' }}> both wrong {daySummary.headToHead.disagreements.bothWrong}</span>.
+                      <span style={{ color: 'var(--tx-4)' }}> Agreement tells you nothing; only these say who has an edge.</span>
                     </div>
                   )}
                 </div>
@@ -318,14 +308,14 @@ export default function BacktestView() {
 
       {/* Historical accuracy (from stored backtest results) */}
       {accuracy?.total === 0 && accuracy?.risk && (
-        <div style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.5rem', color: '#718096', fontSize: '0.8rem' }}>
-          No backtest results pass the <strong style={{ color: '#e2e8f0' }}>{accuracy.risk}</strong> risk gate yet.
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '1rem 1.25rem', marginBottom: '1.5rem', color: 'var(--tx-3)', fontSize: '0.8rem' }}>
+          No backtest results pass the <strong style={{ color: 'var(--tx)' }}>{accuracy.risk}</strong> risk gate yet.
           Run more fixture analyses so the gate fields get saved, then try again.
         </div>
       )}
       {accuracy?.total >= 5 && (
-        <div style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
-          <div style={{ fontSize: '0.7rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '10px' }}>
             {accuracy.risk
               ? `Bet Builder (${accuracy.risk} risk) accuracy · last 60 days · ${accuracy.total} qualifying picks`
               : `Historical accuracy · last 60 days · ${accuracy.total} tested`}
@@ -345,37 +335,37 @@ export default function BacktestView() {
           {(accuracy.blended?.byOutcome || accuracy.poisson?.byOutcome) && (
             <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
               {Object.entries(accuracy.blended?.byOutcome || accuracy.poisson?.byOutcome || {}).map(([o, s]) => s.total > 0 && (
-                <div key={o} style={{ background: '#2d3748', borderRadius: '6px', padding: '3px 8px', fontSize: '0.7rem' }}>
-                  <span style={{ color: '#e2e8f0', fontWeight: 700, textTransform: 'capitalize' }}>{o}</span>
-                  <span style={{ color: '#718096', marginLeft: 5 }}>{s.correct}/{s.total} ({Math.round(s.correct / s.total * 100)}%)</span>
+                <div key={o} style={{ background: 'var(--line-strong)', borderRadius: '6px', padding: '3px 8px', fontSize: '0.7rem' }}>
+                  <span style={{ color: 'var(--tx)', fontWeight: 700, textTransform: 'capitalize' }}>{o}</span>
+                  <span style={{ color: 'var(--tx-3)', marginLeft: 5 }}>{s.correct}/{s.total} ({Math.round(s.correct / s.total * 100)}%)</span>
                 </div>
               ))}
             </div>
           )}
-          <div style={{ fontSize: '0.68rem', color: '#4a5568', marginTop: '6px' }}>
+          <div style={{ fontSize: '0.68rem', color: 'var(--tx-4)', marginTop: '6px' }}>
             These figures are fed into Claude to calibrate its confidence.
           </div>
         </div>
       )}
 
       {/* Weight optimiser */}
-      <div style={{ background: '#1a1f2e', border: '1px solid #2d3748', borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 'var(--r-lg)', padding: '1rem 1.25rem', marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: savedWeights || optimResult ? '12px' : 0 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#e2e8f0', marginBottom: 2 }}>Blend Weight Optimiser</div>
-            <div style={{ fontSize: '0.7rem', color: '#718096' }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--tx)', marginBottom: 2 }}>Blend Weight Optimiser</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--tx-3)' }}>
               Grid-searches Poisson / ELO / Odds weights to minimise log-loss on your backtest results. Needs 20+ analysed fixtures (odds optional).
             </div>
           </div>
           <button onClick={optimiseWeights} disabled={optimising}
             style={{ padding: '8px 18px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: optimising ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
-              background: optimising ? '#2d3748' : '#553c9a', color: optimising ? '#718096' : '#e9d8fd', border: '1px solid #6b46c1' }}>
+              background: optimising ? 'var(--line-strong)' : 'var(--accent-dim)', color: optimising ? 'var(--tx-3)' : 'var(--accent-2)', border: '1px solid var(--accent)' }}>
             {optimising ? 'Optimising…' : 'Optimise Weights'}
           </button>
           {savedWeights?.value && (
             <button onClick={resetWeights}
               style={{ padding: '8px 14px', borderRadius: '8px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
-                background: 'transparent', color: '#fc8181', border: '1px solid #fc8181' }}>
+                background: 'transparent', color: 'var(--neg)', border: '1px solid var(--neg)' }}>
               Reset to Defaults
             </button>
           )}
@@ -383,13 +373,13 @@ export default function BacktestView() {
 
         {/* Current saved weights */}
         {savedWeights?.value && (
-          <div style={{ fontSize: '0.72rem', color: '#a0aec0', marginBottom: optimResult ? '10px' : 0 }}>
-            <span style={{ color: '#718096' }}>Active weights </span>
-            <WeightPill label="Poisson" val={savedWeights.value.full?.poisson} color="#bee3f8" />
-            <WeightPill label="ELO"     val={savedWeights.value.full?.elo}     color="#fbd38d" />
-            <WeightPill label="Odds"    val={savedWeights.value.full?.odds}    color="#a0aec0" />
+          <div style={{ fontSize: '0.72rem', color: 'var(--tx-2)', marginBottom: optimResult ? '10px' : 0 }}>
+            <span style={{ color: 'var(--tx-3)' }}>Active weights </span>
+            <WeightPill label="Poisson" val={savedWeights.value.full?.poisson} color="var(--info)" />
+            <WeightPill label="ELO"     val={savedWeights.value.full?.elo}     color="var(--warn)" />
+            <WeightPill label="Odds"    val={savedWeights.value.full?.odds}    color="var(--tx-2)" />
             {savedWeights.meta?.optimisedAt && (
-              <span style={{ color: '#4a5568', marginLeft: 8 }}>
+              <span style={{ color: 'var(--tx-4)', marginLeft: 8 }}>
                 · last run {new Date(savedWeights.meta.optimisedAt).toLocaleDateString()} on {savedWeights.meta.samples} samples
               </span>
             )}
@@ -398,32 +388,32 @@ export default function BacktestView() {
 
         {/* Optimisation result */}
         {optimResult?.error && (
-          <div style={{ fontSize: '0.75rem', color: '#fc8181', marginTop: 4 }}>{optimResult.error}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--neg)', marginTop: 4 }}>{optimResult.error}</div>
         )}
         {optimResult && !optimResult.error && (
-          <div style={{ fontSize: '0.75rem', color: '#e2e8f0' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--tx)' }}>
             <div style={{ marginBottom: 4 }}>
-              <span style={{ color: '#718096' }}>Optimised on </span>
+              <span style={{ color: 'var(--tx-3)' }}>Optimised on </span>
               <b>{optimResult.samples}</b>
-              <span style={{ color: '#718096' }}> records — log-loss </span>
-              <b style={{ color: '#fc8181' }}>{optimResult.baselineLogLoss}</b>
-              <span style={{ color: '#718096' }}> → </span>
-              <b style={{ color: '#68d391' }}>{optimResult.optimisedLogLoss}</b>
-              <span style={{ color: optimResult.improvement > 0 ? '#68d391' : '#fc8181', marginLeft: 6 }}>
+              <span style={{ color: 'var(--tx-3)' }}> records — log-loss </span>
+              <b style={{ color: 'var(--neg)' }}>{optimResult.baselineLogLoss}</b>
+              <span style={{ color: 'var(--tx-3)' }}> → </span>
+              <b style={{ color: 'var(--pos)' }}>{optimResult.optimisedLogLoss}</b>
+              <span style={{ color: optimResult.improvement > 0 ? 'var(--pos)' : 'var(--neg)', marginLeft: 6 }}>
                 ({optimResult.improvement > 0 ? '−' : '+'}{Math.abs(optimResult.improvement)} improvement)
               </span>
             </div>
             <div>
-              <span style={{ color: '#718096' }}>New weights (with odds): </span>
-              <WeightPill label="Poisson" val={optimResult.weights?.full?.poisson} color="#bee3f8" />
-              <WeightPill label="ELO"     val={optimResult.weights?.full?.elo}     color="#fbd38d" />
-              <WeightPill label="Odds"    val={optimResult.weights?.full?.odds}    color="#a0aec0" />
+              <span style={{ color: 'var(--tx-3)' }}>New weights (with odds): </span>
+              <WeightPill label="Poisson" val={optimResult.weights?.full?.poisson} color="var(--info)" />
+              <WeightPill label="ELO"     val={optimResult.weights?.full?.elo}     color="var(--warn)" />
+              <WeightPill label="Odds"    val={optimResult.weights?.full?.odds}    color="var(--tx-2)" />
             </div>
             {optimResult.noOddsSamples >= 10 && (
               <div style={{ marginTop: 2 }}>
-                <span style={{ color: '#718096' }}>No-odds weights: </span>
-                <WeightPill label="Poisson" val={optimResult.weights?.noOdds?.poisson} color="#bee3f8" />
-                <WeightPill label="ELO"     val={optimResult.weights?.noOdds?.elo}     color="#fbd38d" />
+                <span style={{ color: 'var(--tx-3)' }}>No-odds weights: </span>
+                <WeightPill label="Poisson" val={optimResult.weights?.noOdds?.poisson} color="var(--info)" />
+                <WeightPill label="ELO"     val={optimResult.weights?.noOdds?.elo}     color="var(--warn)" />
               </div>
             )}
           </div>
@@ -434,13 +424,13 @@ export default function BacktestView() {
       {fixtures !== null && (
         <>
           {fixtures.length === 0 && (
-            <div style={{ color: '#718096', textAlign: 'center', padding: '3rem 0' }}>
+            <div style={{ color: 'var(--tx-3)', textAlign: 'center', padding: '3rem 0' }}>
               No finished fixtures found for {date}. Try syncing data first.
             </div>
           )}
 
           {fixtures.length > 0 && (
-            <div style={{ fontSize: '0.75rem', color: '#718096', marginBottom: '0.75rem' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--tx-3)', marginBottom: '0.75rem' }}>
               {fixtures.length} fixtures · {done} analysed
             </div>
           )}
@@ -463,9 +453,9 @@ export default function BacktestView() {
 function WeightPill({ label, val, color }) {
   if (val == null) return null
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#2d3748', borderRadius: 5, padding: '1px 7px', marginRight: 4, fontSize: '0.7rem' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: 'var(--line-strong)', borderRadius: 5, padding: '1px 7px', marginRight: 4, fontSize: '0.7rem' }}>
       <span style={{ color }}>{label}</span>
-      <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{Math.round(val * 100)}%</span>
+      <span style={{ color: 'var(--tx)', fontWeight: 700 }}>{Math.round(val * 100)}%</span>
     </span>
   )
 }
@@ -475,16 +465,16 @@ function HeadToHeadRow({ label, block, showOdds }) {
     if (!d) return null
     const good = d.pct >= 50
     return (
-      <div key={name} style={{ background: '#222b3d', borderRadius: 6, padding: '3px 8px', minWidth: 74 }}>
-        <div style={{ fontSize: '0.58rem', color: '#718096' }}>{name}</div>
-        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: good ? '#68d391' : '#fc8181' }}>{d.pct}%</div>
-        <div style={{ fontSize: '0.58rem', color: '#4a5568' }}>{d.correct}/{d.total}</div>
+      <div key={name} style={{ background: 'var(--surface)', borderRadius: 6, padding: '3px 8px', minWidth: 74 }}>
+        <div style={{ fontSize: '0.58rem', color: 'var(--tx-3)' }}>{name}</div>
+        <div style={{ fontSize: '0.8rem', fontWeight: 700, color: good ? 'var(--pos)' : 'var(--neg)' }}>{d.pct}%</div>
+        <div style={{ fontSize: '0.58rem', color: 'var(--tx-4)' }}>{d.correct}/{d.total}</div>
       </div>
     )
   }
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 6 }}>
-      <div style={{ fontSize: '0.65rem', color: '#a0aec0', minWidth: 96 }}>{label}</div>
+      <div style={{ fontSize: '0.65rem', color: 'var(--tx-2)', minWidth: 96 }}>{label}</div>
       {cell('Blended', block.blended)}
       {cell('Poisson', block.poisson)}
       {cell('ELO', block.elo)}
@@ -502,37 +492,37 @@ function DayFixtureList({ fixtures, correctScore }) {
   const o15hit = o15.filter(f => f.o15Over).length
   return (
     <div style={{ marginTop: 10 }}>
-      <button onClick={() => setOpen(!open)} style={{ background: 'none', border: 'none', color: '#63b3ed', fontSize: '0.7rem', cursor: 'pointer', padding: 0, fontWeight: 700 }}>
+      <button onClick={() => setOpen(!open)} style={{ background: 'none', border: 'none', color: 'var(--info)', fontSize: '0.7rem', cursor: 'pointer', padding: 0, fontWeight: 700 }}>
         {open ? '▾' : '▸'} {hits}/{fixtures.length} correct{o15n > 0 ? ` · Over 1.5 landed ${o15hit}/${o15n}` : ''}
         {correctScore?.n ? ` · exact score ${correctScore.hits}/${correctScore.n} (${correctScore.pct}%)` : ''}
         {' '}— {open ? 'hide' : 'show'} every match
       </button>
       {open && (
-        <div style={{ marginTop: 8, maxHeight: 340, overflowY: 'auto', borderTop: '1px solid #2d3748' }}>
+        <div className="tbl-wrap" style={{ marginTop: 8, maxHeight: 340, overflowY: 'auto', borderTop: '1px solid var(--line)' }}>
           {fixtures.map((f, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px 1fr 52px 82px 92px 74px 96px 48px', gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid #1a2030', fontSize: '0.7rem', background: f.disagreed ? '#1d1a12' : undefined }}>
-              <span style={{ color: f.correct ? '#68d391' : '#fc8181', fontWeight: 700 }}>{f.correct ? '✓' : '✗'}</span>
-              <span style={{ color: '#cbd5e0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.league}>{f.match}</span>
-              <span style={{ color: '#e2e8f0', fontWeight: 700 }}>{f.score}</span>
-              <span style={{ color: '#718096' }}>said {f.predicted} {f.prob}%</span>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '18px minmax(140px, 1fr) 52px 82px 92px 74px 96px 48px', minWidth: 620, gap: 8, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--surface-2)', fontSize: '0.7rem', background: f.disagreed ? 'var(--warn-soft)' : undefined }}>
+              <span style={{ color: f.correct ? 'var(--pos)' : 'var(--neg)', fontWeight: 700 }}>{f.correct ? '✓' : '✗'}</span>
+              <span style={{ color: 'var(--tx)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.league}>{f.match}</span>
+              <span style={{ color: 'var(--tx)', fontWeight: 700 }}>{f.score}</span>
+              <span style={{ color: 'var(--tx-3)' }}>said {f.predicted} {f.prob}%</span>
               {/* No price stored means this fixture is invisible to the market comparison. */}
               {f.hasOdds
-                ? <span style={{ color: f.oddsCorrect ? '#68d391' : '#fc8181' }}>
+                ? <span style={{ color: f.oddsCorrect ? 'var(--pos)' : 'var(--neg)' }}>
                     mkt {f.oddsPredicted} {f.oddsProb}%{f.disagreed ? ' ⚔' : ''}
                   </span>
-                : <span style={{ color: '#3a4658' }}>no price</span>}
+                : <span style={{ color: 'var(--line-strong)' }}>no price</span>}
               {/* Over 1.5: probability plus whether the leg would actually have landed. */}
-              <span style={{ color: f.o15Prob == null ? '#3a4658' : f.o15Over ? '#68d391' : '#fc8181' }}>
+              <span style={{ color: f.o15Prob == null ? 'var(--line-strong)' : f.o15Over ? 'var(--pos)' : 'var(--neg)' }}>
                 {f.o15Prob == null ? '—' : `O1.5 ${f.o15Prob}% ${f.o15Over ? '✓' : '✗'}`}
               </span>
               {/* Exact score we called. Amber rather than green when only a top-3 alternative
                   landed — that is a near miss, not a hit, and colouring it like one would
                   overstate a market that lands about one time in ten. */}
               <span title={f.csTop3?.length ? `Most likely scorelines: ${f.csTop3.join(' · ')}${f.aiScore ? ` — AI said ${f.aiScore}` : ''}` : 'No score matrix stored'}
-                style={{ color: f.csPred == null ? '#3a4658' : f.csHit ? '#68d391' : f.csTop3Hit ? '#ecc94b' : '#718096' }}>
+                style={{ color: f.csPred == null ? 'var(--line-strong)' : f.csHit ? 'var(--pos)' : f.csTop3Hit ? 'var(--warn)' : 'var(--tx-3)' }}>
                 {f.csPred == null ? '—' : `${f.csPred} ${f.csProb}%${f.csHit ? ' ✓' : f.csTop3Hit ? ' ~' : ''}`}
               </span>
-              <span style={{ color: '#4a5568' }}>{f.actual}</span>
+              <span style={{ color: 'var(--tx-4)' }}>{f.actual}</span>
             </div>
           ))}
         </div>
@@ -559,14 +549,14 @@ function AccBadge({ label, data, highlight, side }) {
     <div
       title={sideStyle ? `${label} — ${sideStyle.title.toLowerCase()}` : undefined}
       style={{
-        background: highlight ? (good ? '#1c4532' : '#2d2020') : '#2d3748',
+        background: highlight ? (good ? 'var(--pos-soft)' : 'var(--neg-soft)') : 'var(--line-strong)',
         border: highlight
-          ? `1px solid ${good ? '#276749' : '#742a2a'}`
+          ? `1px solid ${good ? 'var(--pos-dim)' : 'var(--neg-dim)'}`
           : sideStyle ? `1px solid ${sideStyle.color}44` : '1px solid transparent',
         borderRadius: '8px', padding: '5px 10px', textAlign: 'center', minWidth: '70px',
       }}
     >
-      <div style={{ fontSize: '0.6rem', color: sideStyle?.color ?? '#718096', marginBottom: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+      <div style={{ fontSize: '0.6rem', color: sideStyle?.color ?? 'var(--tx-3)', marginBottom: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
         {sideStyle?.tag && (
           <span style={{ fontSize: '0.5rem', fontWeight: 800, lineHeight: 1, padding: '1px 3px', borderRadius: 2, border: `1px solid ${sideStyle.color}`, opacity: 0.85 }}>
             {sideStyle.tag}
@@ -574,9 +564,9 @@ function AccBadge({ label, data, highlight, side }) {
         )}
         {label}
       </div>
-      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: good ? '#68d391' : '#fc8181' }}>{displayPct}%</div>
-      <div style={{ fontSize: '0.6rem', color: '#718096' }}>{displaySub}</div>
-      {prec && <div style={{ fontSize: '0.55rem', color: '#4a5568' }}>when picked</div>}
+      <div style={{ fontSize: '0.95rem', fontWeight: 700, color: good ? 'var(--pos)' : 'var(--neg)' }}>{displayPct}%</div>
+      <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)' }}>{displaySub}</div>
+      {prec && <div style={{ fontSize: '0.55rem', color: 'var(--tx-4)' }}>when picked</div>}
     </div>
   )
 }
@@ -607,60 +597,60 @@ function FixtureCard({ item, result, running, onRun }) {
   const correct1X2 = isLive ? undefined : m?.result1X2?.correct
 
   // Border: neutral for live/pre-analysis, green/red only for finished
-  const borderColor = isLive ? '#744210' : correct1X2 === true ? '#276749' : correct1X2 === false ? '#742a2a' : '#2d3748'
+  const borderColor = isLive ? 'var(--warn-dim)' : correct1X2 === true ? 'var(--pos-dim)' : correct1X2 === false ? 'var(--neg-dim)' : 'var(--line-strong)'
 
   const resultColor = (correct) => isLive ? NEUTRAL : correct === true ? CORRECT : correct === false ? WRONG : NEUTRAL
 
   return (
-    <div style={{ background: '#1a1f2e', border: `1px solid ${borderColor}`, borderRadius: '12px', marginBottom: '0.75rem', overflow: 'hidden' }}>
+    <div style={{ background: 'var(--surface)', border: `1px solid ${borderColor}`, borderRadius: 'var(--r-lg)', marginBottom: '0.75rem', overflow: 'hidden' }}>
 
       {/* Header row */}
       <div style={{ padding: '0.875rem 1.25rem', display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
         <div style={{ flex: 1, minWidth: '200px' }}>
-          <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--tx)', display: 'flex', alignItems: 'center', gap: '6px' }}>
             {fixture.homeTeamName} <span style={{ fontWeight: 800 }}>{fixture.goalsHome} – {fixture.goalsAway}</span> {fixture.awayTeamName}
             {isLive && (
-              <span style={{ fontSize: '0.6rem', fontWeight: 700, color: '#f6ad55', background: '#744210', borderRadius: '4px', padding: '1px 5px' }}>
+              <span style={{ fontSize: '0.6rem', fontWeight: 700, color: 'var(--warn)', background: 'var(--warn-dim)', borderRadius: '4px', padding: '1px 5px' }}>
                 {liveTimeLabel(fixture.liveStatus, fixture.elapsed)}
               </span>
             )}
           </div>
-          <div style={{ fontSize: '0.7rem', color: '#718096', marginTop: 1 }}>{fixture.league}</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--tx-3)', marginTop: 1 }}>{fixture.league}</div>
         </div>
 
         {/* Actual outcome */}
         <div style={{ textAlign: 'center', minWidth: '80px' }}>
-          <div style={{ fontSize: '0.6rem', color: '#718096', marginBottom: 2 }}>{isLive ? 'SCORE' : 'ACTUAL'}</div>
-          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: isLive ? '#f6ad55' : '#e2e8f0' }}>{actualLabel}</div>
+          <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)', marginBottom: 2 }}>{isLive ? 'SCORE' : 'ACTUAL'}</div>
+          <div style={{ fontSize: '0.78rem', fontWeight: 700, color: isLive ? 'var(--warn)' : 'var(--tx)' }}>{actualLabel}</div>
         </div>
 
         {/* Model result */}
         <div style={{ textAlign: 'center', minWidth: '90px' }}>
-          <div style={{ fontSize: '0.6rem', color: '#718096', marginBottom: 2 }}>MODEL</div>
+          <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)', marginBottom: 2 }}>MODEL</div>
           {m?.result1X2 ? (
             <>
               <div style={{ fontSize: '0.78rem', fontWeight: 700, color: resultColor(m.result1X2.correct) }}>
                 {m.result1X2.predicted === 'home' ? fixture.homeTeamName : m.result1X2.predicted === 'away' ? fixture.awayTeamName : 'Draw'}
               </div>
-              <div style={{ fontSize: '0.65rem', color: '#718096' }}>{pct(m.result1X2.prob)}</div>
+              <div style={{ fontSize: '0.65rem', color: 'var(--tx-3)' }}>{pct(m.result1X2.prob)}</div>
             </>
           ) : (
-            <div style={{ fontSize: '0.75rem', color: '#4a5568' }}>—</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--tx-4)' }}>—</div>
           )}
         </div>
 
         {/* Claude result */}
         <div style={{ textAlign: 'center', minWidth: '80px' }}>
-          <div style={{ fontSize: '0.6rem', color: '#718096', marginBottom: 2 }}>CLAUDE</div>
+          <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)', marginBottom: 2 }}>CLAUDE</div>
           {result?.claude ? (
             <>
               <div style={{ fontSize: '0.78rem', fontWeight: 700, color: resultColor(result.claude.correct) }}>
                 {result.claude.predicted === 'home' ? fixture.homeTeamName : result.claude.predicted === 'away' ? fixture.awayTeamName : 'Draw'}
               </div>
-              <div style={{ fontSize: '0.62rem', color: '#718096' }}>{result.claude.confidence}</div>
+              <div style={{ fontSize: '0.62rem', color: 'var(--tx-3)' }}>{result.claude.confidence}</div>
             </>
           ) : (
-            <div style={{ fontSize: '0.75rem', color: '#4a5568' }}>—</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--tx-4)' }}>—</div>
           )}
         </div>
 
@@ -670,7 +660,7 @@ function FixtureCard({ item, result, running, onRun }) {
             {[['1.5', m.over15], ['2.5', m.over25], ['3.5', m.over35]].map(([threshold, mk]) => mk && (
               <span key={threshold} title={`Predicted: ${mk.predicted === 'over' ? 'Over' : 'Under'} ${threshold} · Actual: ${mk.actual === 'over' ? 'Over' : 'Under'} ${threshold}`}
                 style={{ fontSize: '0.62rem', fontWeight: 600, padding: '2px 6px', borderRadius: '4px',
-                background: isLive ? '#2d3748' : mk.correct ? '#1c4532' : '#2d2020',
+                background: isLive ? 'var(--line-strong)' : mk.correct ? 'var(--pos-soft)' : 'var(--neg-soft)',
                 color: isLive ? NEUTRAL : mk.correct ? CORRECT : WRONG }}>
                 {isLive
                   ? `${mk.predicted === 'over' ? 'O' : 'U'}${threshold}?`
@@ -685,18 +675,18 @@ function FixtureCard({ item, result, running, onRun }) {
         <div style={{ display: 'flex', gap: '6px', marginLeft: 'auto', alignItems: 'center' }}>
           {!result && (
             <button onClick={onRun} disabled={running}
-              style={{ background: running ? '#2d3748' : '#276749', color: running ? '#718096' : '#fff', border: 'none', borderRadius: '6px', padding: '5px 14px', cursor: running ? 'default' : 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              style={{ background: running ? 'var(--line-strong)' : 'var(--pos-dim)', color: running ? 'var(--tx-3)' : '#fff', border: 'none', borderRadius: '6px', padding: '5px 14px', cursor: running ? 'default' : 'pointer', fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
               {running ? 'Analysing…' : 'Analyse'}
             </button>
           )}
           {result && (
             <>
               <button onClick={() => onRun(true)} disabled={running}
-                style={{ background: running ? '#2d3748' : '#2d3748', color: running ? '#718096' : '#a0aec0', border: '1px solid #4a5568', borderRadius: '6px', padding: '5px 10px', cursor: running ? 'default' : 'pointer', fontSize: '0.72rem' }}>
+                style={{ background: running ? 'var(--line-strong)' : 'var(--line-strong)', color: running ? 'var(--tx-3)' : 'var(--tx-2)', border: '1px solid var(--tx-4)', borderRadius: '6px', padding: '5px 10px', cursor: running ? 'default' : 'pointer', fontSize: '0.72rem' }}>
                 {running ? 'Analysing…' : 'Re-run'}
               </button>
               <button onClick={() => setExpanded(e => !e)}
-                style={{ background: '#2d3748', color: '#a0aec0', border: 'none', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontSize: '0.75rem' }}>
+                style={{ background: 'var(--line-strong)', color: 'var(--tx-2)', border: 'none', borderRadius: '6px', padding: '5px 10px', cursor: 'pointer', fontSize: '0.75rem' }}>
                 {expanded ? 'Hide ▲' : 'Details ▼'}
               </button>
             </>
@@ -706,7 +696,7 @@ function FixtureCard({ item, result, running, onRun }) {
 
       {/* Expanded detail */}
       {expanded && result && (
-        <div style={{ borderTop: '1px solid #2d3748', padding: '1rem 1.25rem' }}>
+        <div style={{ borderTop: '1px solid var(--line-strong)', padding: '1rem 1.25rem' }}>
 
           {/* ── All-models comparison table ── */}
           <ModelsTable result={result} actual1X2={actual1X2} fixture={fixture} isLive={isLive} />
@@ -714,10 +704,10 @@ function FixtureCard({ item, result, running, onRun }) {
           {/* ── Primary model full market detail ── */}
           {m && (
             <div style={{ marginTop: '1rem' }}>
-              <div style={{ fontSize: '0.62rem', color: '#553c9a', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '8px', fontWeight: 600 }}>
+              <div style={{ fontSize: '0.62rem', color: 'var(--accent-dim)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '8px', fontWeight: 600 }}>
                 {result.models?.blended ? 'Blended' : 'Poisson'} — Market Detail
-                {m.bookmaker && <span style={{ marginLeft: 6, color: '#718096', fontWeight: 400 }}>· {m.bookmaker}</span>}
-                {result.confidence != null && <span style={{ marginLeft: 6, color: '#4a5568', fontWeight: 400 }}>· Conf {result.confidence}/100</span>}
+                {m.bookmaker && <span style={{ marginLeft: 6, color: 'var(--tx-3)', fontWeight: 400 }}>· {m.bookmaker}</span>}
+                {result.confidence != null && <span style={{ marginLeft: 6, color: 'var(--tx-4)', fontWeight: 400 }}>· Conf {result.confidence}/100</span>}
               </div>
               <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
 
@@ -755,12 +745,12 @@ function FixtureCard({ item, result, running, onRun }) {
                 {/* HT */}
                 {m.halfTime && (
                   <div style={{ minWidth: '130px' }}>
-                    <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Half-Time</div>
-                    <div style={{ fontSize: '0.78rem', color: '#a0aec0' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Half-Time</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--tx-2)' }}>
                       <span style={{ color: outcomeColor(m.halfTime.predicted), fontWeight: 600, textTransform: 'capitalize' }}>{m.halfTime.predicted}</span>
-                      <span style={{ color: '#718096' }}> ({pct(m.halfTime.prob)})</span>
+                      <span style={{ color: 'var(--tx-3)' }}> ({pct(m.halfTime.prob)})</span>
                     </div>
-                    {m.halfTime.over05 != null && <div style={{ fontSize: '0.7rem', color: '#718096', marginTop: 2 }}>HT O0.5: {pct(m.halfTime.over05)}</div>}
+                    {m.halfTime.over05 != null && <div style={{ fontSize: '0.7rem', color: 'var(--tx-3)', marginTop: 2 }}>HT O0.5: {pct(m.halfTime.over05)}</div>}
                   </div>
                 )}
               </div>
@@ -774,7 +764,7 @@ function FixtureCard({ item, result, running, onRun }) {
 
           {/* ── Claude analysis ── */}
           {result.claude && (
-            <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid #2d3748' }}>
+            <div style={{ marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid var(--line-strong)' }}>
               <ClaudeStrip claude={result.claude} fixture={fixture} result={result} isLive={isLive} />
             </div>
           )}
@@ -785,15 +775,15 @@ function FixtureCard({ item, result, running, onRun }) {
 }
 
 function outcomeColor(outcome) {
-  if (outcome === 'home') return '#68d391'
-  if (outcome === 'away') return '#fc8181'
-  return '#bee3f8'
+  if (outcome === 'home') return 'var(--pos)'
+  if (outcome === 'away') return 'var(--neg)'
+  return 'var(--info)'
 }
 
 function Boxes1X2({ m, actual1X2, fixture, isLive }) {
   return (
     <div style={{ minWidth: '150px' }}>
-      <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>1X2</div>
+      <div style={{ fontSize: '0.65rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>1X2</div>
       <div style={{ display: 'flex', gap: '5px' }}>
         {[{ label: 'H', key: 'home' }, { label: 'D', key: 'draw' }, { label: 'A', key: 'away' }].map(({ label, key }) => {
           const prob = m.result1X2.probs?.[key]
@@ -803,17 +793,17 @@ function Boxes1X2({ m, actual1X2, fixture, isLive }) {
           return (
             <div key={key} style={{
               flex: 1, textAlign: 'center', borderRadius: '6px', padding: '5px 4px',
-              background: isLive ? '#2d3748' : isPred ? (boxCorrect ? '#1c4532' : '#2d2020') : isAct ? '#2a2d3a' : '#2d3748',
-              border: `1px solid ${isLive ? '#4a5568' : isPred ? (boxCorrect ? '#276749' : '#742a2a') : isAct ? '#4a5568' : 'transparent'}`
+              background: isLive ? 'var(--line-strong)' : isPred ? (boxCorrect ? 'var(--pos-soft)' : 'var(--neg-soft)') : isAct ? 'var(--surface)' : 'var(--line-strong)',
+              border: `1px solid ${isLive ? 'var(--tx-4)' : isPred ? (boxCorrect ? 'var(--pos-dim)' : 'var(--neg-dim)') : isAct ? 'var(--tx-4)' : 'transparent'}`
             }}>
-              <div style={{ fontSize: '0.6rem', color: '#718096' }}>{label}</div>
-              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: isLive ? '#a0aec0' : isPred ? (boxCorrect ? CORRECT : WRONG) : '#a0aec0' }}>{pct(prob)}</div>
-              <div style={{ fontSize: '0.58rem', color: '#4a5568' }}>{isPred && '↑'}{isAct && '★'}</div>
+              <div style={{ fontSize: '0.6rem', color: 'var(--tx-3)' }}>{label}</div>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: isLive ? 'var(--tx-2)' : isPred ? (boxCorrect ? CORRECT : WRONG) : 'var(--tx-2)' }}>{pct(prob)}</div>
+              <div style={{ fontSize: '0.58rem', color: 'var(--tx-4)' }}>{isPred && '↑'}{isAct && '★'}</div>
             </div>
           )
         })}
       </div>
-      <div style={{ fontSize: '0.6rem', color: '#4a5568', marginTop: 3 }}>↑ predicted · ★ actual</div>
+      <div style={{ fontSize: '0.6rem', color: 'var(--tx-4)', marginTop: 3 }}>↑ predicted · ★ actual</div>
     </div>
   )
 }
@@ -824,12 +814,12 @@ function Boxes1X2({ m, actual1X2, fixture, isLive }) {
 function MarketTable({ title, rows, dcMode, isLive }) {
   return (
     <div style={{ minWidth: '160px' }}>
-      <div style={{ fontSize: '0.65rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>{title}</div>
+      <div style={{ fontSize: '0.65rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>{title}</div>
       {rows.map((row, i) => {
         const st = row.side ? SIDE_STYLE[row.side] : null
         return (
         <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', gap: '8px', fontSize: '0.75rem' }}>
-          <span style={{ color: st?.color ?? '#a0aec0', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ color: st?.color ?? 'var(--tx-2)', display: 'flex', alignItems: 'center', gap: 4 }}>
             {st?.tag && (
               <span title={st.title} style={{ fontSize: '0.55rem', fontWeight: 800, lineHeight: 1, padding: '1px 3px', borderRadius: 2, border: `1px solid ${st.color}`, opacity: 0.85 }}>
                 {st.tag}
@@ -837,10 +827,10 @@ function MarketTable({ title, rows, dcMode, isLive }) {
             )}
             {row.label}
           </span>
-          <span style={{ color: '#718096' }}>{pct(row.prob)}</span>
-          {!dcMode && <span style={{ fontSize: '0.68rem', color: '#718096' }}>{row.predicted}</span>}
+          <span style={{ color: 'var(--tx-3)' }}>{pct(row.prob)}</span>
+          {!dcMode && <span style={{ fontSize: '0.68rem', color: 'var(--tx-3)' }}>{row.predicted}</span>}
           {!isLive && (
-            <span style={{ fontWeight: 600, fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', background: (dcMode ? row.actual : row.correct) ? '#1c4532' : '#2d2020', color: (dcMode ? row.actual : row.correct) ? '#68d391' : '#fc8181' }}>
+            <span style={{ fontWeight: 600, fontSize: '0.7rem', padding: '1px 5px', borderRadius: '3px', background: (dcMode ? row.actual : row.correct) ? 'var(--pos-soft)' : 'var(--neg-soft)', color: (dcMode ? row.actual : row.correct) ? 'var(--pos)' : 'var(--neg)' }}>
               {dcMode ? (row.actual ? 'Covered ✓' : 'Missed ✗') : (row.correct ? '✓' : '✗')}
             </span>
           )}
@@ -854,10 +844,10 @@ function MarketTable({ title, rows, dcMode, isLive }) {
 // All-models comparison: Poisson | ELO | Blended | Odds
 function ModelsTable({ result, actual1X2, fixture, isLive }) {
   const models = [
-    { key: 'poisson', label: 'Poisson',  color: '#bee3f8' },
-    { key: 'elo',     label: 'ELO',      color: '#fbd38d' },
-    { key: 'blended', label: 'Blended',  color: '#d6bcfa' },
-    { key: 'odds',    label: 'Odds',     color: '#a0aec0' },
+    { key: 'poisson', label: 'Poisson',  color: 'var(--info)' },
+    { key: 'elo',     label: 'ELO',      color: 'var(--warn)' },
+    { key: 'blended', label: 'Blended',  color: 'var(--accent-2)' },
+    { key: 'odds',    label: 'Odds',     color: 'var(--tx-2)' },
   ].filter(({ key }) => result.models?.[key]?.result1X2)
 
   if (!models.length) return null
@@ -867,17 +857,17 @@ function ModelsTable({ result, actual1X2, fixture, isLive }) {
 
   return (
     <div>
-      <div style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Models comparison</div>
+      <div style={{ fontSize: '0.62rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>Models comparison</div>
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.75rem' }}>
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Model</th>
-              <th style={{ textAlign: 'center', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Prediction</th>
-              <th style={{ textAlign: 'right', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Home</th>
-              <th style={{ textAlign: 'right', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Draw</th>
-              <th style={{ textAlign: 'right', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Away</th>
-              {!isLive && <th style={{ textAlign: 'center', color: '#718096', padding: '3px 8px', borderBottom: '1px solid #2d3748' }}>Result</th>}
+              <th style={{ textAlign: 'left', color: 'var(--tx-3)', padding: '3px 8px', borderBottom: '1px solid var(--line-strong)' }}>Model</th>
+              <th style={{ textAlign: 'center', color: 'var(--tx-3)', padding: '3px 8px', borderBottom: '1px solid var(--line-strong)' }}>Prediction</th>
+              <th style={{ textAlign: 'right', color: 'var(--tx-3)', padding: '3px 8px', borderBottom: '1px solid var(--line-strong)' }}>Home</th>
+              <th style={{ textAlign: 'right', color: 'var(--tx-3)', padding: '3px 8px', borderBottom: '1px solid var(--line-strong)' }}>Draw</th>
+              <th style={{ textAlign: 'right', color: 'var(--tx-3)', padding: '3px 8px', borderBottom: '1px solid var(--line-strong)' }}>Away</th>
+              {!isLive && <th style={{ textAlign: 'center', color: 'var(--tx-3)', padding: '3px 8px', borderBottom: '1px solid var(--line-strong)' }}>Result</th>}
             </tr>
           </thead>
           <tbody>
@@ -887,15 +877,15 @@ function ModelsTable({ result, actual1X2, fixture, isLive }) {
               const predLabel = r1x2.predicted === 'home' ? homeLabel : r1x2.predicted === 'away' ? awayLabel : 'Draw'
               const correct = r1x2.correct
               return (
-                <tr key={key} style={{ borderBottom: '1px solid #1a1f2e' }}>
+                <tr key={key} style={{ borderBottom: '1px solid var(--surface)' }}>
                   <td style={{ padding: '5px 8px', color, fontWeight: 600 }}>{label}
-                    {key === 'elo' && mod.homeElo && <span style={{ color: '#4a5568', fontWeight: 400, fontSize: '0.65rem', marginLeft: 4 }}>{mod.homeElo}v{mod.awayElo}</span>}
-                    {key === 'odds' && mod.bookmaker && <span style={{ color: '#4a5568', fontWeight: 400, fontSize: '0.65rem', marginLeft: 4 }}>{mod.bookmaker}</span>}
+                    {key === 'elo' && mod.homeElo && <span style={{ color: 'var(--tx-4)', fontWeight: 400, fontSize: '0.65rem', marginLeft: 4 }}>{mod.homeElo}v{mod.awayElo}</span>}
+                    {key === 'odds' && mod.bookmaker && <span style={{ color: 'var(--tx-4)', fontWeight: 400, fontSize: '0.65rem', marginLeft: 4 }}>{mod.bookmaker}</span>}
                   </td>
-                  <td style={{ padding: '5px 8px', textAlign: 'center', color: '#e2e8f0', fontWeight: 600 }}>{predLabel}</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'home' ? color : '#718096' }}>{pct(r1x2.probs?.home)}</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'draw' ? color : '#718096' }}>{pct(r1x2.probs?.draw)}</td>
-                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'away' ? color : '#718096' }}>{pct(r1x2.probs?.away)}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'center', color: 'var(--tx)', fontWeight: 600 }}>{predLabel}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'home' ? color : 'var(--tx-3)' }}>{pct(r1x2.probs?.home)}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'draw' ? color : 'var(--tx-3)' }}>{pct(r1x2.probs?.draw)}</td>
+                  <td style={{ padding: '5px 8px', textAlign: 'right', color: r1x2.predicted === 'away' ? color : 'var(--tx-3)' }}>{pct(r1x2.probs?.away)}</td>
                   {!isLive && (
                     <td style={{ padding: '5px 8px', textAlign: 'center' }}>
                       <span style={{ fontSize: '0.72rem', fontWeight: 700, color: correct ? CORRECT : WRONG }}>{correct ? '✓' : '✗'}</span>
@@ -905,12 +895,12 @@ function ModelsTable({ result, actual1X2, fixture, isLive }) {
               )
             })}
             {/* Actual outcome row */}
-            <tr style={{ borderTop: '1px solid #2d3748' }}>
-              <td style={{ padding: '5px 8px', color: '#718096', fontSize: '0.7rem' }}>Actual</td>
-              <td style={{ padding: '5px 8px', textAlign: 'center', color: '#e2e8f0', fontWeight: 700, textTransform: 'capitalize' }}>
+            <tr style={{ borderTop: '1px solid var(--line-strong)' }}>
+              <td style={{ padding: '5px 8px', color: 'var(--tx-3)', fontSize: '0.7rem' }}>Actual</td>
+              <td style={{ padding: '5px 8px', textAlign: 'center', color: 'var(--tx)', fontWeight: 700, textTransform: 'capitalize' }}>
                 {actual1X2 === 'home' ? fixture.homeTeamName : actual1X2 === 'away' ? fixture.awayTeamName : 'Draw'}
               </td>
-              <td colSpan={isLive ? 3 : 4} style={{ padding: '5px 8px', textAlign: 'right', color: '#718096', fontSize: '0.7rem' }}>
+              <td colSpan={isLive ? 3 : 4} style={{ padding: '5px 8px', textAlign: 'right', color: 'var(--tx-3)', fontSize: '0.7rem' }}>
                 {fixture.goalsHome} – {fixture.goalsAway}
               </td>
             </tr>
@@ -925,8 +915,8 @@ function ModelsTable({ result, actual1X2, fixture, isLive }) {
 function BlendBreakdown({ m, isLive }) {
   const w = m.weights ?? {}
   return (
-    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #2d3748' }}>
-      <div style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>
+    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--line-strong)' }}>
+      <div style={{ fontSize: '0.62rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: '6px' }}>
         Blend weights: Poisson {Math.round((w.poisson ?? 0) * 100)}% · ELO {Math.round((w.elo ?? 0) * 100)}% · Odds {Math.round((w.odds ?? 0) * 100)}%
       </div>
       <div style={{ overflowX: 'auto' }}>
@@ -934,19 +924,19 @@ function BlendBreakdown({ m, isLive }) {
           <thead>
             <tr>
               {['', 'Poisson', 'ELO', m.oddsProbs ? 'Odds (devig)' : null, m.rawOdds ? 'Raw Odds' : null, 'Blended'].filter(Boolean).map(h => (
-                <th key={h} style={{ color: h === 'Blended' ? '#d6bcfa' : h === 'Odds (devig)' ? '#a0aec0' : h === 'ELO' ? '#fbd38d' : '#718096', fontWeight: 600, padding: '3px 10px', textAlign: h === '' ? 'left' : 'right', borderBottom: '1px solid #2d3748' }}>{h}</th>
+                <th key={h} style={{ color: h === 'Blended' ? 'var(--accent-2)' : h === 'Odds (devig)' ? 'var(--tx-2)' : h === 'ELO' ? 'var(--warn)' : 'var(--tx-3)', fontWeight: 600, padding: '3px 10px', textAlign: h === '' ? 'left' : 'right', borderBottom: '1px solid var(--line-strong)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {[['Home', 'home'], ['Draw', 'draw'], ['Away', 'away']].map(([label, key]) => (
-              <tr key={key} style={{ borderBottom: '1px solid #1a1f2e' }}>
-                <td style={{ padding: '4px 10px', color: '#a0aec0' }}>{label}</td>
-                <td style={{ padding: '4px 10px', textAlign: 'right', color: '#bee3f8' }}>{pct(m.poissonProbs?.[key])}</td>
-                <td style={{ padding: '4px 10px', textAlign: 'right', color: '#fbd38d' }}>{pct(m.eloProbs?.[key])}</td>
-                {m.oddsProbs && <td style={{ padding: '4px 10px', textAlign: 'right', color: '#a0aec0' }}>{pct(m.oddsProbs?.[key])}</td>}
-                {m.rawOdds && <td style={{ padding: '4px 10px', textAlign: 'right', color: '#718096' }}>{m.rawOdds?.[key]?.toFixed(2) ?? '—'}</td>}
-                <td style={{ padding: '4px 10px', textAlign: 'right', color: '#d6bcfa', fontWeight: 700 }}>{pct(m.result1X2?.probs?.[key])}</td>
+              <tr key={key} style={{ borderBottom: '1px solid var(--surface)' }}>
+                <td style={{ padding: '4px 10px', color: 'var(--tx-2)' }}>{label}</td>
+                <td style={{ padding: '4px 10px', textAlign: 'right', color: 'var(--info)' }}>{pct(m.poissonProbs?.[key])}</td>
+                <td style={{ padding: '4px 10px', textAlign: 'right', color: 'var(--warn)' }}>{pct(m.eloProbs?.[key])}</td>
+                {m.oddsProbs && <td style={{ padding: '4px 10px', textAlign: 'right', color: 'var(--tx-2)' }}>{pct(m.oddsProbs?.[key])}</td>}
+                {m.rawOdds && <td style={{ padding: '4px 10px', textAlign: 'right', color: 'var(--tx-3)' }}>{m.rawOdds?.[key]?.toFixed(2) ?? '—'}</td>}
+                <td style={{ padding: '4px 10px', textAlign: 'right', color: 'var(--accent-2)', fontWeight: 700 }}>{pct(m.result1X2?.probs?.[key])}</td>
               </tr>
             ))}
           </tbody>
@@ -962,34 +952,34 @@ function ClaudeStrip({ claude, fixture, result, isLive }) {
     <div>
       {/* FT verdict */}
       <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' }}>
-        <span style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude FT</span>
-        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isLive ? '#a0aec0' : claude.correct ? CORRECT : WRONG }}>
+        <span style={{ fontSize: '0.62rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude FT</span>
+        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: isLive ? 'var(--tx-2)' : claude.correct ? CORRECT : WRONG }}>
           {claude.verdict}
           {!isLive && <span style={{ marginLeft: 4 }}>{claude.correct ? '✓' : '✗'}</span>}
         </span>
-        {claude.confidence && <span style={{ fontSize: '0.68rem', color: '#718096', background: '#2d3748', padding: '1px 6px', borderRadius: '4px' }}>{claude.confidence}</span>}
+        {claude.confidence && <span style={{ fontSize: '0.68rem', color: 'var(--tx-3)', background: 'var(--line-strong)', padding: '1px 6px', borderRadius: '4px' }}>{claude.confidence}</span>}
         {claude.oddsAlignment && claude.oddsAlignment !== 'N/A' && (
-          <span style={{ fontSize: '0.68rem', color: claude.oddsAlignment === 'Agree' ? CORRECT : '#f6e05e' }}>
+          <span style={{ fontSize: '0.68rem', color: claude.oddsAlignment === 'Agree' ? CORRECT : 'var(--warn)' }}>
             Odds {claude.oddsAlignment} {claude.oddsAlignment === 'Agree' ? '✓' : '⚠'}
           </span>
         )}
-        {claude.bestBet && <span style={{ fontSize: '0.7rem', color: '#bee3f8' }}>Best: {claude.bestBet}</span>}
-        {claude.valueBet && <span style={{ fontSize: '0.7rem', color: '#68d391' }}>Value: {claude.valueBet}</span>}
+        {claude.bestBet && <span style={{ fontSize: '0.7rem', color: 'var(--info)' }}>Best: {claude.bestBet}</span>}
+        {claude.valueBet && <span style={{ fontSize: '0.7rem', color: 'var(--pos)' }}>Value: {claude.valueBet}</span>}
       </div>
 
       {/* HT */}
       {claude.ht && (
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '6px' }}>
-          <span style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude HT</span>
-          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: '#e2e8f0' }}>
+          <span style={{ fontSize: '0.62rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Claude HT</span>
+          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--tx)' }}>
             {claude.ht.verdict} · {claude.ht.confidence}
-            {claude.ht.predictedScore && <span style={{ color: '#718096', fontWeight: 400 }}> ({claude.ht.predictedScore})</span>}
+            {claude.ht.predictedScore && <span style={{ color: 'var(--tx-3)', fontWeight: 400 }}> ({claude.ht.predictedScore})</span>}
           </span>
-          {claude.ht.over05 != null && <span style={{ fontSize: '0.7rem', color: '#718096' }}>O0.5: <span style={{ color: claude.ht.over05 ? CORRECT : NEUTRAL }}>{claude.ht.over05 ? 'Yes' : 'No'}</span></span>}
-          {claude.ht.over15 != null && <span style={{ fontSize: '0.7rem', color: '#718096' }}>O1.5: <span style={{ color: claude.ht.over15 ? CORRECT : NEUTRAL }}>{claude.ht.over15 ? 'Yes' : 'No'}</span></span>}
+          {claude.ht.over05 != null && <span style={{ fontSize: '0.7rem', color: 'var(--tx-3)' }}>O0.5: <span style={{ color: claude.ht.over05 ? CORRECT : NEUTRAL }}>{claude.ht.over05 ? 'Yes' : 'No'}</span></span>}
+          {claude.ht.over15 != null && <span style={{ fontSize: '0.7rem', color: 'var(--tx-3)' }}>O1.5: <span style={{ color: claude.ht.over15 ? CORRECT : NEUTRAL }}>{claude.ht.over15 ? 'Yes' : 'No'}</span></span>}
           {result.fixture?.htGoalsHome != null && (
-            <span style={{ fontSize: '0.7rem', color: '#718096' }}>
-              Actual HT: <span style={{ color: '#e2e8f0', fontWeight: 600 }}>{result.fixture.htGoalsHome}–{result.fixture.htGoalsAway}</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--tx-3)' }}>
+              Actual HT: <span style={{ color: 'var(--tx)', fontWeight: 600 }}>{result.fixture.htGoalsHome}–{result.fixture.htGoalsAway}</span>
             </span>
           )}
         </div>
@@ -997,19 +987,19 @@ function ClaudeStrip({ claude, fixture, result, isLive }) {
 
       {/* Analysis text */}
       {claude.analysis && (
-        <p style={{ fontSize: '0.75rem', color: '#a0aec0', lineHeight: 1.55, margin: '6px 0' }}>{claude.analysis}</p>
+        <p style={{ fontSize: '0.75rem', color: 'var(--tx-2)', lineHeight: 1.55, margin: '6px 0' }}>{claude.analysis}</p>
       )}
 
       {/* Odds alignment note */}
       {claude.oddsAlignmentNote && (
-        <p style={{ fontSize: '0.7rem', color: '#d6bcfa', margin: '4px 0' }}>{claude.oddsAlignmentNote}</p>
+        <p style={{ fontSize: '0.7rem', color: 'var(--accent-2)', margin: '4px 0' }}>{claude.oddsAlignmentNote}</p>
       )}
 
       {/* Key factors */}
       {claude.keyFactors?.length > 0 && (
         <div style={{ marginTop: '4px' }}>
           {claude.keyFactors.map((f, i) => (
-            <div key={i} style={{ fontSize: '0.7rem', color: '#718096', marginBottom: 2 }}>· {f}</div>
+            <div key={i} style={{ fontSize: '0.7rem', color: 'var(--tx-3)', marginBottom: 2 }}>· {f}</div>
           ))}
         </div>
       )}
@@ -1017,23 +1007,23 @@ function ClaudeStrip({ claude, fixture, result, isLive }) {
       {/* Risk / form / injury */}
       {(claude.riskFactor || claude.formEdge || claude.injuryImpact) && (
         <div style={{ display: 'flex', gap: '1rem', marginTop: '6px', flexWrap: 'wrap' }}>
-          {claude.riskFactor && <span style={{ fontSize: '0.68rem', color: '#fc8181' }}>Risk: {claude.riskFactor}</span>}
-          {claude.formEdge && claude.formEdge !== 'Neutral' && <span style={{ fontSize: '0.68rem', color: '#f6e05e' }}>Form edge: {claude.formEdge}</span>}
-          {claude.injuryImpact && claude.injuryImpact !== 'None' && <span style={{ fontSize: '0.68rem', color: '#fc8181' }}>Injuries: {claude.injuryImpact}</span>}
+          {claude.riskFactor && <span style={{ fontSize: '0.68rem', color: 'var(--neg)' }}>Risk: {claude.riskFactor}</span>}
+          {claude.formEdge && claude.formEdge !== 'Neutral' && <span style={{ fontSize: '0.68rem', color: 'var(--warn)' }}>Form edge: {claude.formEdge}</span>}
+          {claude.injuryImpact && claude.injuryImpact !== 'None' && <span style={{ fontSize: '0.68rem', color: 'var(--neg)' }}>Injuries: {claude.injuryImpact}</span>}
         </div>
       )}
 
       {/* News */}
       {claude.newsVerdict && (
         <div style={{ marginTop: '6px', display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.62rem', color: '#718096', textTransform: 'uppercase', letterSpacing: '0.4px' }}>News</span>
-          <span style={{ fontSize: '0.72rem', color: claude.newsAgrees ? CORRECT : '#f6e05e' }}>{claude.newsVerdict} {claude.newsAgrees ? '↑ confirms' : '⚠ conflicts'}</span>
-          {claude.updatedBestBet && <span style={{ fontSize: '0.7rem', color: '#bee3f8' }}>Updated: {claude.updatedBestBet}</span>}
+          <span style={{ fontSize: '0.62rem', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>News</span>
+          <span style={{ fontSize: '0.72rem', color: claude.newsAgrees ? CORRECT : 'var(--warn)' }}>{claude.newsVerdict} {claude.newsAgrees ? '↑ confirms' : '⚠ conflicts'}</span>
+          {claude.updatedBestBet && <span style={{ fontSize: '0.7rem', color: 'var(--info)' }}>Updated: {claude.updatedBestBet}</span>}
         </div>
       )}
 
       {result.historicalAccuracy && (
-        <div style={{ fontSize: '0.62rem', color: '#4a5568', marginTop: '6px' }}>
+        <div style={{ fontSize: '0.62rem', color: 'var(--tx-4)', marginTop: '6px' }}>
           Calibrated from {result.historicalAccuracy.sample} {result.historicalAccuracy.league} matches
         </div>
       )}

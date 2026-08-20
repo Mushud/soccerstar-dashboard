@@ -3,13 +3,13 @@ import React from 'react'
 const s = {
   wrap: { overflowX: 'auto' },
   table: { borderCollapse: 'collapse', fontSize: '0.7rem', width: '100%' },
-  th: { padding: '4px 8px', color: '#a0aec0', textAlign: 'center', fontWeight: 600 },
+  th: { padding: '4px 8px', color: 'var(--tx-2)', textAlign: 'center', fontWeight: 600 },
   td: (intensity) => ({
     padding: '4px 8px',
     textAlign: 'center',
-    background: `rgba(104, 211, 145, ${intensity})`,
-    color: intensity > 0.4 ? '#0f1117' : '#e2e8f0',
-    border: '1px solid #2d3748',
+    background: `rgba(124, 108, 245, ${intensity})`,
+    color: intensity > 0.5 ? '#fff' : 'var(--tx)',
+    border: '1px solid var(--line)',
     borderRadius: '3px'
   })
 }
