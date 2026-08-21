@@ -133,6 +133,7 @@ export default function Slips() {
   const [settling, setSettling] = useState(false)
   const [error, setError]     = useState(null)
   const [source, setSource]   = useState('')
+  const [status, setStatus]   = useState('')
   const [addCode, setAddCode]   = useState('')
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState(null)
@@ -195,7 +196,14 @@ export default function Slips() {
   }
 
   const st = data?.stats
-  const slips = data?.slips || []
+  const allSlips = data?.slips || []
+
+  // Status is a view filter, applied here rather than server-side on purpose: `source` changes
+  // which slips the headline stats are computed over (Smart Pick's win rate versus manual is a
+  // real question), but narrowing to "Won" and then reporting a 100% win rate would be nonsense.
+  // So the tiles above keep describing the whole source-filtered set whatever is selected here.
+  const counts = allSlips.reduce((a, sl) => { a[sl.status] = (a[sl.status] || 0) + 1; return a }, {})
+  const slips = status ? allSlips.filter(sl => sl.status === status) : allSlips
 
   return (
     <AppShell
@@ -295,6 +303,22 @@ export default function Slips() {
             <button key={k} className={source === k ? 'on' : ''} onClick={() => setSource(k)}>{l}</button>
           ))}
         </div>
+
+        {/* Status. Void is only offered when something is actually void, so the control does not
+            carry a permanently empty option. */}
+        <div className="seg seg-accent">
+          {[['', 'All', allSlips.length],
+            ['pending', 'Pending', counts.pending || 0],
+            ['won', 'Won', counts.won || 0],
+            ['lost', 'Lost', counts.lost || 0],
+            ...(counts.void ? [['void', 'Void', counts.void]] : [])].map(([k, l, n]) => (
+            <button key={k || 'all'} className={status === k ? 'on' : ''} onClick={() => setStatus(k)}>
+              {l}
+              <span className="muted2" style={{ marginLeft: 5, fontWeight: 600 }}>{n}</span>
+            </button>
+          ))}
+        </div>
+
         <button className="btn btn-sm" onClick={() => load(source)} disabled={loading}>
           {loading ? <span className="spin" /> : '↻'} Refresh
         </button>
@@ -313,8 +337,20 @@ export default function Slips() {
       {!loading && !slips.length && (
         <div className="card empty">
           <div className="empty-ico">🎟</div>
-          <div className="empty-title">No booking codes yet</div>
-          <div className="empty-sub">Build one with Smart Pick, or select picks and generate a SportyBet code.</div>
+          {allSlips.length ? (
+            <>
+              <div className="empty-title">
+                No {STATUS[status]?.label.toLowerCase() || ''} slips{source ? ` from ${SOURCE_LABEL[source]}` : ''}
+              </div>
+              <div className="empty-sub">{allSlips.length} slip{allSlips.length === 1 ? '' : 's'} match the other filters.</div>
+              <button className="btn btn-accent" style={{ marginTop: 16 }} onClick={() => setStatus('')}>Show all</button>
+            </>
+          ) : (
+            <>
+              <div className="empty-title">No booking codes yet</div>
+              <div className="empty-sub">Build one with Smart Pick, or select picks and generate a SportyBet code.</div>
+            </>
+          )}
         </div>
       )}
 
