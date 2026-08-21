@@ -130,12 +130,12 @@ export default function BetBuilder() {
     setSelected(visible.length === selected.size ? new Set() : new Set(visible.map(p => p.fixtureId)))
   }
 
-  async function runPickAndAnalyse(fixtureIds, { fast = fastAI } = {}) {
+  async function runPickAndAnalyse(fixtureIds, { fast = fastAI, preferGoals = false } = {}) {
     setSelected(new Set(fixtureIds))
     if (!fixtureIds.length) return
     setAnalysing(true)
     try {
-      const { data } = await api.post(`/api/betbuilder/analyse`, { fixtureIds, risk: risks, fast }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/betbuilder/analyse`, { fixtureIds, risk: risks, fast, preferGoals }, { timeout: 10 * 60 * 1000 })
       const byId = {}
       for (const r of (data.results || [])) byId[r.fixtureId] = r
       setPicks(prev => prev.map(p => {
@@ -155,9 +155,13 @@ export default function BetBuilder() {
     // The leg floor is applied FIRST and is not relaxed by the fallbacks below. Those fallbacks
     // exist to widen the data-quality requirement when a slate is thin — widening the
     // probability requirement too would quietly hand back the sub-80% legs the floor is for.
+    // `visible`, not `picks`: whatever kickoff window / hour filter is set on the toolbar has
+    // already narrowed the list on screen, and picking from outside it would hand back legs the
+    // filter was there to exclude.
+    const source = visible.length ? visible : picks
     const eligible = legFloorOn
-      ? picks.filter(p => (p.modelProbRaw ?? 0) >= minLegProb)
-      : picks
+      ? source.filter(p => (p.modelProbRaw ?? 0) >= minLegProb)
+      : source
     const ranked = [...eligible].sort((a, b) => (b.certaintyScore ?? 0) - (a.certaintyScore ?? 0))
     let pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified === 'confirmed')
     if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified !== 'risky')
@@ -180,7 +184,7 @@ export default function BetBuilder() {
     const goalStrength = p => GOAL_MARKETS.includes(p.selection)
       ? (p.certaintyScore ?? 0)
       : (p.goalsOption?.modelProbRaw ?? 0)
-    const ranked = [...picks]
+    const ranked = [...(visible.length ? visible : picks)]
       .filter(isGoalMarket)
       // Same floor as smartPick. For a fixture whose goals market is the reason it qualified,
       // the goals market's own probability is what has to clear it — not the main pick's.
@@ -192,7 +196,9 @@ export default function BetBuilder() {
     if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier) && p.dataVerified !== 'risky')
     if (pool.length < n) pool = ranked.filter(p => risks.includes(p.tier))
     if (pool.length < n) pool = ranked
-    await runPickAndAnalyse(pool.slice(0, n).map(p => p.fixtureId).filter(Boolean), { fast: true })
+    // preferGoals makes the returned leg the goals market itself — without it the analysis
+    // hands back the fixture's top-scoring market, which is usually Double Chance.
+    await runPickAndAnalyse(pool.slice(0, n).map(p => p.fixtureId).filter(Boolean), { fast: true, preferGoals: true })
   }
 
   async function generate(overrides = {}) {
@@ -1183,8 +1189,21 @@ export default function BetBuilder() {
                 )}
                 {sbResult.skipped?.length > 0 && (
                   <div>
-                    <div className="eyebrow" style={{ color: 'var(--neg)', marginBottom: 6 }}>Not found ({sbResult.skipped.length})</div>
-                    {sbResult.skipped.map((s, i) => <div key={i} style={{ fontSize: 11.5, color: 'var(--neg)', marginBottom: 3 }}>✗ {s.label}</div>)}
+                    {/* "Not found" lumped two different things together, and the common one was
+                        not "missing": the match is on SportyBet, they just are not pricing that
+                        market. Split, because the fix differs — one needs a different fixture,
+                        the other needs a different market. */}
+                    <div className="eyebrow" style={{ color: 'var(--warn)', marginBottom: 6 }}>
+                      Left off ({sbResult.skipped.length})
+                    </div>
+                    {sbResult.skipped.map((s, i) => (
+                      <div key={i} style={{ fontSize: 11.5, marginBottom: 5, lineHeight: 1.45 }}>
+                        <span style={{ color: s.status === 'unlisted' ? 'var(--neg)' : 'var(--warn)' }}>
+                          {s.status === 'unlisted' ? '✗' : '◐'} {s.label}
+                        </span>
+                        {s.reason && <div className="muted2" style={{ fontSize: 10.5, paddingLeft: 14 }}>{s.reason}</div>}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
@@ -1219,7 +1238,9 @@ export default function BetBuilder() {
       <SmartPickModal
         open={smartOpen}
         onClose={() => setSmartOpen(false)}
-        picks={picks}
+        // The filtered list, for the same reason the other pickers use it — a kickoff window set
+        // on the toolbar should constrain what the builder is allowed to choose from.
+        picks={visible.length ? visible : picks}
         onApply={ids => setSelected(new Set(ids))}
         onAnalyse={ids => runPickAndAnalyse(ids)}
       />
