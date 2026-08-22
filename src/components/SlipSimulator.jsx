@@ -86,6 +86,13 @@ export default function SlipSimulator() {
   // Days, Next 3 Days, This Week — and Smart Pick builds a single slip from everything in the
   // window, so simulating one slip per calendar day does not reproduce what you actually do.
   const [windowDays, setWindowDays] = useState(3)
+  // 'safest' takes the N most likely legs and accepts whatever they pay; 'target' reaches for a
+  // price. Measured, safest wins +7.5pp at matched odds and never uses a leg below ~72%, which
+  // is why it is the default here.
+  const [mode, setMode]           = useState('safest')
+  const [minLegProb, setMinLegProb]   = useState(0)
+  const [minSlipProb, setMinSlipProb] = useState(0)
+  const [uniqueBy, setUniqueBy]   = useState('team')
   const [running, setRunning]     = useState(false)
   const [sweeping, setSweeping]   = useState(false)
   const [res, setRes]             = useState(null)
@@ -97,7 +104,9 @@ export default function SlipSimulator() {
 
   const body = extra => ({
     from, to, targetOdds: Number(targetOdds), minLegs: Number(minLegs), maxLegs: Number(maxLegs),
-    safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, slipsPerDay: Number(perDay), windowDays: Number(windowDays), label: label || null, ...extra,
+    safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, slipsPerDay: Number(perDay), windowDays: Number(windowDays),
+    mode, minLegProb: Number(minLegProb), minSlipProb: Number(minSlipProb), uniqueBy,
+    label: label || null, ...extra,
   })
 
   async function run() {
@@ -125,13 +134,17 @@ export default function SlipSimulator() {
   // one row per shape of slip.
   async function runSweep() {
     setSweeping(true); setError(null); setRes(null); setSweep(null)
-    const shapes = [[2, 3, 2], [3, 4, 3], [4, 5, 5], [6, 8, 10], [8, 12, 20], [10, 15, 50]]
+    // In safest mode the target is meaningless, so the sweep varies the leg count instead.
+    const shapes = mode === 'safest'
+      ? [[2, 2, 0], [3, 3, 0], [4, 4, 0], [5, 5, 0], [6, 6, 0], [8, 8, 0], [10, 10, 0]]
+      : [[2, 3, 2], [3, 4, 3], [4, 5, 5], [6, 8, 10], [8, 12, 20], [10, 15, 50]]
     const out = []
     try {
       for (const [lo, hi, t] of shapes) {
         const { data } = await api.post('/api/betbuilder/slip-backtest',
           body({ minLegs: lo, maxLegs: hi, targetOdds: t }), { timeout: 5 * 60 * 1000 })
-        out.push({ label: `${lo}–${hi} legs @ ${t}x`, ...(data.ok ? data : { failed: data.reason }) })
+        out.push({ label: mode === 'safest' ? `${lo} legs` : `${lo}–${hi} legs @ ${t}x`,
+                   ...(data.ok ? data : { failed: data.reason }) })
         setSweep([...out])
       }
     } catch (e) {
@@ -166,9 +179,18 @@ export default function SlipSimulator() {
           <input className="field" type="date" value={to} onChange={e => setTo(e.target.value)}
             style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }} />
         </label>
-        <label className="muted" style={{ fontSize: 11.5 }}>Target
+        <label className="muted" style={{ fontSize: 11.5 }}
+          title="Safest: take the N most likely legs, accept whatever odds result. Target: reach for a price, which is what forces a weak leg into the slip.">
+          Mode
+          <select className="field" value={mode} onChange={e => setMode(e.target.value)}
+            style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+            <option value="safest">Safest legs</option>
+            <option value="target">Hit a target</option>
+          </select>
+        </label>
+        <label className="muted" style={{ fontSize: 11.5, opacity: mode === 'target' ? 1 : 0.45 }}>Target
           <input className="field" type="number" min="1.1" step="0.5" value={targetOdds} onChange={e => setTarget(e.target.value)}
-            style={{ marginLeft: 6, width: 78, padding: '4px 8px' }} />
+            disabled={mode !== 'target'} style={{ marginLeft: 6, width: 78, padding: '4px 8px' }} />
         </label>
         <label className="muted" style={{ fontSize: 11.5 }}
           title="Days of fixtures in one slip's candidate pool — the same choice the bet builder's fixture window gives you. Smart Pick builds a single slip from everything in the window.">
@@ -200,6 +222,34 @@ export default function SlipSimulator() {
       </div>
 
       <div className="toolbar" style={{ marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
+        <label className="muted" style={{ fontSize: 11.5 }}
+          title="Refuse any leg the model rates below this. In safest mode it rarely binds — that mode already stays above ~72% on its own.">
+          Min leg
+          <select className="field" value={minLegProb} onChange={e => setMinLegProb(e.target.value)}
+            style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+            {[0, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85].map(v =>
+              <option key={v} value={v}>{v ? `${(v * 100).toFixed(0)}%` : 'any'}</option>)}
+          </select>
+        </label>
+        <label className="muted" style={{ fontSize: 11.5 }}
+          title="Refuse a slip whose combined chance falls below this. In safest mode it also decides the leg count — legs are added while the slip still clears the floor.">
+          Min slip
+          <select className="field" value={minSlipProb} onChange={e => setMinSlipProb(e.target.value)}
+            style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+            {[0, 0.5, 0.6, 0.7, 0.8, 0.9].map(v =>
+              <option key={v} value={v}>{v ? `${(v * 100).toFixed(0)}%` : 'any'}</option>)}
+          </select>
+        </label>
+        <label className="muted" style={{ fontSize: 11.5 }}
+          title="What may not repeat across the slips built for one window. Two slips sharing a leg are not two bets — they lose together.">
+          Unique
+          <select className="field" value={uniqueBy} onChange={e => setUniqueBy(e.target.value)}
+            style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+            <option value="team">Team once</option>
+            <option value="match">Match once</option>
+            <option value="none">Allow repeats</option>
+          </select>
+        </label>
         <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer' }}
           title="Restrict legs to the safe-market allow-list, exactly as Smart Pick does">
           <input type="checkbox" checked={safeOnly} onChange={e => setSafeOnly(e.target.checked)} /> Safe markets only
