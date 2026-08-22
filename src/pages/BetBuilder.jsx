@@ -60,6 +60,10 @@ export default function BetBuilder() {
   const [sbLoading, setSbLoading]   = useState(false)
   const [sbResult, setSbResult]     = useState(null)
   const [sbDebug, setSbDebug]       = useState(false)
+  // On by default: when the code is generated, every selected leg is re-checked against the
+  // other markets on its own fixture, and swapped if the model AND the price both call the
+  // alternative clearly safer. Off leaves your selections exactly as picked.
+  const [sbUpgrade, setSbUpgrade]   = useState(true)
   const [expandedAI, setExpandedAI] = useState(new Set())
   const [enrichingId, setEnrichingId] = useState(null)
   const [goalsPickCount, setGoalsPickCount] = useState(10)
@@ -472,10 +476,10 @@ export default function BetBuilder() {
     }
   }
 
-  async function getSportybetCode() {
+  async function getSportybetCode({ preview = false } = {}) {
     const selectedPicks = picks.filter(p => selected.has(p.fixtureId))
     if (!selectedPicks.length) return
-    setSbLoading(true)
+    setSbLoading(preview ? 'preview' : 'book')
     setSbResult(null)
     try {
       // fixtureId and modelProb travel with the pick so the code can be recorded and graded
@@ -493,7 +497,7 @@ export default function BetBuilder() {
         modelProb: p.modelProbRaw,
         date:      p.fixtureDate,
       }))
-      const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug, risk: risks, minLegProb: legFloorOn ? minLegProb : 0, upgradePicks: sbUpgrade, preview }, { timeout: 10 * 60 * 1000 })
       setSbResult(data)
     } catch (err) {
       setSbResult({ success: false, error: err.response?.data?.error || err.message })
@@ -999,9 +1003,19 @@ export default function BetBuilder() {
                 <button className="btn btn-accent" onClick={analyseSelected} disabled={analysing}>
                   {analysing ? <><span className="spin" /> Running Claude…</> : `Analyse ${selected.size} selected`}
                 </button>
-                <button className="btn btn-pos" onClick={getSportybetCode} disabled={sbLoading}>
-                  {sbLoading ? <><span className="spin" /> Adding…</> : `🎰 SportyBet code (${selected.size})`}
+                {/* Preview first: the upgrade pass can rewrite a leg you deliberately chose, so
+                    there is a way to see the finished slip before a code exists. */}
+                <button className="btn" onClick={() => getSportybetCode({ preview: true })} disabled={!!sbLoading}>
+                  {sbLoading === 'preview' ? <><span className="spin" /> Checking…</> : `👁 Preview (${selected.size})`}
                 </button>
+                <button className="btn btn-pos" onClick={() => getSportybetCode()} disabled={!!sbLoading}>
+                  {sbLoading === 'book' ? <><span className="spin" /> Adding…</> : `🎰 SportyBet code (${selected.size})`}
+                </button>
+                <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
+                  title="Before booking, re-check every selected leg against the other markets on the same fixture and swap it when both the model and SportyBet's price call the alternative clearly safer">
+                  <input type="checkbox" checked={sbUpgrade} onChange={e => setSbUpgrade(e.target.checked)} style={{ cursor: 'pointer' }} />
+                  Upgrade picks
+                </label>
                 <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
                   title="Show browser window so you can see what's happening">
                   <input type="checkbox" checked={sbDebug} onChange={e => setSbDebug(e.target.checked)} style={{ cursor: 'pointer' }} />
@@ -1152,10 +1166,11 @@ export default function BetBuilder() {
 
           {/* SportyBet booking code */}
           {sbResult && (
-            <div className="card card-pad" style={{ borderColor: sbResult.success ? 'var(--pos-dim)' : 'var(--neg-dim)' }}>
+            <div className="card card-pad" style={{ borderColor: sbResult.preview ? 'var(--info-dim)' : sbResult.success ? 'var(--pos-dim)' : 'var(--neg-dim)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: sbResult.success ? 'var(--pos)' : 'var(--neg)' }}>
-                  {sbResult.success ? '✓ SportyBet booking code' : '⚠ SportyBet result'}
+                <span style={{ fontSize: 13, fontWeight: 700, color: sbResult.preview ? 'var(--info)' : sbResult.success ? 'var(--pos)' : 'var(--neg)' }}>
+                  {sbResult.preview ? '👁 Preview — no code created yet'
+                    : sbResult.success ? '✓ SportyBet booking code' : '⚠ SportyBet result'}
                 </span>
                 <button className="icon-btn" style={{ width: 28, height: 28 }} onClick={() => setSbResult(null)}>✕</button>
               </div>
@@ -1178,13 +1193,61 @@ export default function BetBuilder() {
                 </div>
               )}
 
+              {/* Preview header: the slip as it would be booked, and the button that commits it. */}
+              {sbResult.preview && sbResult.success && (
+                <div className="toolbar" style={{ marginBottom: 14 }}>
+                  <div className="muted" style={{ fontSize: 12.5 }}>
+                    {sbResult.added.length} leg{sbResult.added.length === 1 ? '' : 's'} ·
+                    combined odds <b style={{ color: 'var(--warn)' }}>{sbResult.totalOdds}x</b>
+                  </div>
+                  <button className="btn btn-pos" onClick={() => getSportybetCode()} disabled={!!sbLoading}>
+                    {sbLoading === 'book' ? <><span className="spin" /> Adding…</> : 'Generate this code'}
+                  </button>
+                  <span className="muted2" style={{ fontSize: 10.5 }}>
+                    Prices are re-checked at booking, so a leg can still move.
+                  </span>
+                </div>
+              )}
+
               {sbResult.error && <div style={{ fontSize: 12.5, color: 'var(--neg)', marginBottom: 10 }}>{sbResult.error}</div>}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
                 {sbResult.added?.length > 0 && (
                   <div>
                     <div className="eyebrow" style={{ color: 'var(--pos)', marginBottom: 6 }}>Added ({sbResult.added.length})</div>
-                    {sbResult.added.map((a, i) => <div key={i} style={{ fontSize: 11.5, color: 'var(--pos)', marginBottom: 3 }}>✓ {a.label}</div>)}
+                    {sbResult.added.map((a, i) => (
+                      <div key={i} style={{ fontSize: 11.5, color: 'var(--pos)', marginBottom: 3 }}>
+                        ✓ {a.label}
+                        {a.substituted && <span style={{ color: 'var(--info)', fontWeight: 700 }}> {a.upgraded ? '↑' : '⇄'}</span>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {sbResult.substitutions?.length > 0 && (
+                  <div>
+                    {/* A leg SportyBet would not price is worth more as the fixture's next-safest
+                        market than as a hole in the slip — but only when the model AND the price
+                        agree it is safe, so both numbers are shown. */}
+                    <div className="eyebrow" style={{ color: 'var(--info)', marginBottom: 6 }}>
+                      Swapped ({sbResult.substitutions.length})
+                    </div>
+                    {sbResult.substitutions.map((sub, i) => (
+                      <div key={i} style={{ fontSize: 11.5, marginBottom: 5, lineHeight: 1.45 }}>
+                        <span style={{ color: 'var(--info)' }}>
+                          {sub.kind === 'upgraded' ? '↑' : '⇄'} {sub.match}
+                        </span>
+                        <div className="muted2" style={{ fontSize: 10.5, paddingLeft: 14 }}>
+                          {sub.from}{sub.fromOdds ? ` @${sub.fromOdds}` : ''} → <b style={{ color: 'var(--tx)' }}>{sub.to}</b>
+                          {sub.odds && <span style={{ color: 'var(--warn)' }}> @{sub.odds}</span>}
+                          {sub.toProb != null && sub.bookProb != null && (
+                            <> · model {(sub.toProb * 100).toFixed(0)}% · book {(sub.bookProb * 100).toFixed(0)}%</>
+                          )}
+                          {sub.gain != null && (
+                            <span style={{ color: 'var(--pos)' }}> · +{(sub.gain * 100).toFixed(0)}pp safer</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
                 {sbResult.skipped?.length > 0 && (
@@ -1208,7 +1271,7 @@ export default function BetBuilder() {
                 )}
               </div>
 
-              {sbResult.success && (
+              {sbResult.success && !sbResult.preview && (
                 <div className="muted2" style={{ fontSize: 11.5, marginTop: 12 }}>
                   Enter this code on SportyBet Ghana to load your slip → place bet with your account.
                 </div>

@@ -71,6 +71,9 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   const [maxLegs, setMaxLegs] = useState(15)
   const [sbOnly, setSbOnly]   = useState(true)
   const [analyse, setAnalyse] = useState(true)
+  // Restrict the legs to the shared safe-market allow-list. On by default, and the reason the
+  // Half Time legs that used to spoil these slips can no longer be chosen at all.
+  const [safeOnly, setSafeOnly] = useState(true)
 
   const [building, setBuilding] = useState(false)
   const [result, setResult]     = useState(null)
@@ -99,7 +102,7 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
     setBuilding(true); setError(null); setResult(null); setBook(null)
     try {
       const { data } = await api.post('/api/betbuilder/target-slip', {
-        targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, candidates,
+        targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly, candidates,
       }, { timeout: 3 * 60 * 1000 })
       if (!data.ok) { setError(data.reason || 'Could not build a slip from these picks.'); setResult(null) }
       else setResult(data)
@@ -207,6 +210,13 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
               <div>
                 <div className="sw-label">SportyBet matches only</div>
                 <div className="sw-hint">Price every leg off the live card. Off, some prices are model estimates and the target is notional.</div>
+              </div>
+            </label>
+            <label className={`switch${safeOnly ? ' on' : ''}`}>
+              <input type="checkbox" checked={safeOnly} onChange={e => setSafeOnly(e.target.checked)} disabled={building} />
+              <div>
+                <div className="sw-label">Safe markets only</div>
+                <div className="sw-hint">1X2, Double Chance and Over/Under. Excludes Half Time, BTTS and Win to Nil — the markets measured to miss most often.</div>
               </div>
             </label>
             <label className={`switch${analyse ? ' on' : ''}`}>
