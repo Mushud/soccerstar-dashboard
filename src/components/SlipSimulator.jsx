@@ -27,8 +27,8 @@ const SB_TONE = {
  * quite different from one beaten by five, and a list of failures alone cannot tell you which
  * you are looking at. The score line is there so each leg can be checked against what happened.
  */
-function SlipDetail({ slip, lost }) {
-  const [open, setOpen] = useState(false)
+function SlipDetail({ slip, lost, defaultOpen = false }) {
+  const [open, setOpen] = useState(defaultOpen)
   return (
     <div style={{ marginBottom: 6, borderLeft: `2px solid var(--${lost ? 'neg' : 'pos'}-dim)`, paddingLeft: 10 }}>
       <button onClick={() => setOpen(v => !v)}
@@ -120,6 +120,11 @@ export default function SlipSimulator() {
 
   const busy = running || sweeping
   const sb = res?.sportybet
+  // Default to the tab that has slips in it. Landing on an empty "Near misses" after a run where
+  // everything won made the result look like it had produced nothing at all.
+  const tab = (slipTab === 'lost' && !res?.worstDays?.length && res?.wonDays?.length) ? 'won'
+            : (slipTab === 'won' && !res?.wonDays?.length && res?.worstDays?.length) ? 'lost'
+            : slipTab
   const [sbColor, sbNote] = SB_TONE[sb?.mode] || ['var(--tx-3)', '']
 
   return (
@@ -213,7 +218,11 @@ export default function SlipSimulator() {
             {[
               ['Slips built', `${res.slips.won} / ${res.slips.n}`, `${res.days.built} of ${res.days.considered} days`],
               ['Actual win rate', pct(res.slips.actualWinRate), `claimed ${pct(res.slips.claimedWinRate)}`],
-              ['Prediction gap', sign(res.slips.gapPP), Math.abs(res.slips.gapPP) <= 3 ? 'honest' : 'overstated'],
+              // A positive gap means the slips did BETTER than claimed. Calling that "overstated"
+              // had it exactly backwards.
+              ['Prediction gap', sign(res.slips.gapPP),
+                Math.abs(res.slips.gapPP) <= 3 ? 'honest'
+                  : res.slips.gapPP > 0 ? 'model was pessimistic' : 'model was optimistic'],
               ['Leg hit rate', pct(res.legs.actualHitRate), `claimed ${pct(res.legs.claimedHitRate)} · ${res.legs.n} legs`],
               ['Mean slip', `${res.slips.meanOdds}x`, `${res.slips.meanLegs} legs`],
               ['ROI*', `${res.slips.roi}%`, 'notional unless real odds'],
@@ -226,6 +235,13 @@ export default function SlipSimulator() {
             ))}
           </div>
 
+          {res.slips.n < 10 && (
+            <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 8 }}>
+              ⚠ Only {res.slips.n} slip{res.slips.n === 1 ? '' : 's'} was built, so the rates above are
+              {res.slips.n === 1 ? ' just that one result — 100% or 0%, nothing in between' : ' very noisy'}.
+              Widen the date range before reading anything into the percentages.
+            </div>
+          )}
           <div style={{ fontSize: 11, color: sbColor, marginBottom: 12 }}>
             🎰 SportyBet filter: <b>{sb.mode}</b> — {sbNote}
             {sb.picksDropped > 0 && ` ${sb.picksDropped} picks dropped, ${sb.stampedFixtures} fixtures had a recorded check.`}
@@ -255,17 +271,25 @@ export default function SlipSimulator() {
             <div>
               <div className="toolbar" style={{ marginBottom: 8, gap: 6 }}>
                 <div className="seg">
-                  <button className={slipTab === 'lost' ? 'on' : ''} onClick={() => setSlipTab('lost')}>
+                  <button className={tab === 'lost' ? 'on' : ''} onClick={() => setSlipTab('lost')}>
                     Near misses ({res.worstDays?.length || 0})
                   </button>
-                  <button className={slipTab === 'won' ? 'on' : ''} onClick={() => setSlipTab('won')}>
+                  <button className={tab === 'won' ? 'on' : ''} onClick={() => setSlipTab('won')}>
                     Winners ({res.wonDays?.length || 0})
                   </button>
                 </div>
               </div>
-              {(slipTab === 'lost' ? res.worstDays : res.wonDays)?.map((d, i) => (
-                <SlipDetail key={`${slipTab}-${i}`} slip={d} lost={slipTab === 'lost'} />
+              {((tab === 'lost' ? res.worstDays : res.wonDays) || []).map((d, i) => (
+                <SlipDetail key={`${tab}-${i}`} slip={d} lost={tab === 'lost'} defaultOpen={
+                  // One slip, nothing to choose between — open it rather than make the user click.
+                  ((tab === 'lost' ? res.worstDays : res.wonDays) || []).length === 1
+                } />
               ))}
+              {!((tab === 'lost' ? res.worstDays : res.wonDays) || []).length && (
+                <div className="muted2" style={{ fontSize: 11.5 }}>
+                  {tab === 'lost' ? 'No slip lost in this run.' : 'No slip won in this run.'}
+                </div>
+              )}
             </div>
           )}
 
