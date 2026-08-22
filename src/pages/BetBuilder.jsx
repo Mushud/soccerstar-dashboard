@@ -69,6 +69,10 @@ export default function BetBuilder() {
   // other markets on its own fixture, and swapped if the model AND the price both call the
   // alternative clearly safer. Off leaves your selections exactly as picked.
   const [sbUpgrade, setSbUpgrade]   = useState(true)
+  // Free legs: a second selection on the same match that cannot lose if the leg already on the
+  // slip wins (a home win requires the home team to score, so Home Win carries Home Over 0.5).
+  // On by default — it raises the payout without changing what has to happen for the slip to win.
+  const [sbFree, setSbFree]         = useState(true)
   const [expandedAI, setExpandedAI] = useState(new Set())
   const [enrichingId, setEnrichingId] = useState(null)
   const [goalsPickCount, setGoalsPickCount] = useState(10)
@@ -536,7 +540,7 @@ export default function BetBuilder() {
         modelProb: p.modelProbRaw,
         date:      p.fixtureDate,
       }))
-      const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug, risk: risks, minLegProb: legFloorOn ? minLegProb : 0, upgradePicks: sbUpgrade, preview }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug, risk: risks, minLegProb: legFloorOn ? minLegProb : 0, upgradePicks: sbUpgrade, freeLegs: sbFree, preview }, { timeout: 10 * 60 * 1000 })
       setSbResult(data)
     } catch (err) {
       setSbResult({ success: false, error: err.response?.data?.error || err.message })
@@ -1083,6 +1087,11 @@ export default function BetBuilder() {
                   Upgrade picks
                 </label>
                 <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
+                  title="Add second selections on the same match that cannot lose if your leg wins — a home win requires the home team to score, so Home Win carries Home Over 0.5 for free. Raises the payout without changing what has to happen.">
+                  <input type="checkbox" checked={sbFree} onChange={e => setSbFree(e.target.checked)} style={{ cursor: 'pointer' }} />
+                  Free legs
+                </label>
+                <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
                   title="Show browser window so you can see what's happening">
                   <input type="checkbox" checked={sbDebug} onChange={e => setSbDebug(e.target.checked)} style={{ cursor: 'pointer' }} />
                   Debug
@@ -1285,6 +1294,7 @@ export default function BetBuilder() {
                       <div key={i} style={{ fontSize: 11.5, color: 'var(--pos)', marginBottom: 3 }}>
                         ✓ {a.label}
                         {a.substituted && <span style={{ color: 'var(--info)', fontWeight: 700 }}> {a.upgraded ? '↑' : '⇄'}</span>}
+                        {a.freeLeg && <span style={{ color: 'var(--pos)', fontWeight: 700 }}> 🎁</span>}
                       </div>
                     ))}
                   </div>
@@ -1311,6 +1321,23 @@ export default function BetBuilder() {
                           {sub.gain != null && (
                             <span style={{ color: 'var(--pos)' }}> · +{(sub.gain * 100).toFixed(0)}pp safer</span>
                           )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {sbResult.freeLegs?.length > 0 && (
+                  <div>
+                    {/* These cost nothing: each is entailed by a leg already on the slip, so the
+                        slip wins in exactly the same circumstances it did before. */}
+                    <div className="eyebrow" style={{ color: 'var(--pos)', marginBottom: 6 }}>
+                      Free legs ({sbResult.freeLegs.length})
+                    </div>
+                    {sbResult.freeLegs.map((f, i) => (
+                      <div key={i} style={{ fontSize: 11.5, marginBottom: 5, lineHeight: 1.45 }}>
+                        <span style={{ color: 'var(--pos)' }}>🎁 {f.leg} <span style={{ color: 'var(--warn)' }}>@{f.odds}</span></span>
+                        <div className="muted2" style={{ fontSize: 10.5, paddingLeft: 14 }}>
+                          {f.match} · free with {f.from} — cannot lose if that leg wins
                         </div>
                       </div>
                     ))}
@@ -1409,13 +1436,20 @@ const PickRow = memo(function PickRow({
   // markets) is behind the ▸ button. `showDetail` is what every one of those blocks tests, so
   // there is one rule rather than a condition repeated at each block.
   const showDetail = !compact || rowExpanded
+  // Local to the row: which fixture's extra markets are open is nobody else's business, and
+  // lifting it would re-render the whole table on every toggle.
+  const [showAllOpts, setShowAllOpts] = useState(false)
   const hasAI = pick.hasClaudeAnalysis
   const pickChanged = hasAI && pick.originalMarket && (
     pick.market !== pick.originalMarket || pick.selection !== pick.originalSelection
   )
   const valTone = pick.value === 'Good value' ? 'pos' : pick.value === 'Poor value' ? 'neg' : 'warn'
 
-  const optRows = (pick.options || []).map((opt, j) => (
+  // Two by default, the rest behind a toggle. A fixture now scores fifteen-odd markets and
+  // rendering them all inline would bury the pick itself.
+  const allOpts = pick.options || []
+  const shownOpts = showAllOpts ? allOpts : allOpts.slice(0, 2)
+  const optRows = shownOpts.map((opt, j) => (
     <div key={`${pick.fixtureId ?? idx}-opt-${j}`} className="pk-sub alt">
       <span className="lead">└ Option {j + 2}</span>
       <span className="muted">{opt.market}</span>
@@ -1424,6 +1458,17 @@ const PickRow = memo(function PickRow({
       <span className="num" style={{ fontWeight: 700, color: 'var(--pos)' }}>{opt.modelProb}</span>
     </div>
   ))
+  if (allOpts.length > 2) {
+    optRows.push(
+      <div key={`${pick.fixtureId ?? idx}-opt-more`} className="pk-sub alt">
+        <span className="lead" />
+        <button onClick={() => setShowAllOpts(v => !v)}
+          style={{ color: 'var(--accent-2)', fontSize: 11, textDecoration: 'underline', gridColumn: 'span 4', textAlign: 'left' }}>
+          {showAllOpts ? '− fewer markets' : `+ ${allOpts.length - 2} more markets on this match`}
+        </button>
+      </div>
+    )
+  }
 
   // Goals line, shown only when the main pick is NOT already a goals market.
   // High Risk picks come out as 1X2 almost every time, yet those fixtures are the

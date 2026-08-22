@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import api from '../api'
 import { SIDE_STYLE } from '../marketSides'
+import SlipSimulator from './SlipSimulator'
 
 function yesterday() {
   const d = new Date()
@@ -168,6 +169,8 @@ export default function BacktestView() {
 
   return (
     <div>
+      <SlipSimulator />
+
       {/* Controls */}
       <div className="card card-pad" style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginBottom: 18, flexWrap: 'wrap' }}>
         <div>
