@@ -20,6 +20,11 @@ const RISK_OPTIONS = [
 ]
 
 const GOAL_MARKETS = ['Over 1.5', 'Over 2.5', 'BTTS']
+// A pick is a goals pick if its SELECTION is one of the above, or if its market is a per-team
+// goals line — "Home Goals: Over 0.5" is a goals bet whatever the selection string says. Kept
+// in step with isGoalsMarket() in services/pickAnalysis.js and bestGoalsMarket() in slate.js.
+const isGoalsPick = p => GOAL_MARKETS.includes(p.selection) ||
+  ((p.market === 'Home Goals' || p.market === 'Away Goals') && /^over/i.test(p.selection || ''))
 
 function fmt(dateStr) {
   if (!dateStr) return ''
@@ -201,15 +206,15 @@ export default function BetBuilder() {
     // Over 1.5 landed 75.8% on them versus 31-41% for the 1X2 picks. `goalsOption` carries the
     // best goals market for every fixture regardless of what won the main slot, so a fixture
     // now qualifies on the strength of its goals market rather than being skipped.
-    const isGoalMarket = p => GOAL_MARKETS.includes(p.selection) || !!p.goalsOption
-    const goalStrength = p => GOAL_MARKETS.includes(p.selection)
+    const isGoalMarket = p => isGoalsPick(p) || !!p.goalsOption
+    const goalStrength = p => isGoalsPick(p)
       ? (p.certaintyScore ?? 0)
       : (p.goalsOption?.modelProbRaw ?? 0)
     const ranked = [...(visible.length ? visible : picks)]
       .filter(isGoalMarket)
       // Same floor as smartPick. For a fixture whose goals market is the reason it qualified,
       // the goals market's own probability is what has to clear it — not the main pick's.
-      .filter(p => !legFloorOn || (GOAL_MARKETS.includes(p.selection)
+      .filter(p => !legFloorOn || (isGoalsPick(p)
         ? (p.modelProbRaw ?? 0) >= minLegProb
         : (p.goalsOption?.modelProbRaw ?? 0) >= minLegProb))
       .sort((a, b) => goalStrength(b) - goalStrength(a))
@@ -1425,7 +1430,7 @@ const PickRow = memo(function PickRow({
   // highest-scoring on the card — this surfaces the goals market before kickoff
   // instead of leaving it to be noticed in the final score.
   const g = pick.goalsOption
-  const goalsRow = (g && !GOAL_MARKETS.includes(pick.selection)) ? (
+  const goalsRow = (g && !isGoalsPick(pick)) ? (
     <div key={`${pick.fixtureId ?? idx}-goals`} className="pk-sub goals">
       <span className="lead" style={{ color: 'var(--pos)' }}>└ ⚽ Goals</span>
       <span className="muted">{g.market}</span>
