@@ -82,6 +82,10 @@ export default function SlipSimulator() {
   // matchday — 30 days is far too few to read a win rate off. Extra slips are built from the
   // fixtures the earlier ones did not use, so they are separate bets, not re-cuts of the same one.
   const [perDay, setPerDay]       = useState(1)
+  // How many days of fixtures feed ONE slip. The bet builder works in windows — Today, Next 2
+  // Days, Next 3 Days, This Week — and Smart Pick builds a single slip from everything in the
+  // window, so simulating one slip per calendar day does not reproduce what you actually do.
+  const [windowDays, setWindowDays] = useState(3)
   const [running, setRunning]     = useState(false)
   const [sweeping, setSweeping]   = useState(false)
   const [res, setRes]             = useState(null)
@@ -93,7 +97,7 @@ export default function SlipSimulator() {
 
   const body = extra => ({
     from, to, targetOdds: Number(targetOdds), minLegs: Number(minLegs), maxLegs: Number(maxLegs),
-    safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, slipsPerDay: Number(perDay), label: label || null, ...extra,
+    safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, slipsPerDay: Number(perDay), windowDays: Number(windowDays), label: label || null, ...extra,
   })
 
   async function run() {
@@ -167,8 +171,20 @@ export default function SlipSimulator() {
             style={{ marginLeft: 6, width: 78, padding: '4px 8px' }} />
         </label>
         <label className="muted" style={{ fontSize: 11.5 }}
-          title="Slips to build per matchday. Each one uses fixtures the previous slips did not, so they are independent bets — more sample without reusing a result.">
-          Slips/day
+          title="Days of fixtures in one slip's candidate pool — the same choice the bet builder's fixture window gives you. Smart Pick builds a single slip from everything in the window.">
+          Window
+          <select className="field" value={windowDays} onChange={e => setWindowDays(e.target.value)}
+            style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+            <option value={1}>Per day</option>
+            <option value={2}>2 days</option>
+            <option value={3}>3 days</option>
+            <option value={7}>This week</option>
+            <option value={0}>Whole range</option>
+          </select>
+        </label>
+        <label className="muted" style={{ fontSize: 11.5 }}
+          title="Slips to build per window. Each one uses fixtures the previous slips did not, so they are independent bets — more sample without reusing a result. Widen the window and you get fewer windows, so raise this to keep the sample size up.">
+          Slips/window
           <select className="field" value={perDay} onChange={e => setPerDay(e.target.value)}
             style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
             {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
@@ -245,8 +261,8 @@ export default function SlipSimulator() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
             {[
               ['Slips built', `${res.slips.won} / ${res.slips.n}`,
-                `${res.days.withSlips ?? res.days.built} of ${res.days.considered} days` +
-                (res.config?.slipsPerDay > 1 ? ` · ${res.config.slipsPerDay}/day` : '')],
+                `${res.days.windows ?? res.days.considered} window${(res.days.windows ?? 0) === 1 ? '' : 's'} over ${res.days.considered} days` +
+                (res.config?.slipsPerDay > 1 ? ` · ${res.config.slipsPerDay} each` : '')],
               ['Actual win rate', pct(res.slips.actualWinRate), `claimed ${pct(res.slips.claimedWinRate)}`],
               // A positive gap means the slips did BETTER than claimed. Calling that "overstated"
               // had it exactly backwards.
