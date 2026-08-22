@@ -325,6 +325,20 @@ export default function SlipSimulator() {
                   </button>
                 </div>
               </div>
+              {res.lossProfile && res.lossProfile.lost > 0 && (
+                <div className="muted2" style={{ fontSize: 11, marginBottom: 8, lineHeight: 1.5 }}>
+                  {/* The list below shows only the closest twelve losses. Without the totals it
+                      reads like the slips are constantly one leg away, whatever the real spread. */}
+                  <b style={{ color: 'var(--tx-2)' }}>{res.lossProfile.lost}</b> slip{res.lossProfile.lost === 1 ? '' : 's'} lost
+                  {res.lossProfile.lostByOneLeg != null && <> · <b style={{ color: 'var(--warn)' }}>{pct(res.lossProfile.lostByOneLeg)}</b> of them by a single leg</>}
+                  <span style={{ marginLeft: 8 }}>
+                    {Object.entries(res.lossProfile.byLegsLost).map(([k, v]) => (
+                      <span key={k} style={{ marginRight: 8 }}>{k} leg{k === '1' ? '' : 's'}: {v}</span>
+                    ))}
+                  </span>
+                  <div style={{ marginTop: 2 }}>Showing the {res.worstDays?.length || 0} closest below.</div>
+                </div>
+              )}
               {((tab === 'lost' ? res.worstDays : res.wonDays) || []).map((d, i) => (
                 <SlipDetail key={`${tab}-${i}`} slip={d} lost={tab === 'lost'} defaultOpen={
                   // One slip, nothing to choose between — open it rather than make the user click.
