@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, memo, useEffect } from 'react'
+import { useState, useCallback, useMemo, memo, useEffect, useRef } from 'react'
 import api, { API_BASE } from '../api'
 import AppShell from '../components/AppShell'
 import SmartPickModal from '../components/SmartPickModal'
@@ -101,7 +101,14 @@ export default function BetBuilder() {
   // one pick at a time while the booking-code run is already going.
   const [sbChecking, setSbChecking] = useState(false)
   const [sbAvail, setSbAvail]       = useState(null)   // { at, listed, byId: { [fixtureId]: status } }
-  const [sbOnly, setSbOnly]         = useState(false)
+  // On by default: a pick SportyBet is not listing cannot be booked, so showing it is showing
+  // work you cannot act on. Remembered per session, so turning it off stays off while you browse.
+  const [sbOnly, setSbOnly]         = useState(() => {
+    try { return sessionStorage.getItem('ss_sb_only') !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { sessionStorage.setItem('ss_sb_only', sbOnly ? '1' : '0') } catch { /* private mode */ }
+  }, [sbOnly])
 
   // The slate the scheduler already built.
   const [autoSlate, setAutoSlate]       = useState(null)
@@ -210,6 +217,7 @@ export default function BetBuilder() {
     setLoading(true)
     setError(null)
     setPicks([])
+    sbAutoRef.current = false
     setMeta(null)
     setLoadProgress(null)
     setLoadMessage('')
@@ -448,11 +456,24 @@ export default function BetBuilder() {
     }
   }
 
+  // One automatic check per pick set. Without it "only bettable" is a switch that does nothing
+  // on first paint: the filter has no card to filter against until the slate has been read.
+  const sbAutoRef = useRef(false)
+  useEffect(() => {
+    if (!sbOnly || sbAvail || sbChecking || loading || !picks.length) return
+    if (sbAutoRef.current) return          // failed once — do not loop on it
+    sbAutoRef.current = true
+    checkSportybet({ all: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sbOnly, sbAvail, sbChecking, loading, picks.length])
+
   // ── SportyBet availability ──────────────────────────────────────────────────
   // One scrape of the card answers the whole slate, so you find out which legs are not even
   // listed BEFORE spending a per-pick browser run on them.
-  async function checkSportybet() {
-    const target = selected.size ? picks.filter(p => selected.has(p.fixtureId)) : visible
+  async function checkSportybet({ all = false } = {}) {
+    // `all` is what the automatic check uses: filtering the view by availability requires
+    // knowing the availability of everything, not of what survived the last filter.
+    const target = all ? picks : selected.size ? picks.filter(p => selected.has(p.fixtureId)) : visible
     if (!target.length) return
     setSbChecking(true)
     setError(null)
@@ -986,17 +1007,18 @@ export default function BetBuilder() {
             </button>
 
             {sbAvail && (
-              <>
-                <span className="pill" title={`SportyBet was showing ${sbAvail.listed} matches when this was checked`}>
-                  {Object.values(sbAvail.byId).filter(v => v === 'available').length} of {Object.keys(sbAvail.byId).length} on SportyBet
-                </span>
-                <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
-                  title="Hide picks SportyBet is not listing or not pricing">
-                  <input type="checkbox" checked={sbOnly} onChange={e => { setSbOnly(e.target.checked); setPage(1) }} style={{ cursor: 'pointer' }} />
-                  Only bettable
-                </label>
-              </>
+              <span className="pill" title={`SportyBet was showing ${sbAvail.listed} matches when this was checked`}>
+                {Object.values(sbAvail.byId).filter(v => v === 'available').length} of {Object.keys(sbAvail.byId).length} on SportyBet
+              </span>
             )}
+            {/* Always rendered, not gated on sbAvail: it is on by default, so hiding it until a
+                check lands would mean a filter you cannot switch off while it is running. */}
+            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
+              title="Show only picks SportyBet is listing. On by default — a pick that is not on the card cannot be booked.">
+              <input type="checkbox" checked={sbOnly} onChange={e => { setSbOnly(e.target.checked); setPage(1) }} style={{ cursor: 'pointer' }} />
+              Only bettable
+              {sbOnly && !sbAvail && sbChecking && <span className="spin" style={{ marginLeft: 2 }} />}
+            </label>
 
             {selected.size > 0 && (
               <>
