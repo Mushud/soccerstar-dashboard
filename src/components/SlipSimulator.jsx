@@ -33,7 +33,8 @@ function SlipDetail({ slip, lost, defaultOpen = false }) {
     <div style={{ marginBottom: 6, borderLeft: `2px solid var(--${lost ? 'neg' : 'pos'}-dim)`, paddingLeft: 10 }}>
       <button onClick={() => setOpen(v => !v)}
         style={{ fontSize: 11.5, textAlign: 'left', width: '100%', padding: '2px 0' }}>
-        <span className="muted">{slip.day}</span> · {slip.legs} legs @{' '}
+        <span className="muted">{slip.day}</span>
+        {slip.round > 1 && <span className="muted2"> #{slip.round}</span>} · {slip.legs} legs @{' '}
         <b style={{ color: 'var(--warn)' }}>{slip.odds}x</b>
         {lost
           ? <span style={{ color: 'var(--neg)' }}> · {slip.legsLost} leg{slip.legsLost === 1 ? '' : 's'} lost</span>
@@ -77,16 +78,22 @@ export default function SlipSimulator() {
   const [safeOnly, setSafeOnly]   = useState(true)
   const [sbOnly, setSbOnly]       = useState(true)
   const [realOdds, setRealOdds]   = useState(false)
+  // One slip a day is what you would actually place, but it caps the sample at one point per
+  // matchday — 30 days is far too few to read a win rate off. Extra slips are built from the
+  // fixtures the earlier ones did not use, so they are separate bets, not re-cuts of the same one.
+  const [perDay, setPerDay]       = useState(1)
   const [running, setRunning]     = useState(false)
   const [sweeping, setSweeping]   = useState(false)
   const [res, setRes]             = useState(null)
   const [sweep, setSweep]         = useState(null)
   const [error, setError]         = useState(null)
   const [slipTab, setSlipTab]     = useState('lost')
+  const [label, setLabel]         = useState('')
+  const [runs, setRuns]           = useState(null)
 
   const body = extra => ({
     from, to, targetOdds: Number(targetOdds), minLegs: Number(minLegs), maxLegs: Number(maxLegs),
-    safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, ...extra,
+    safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, slipsPerDay: Number(perDay), label: label || null, ...extra,
   })
 
   async function run() {
@@ -97,7 +104,17 @@ export default function SlipSimulator() {
       setRes(data.ok ? data : null)
     } catch (e) {
       setError(e.response?.data?.error || e.message)
-    } finally { setRunning(false) }
+    } finally { setRunning(false); loadRuns() }
+  }
+
+  // Recorded runs. The slips themselves are deliberately not stored — they contain nothing the
+  // Pick rows do not already carry — but the run is, so a configuration can be compared against
+  // itself after a model change.
+  async function loadRuns() {
+    try {
+      const { data } = await api.get('/api/betbuilder/slip-backtest/runs?limit=15')
+      setRuns(data.runs || [])
+    } catch { /* history is a convenience, not the result */ }
   }
 
   // The comparison that actually answers "which settings should I use" — same days, same data,
@@ -149,6 +166,14 @@ export default function SlipSimulator() {
           <input className="field" type="number" min="1.1" step="0.5" value={targetOdds} onChange={e => setTarget(e.target.value)}
             style={{ marginLeft: 6, width: 78, padding: '4px 8px' }} />
         </label>
+        <label className="muted" style={{ fontSize: 11.5 }}
+          title="Slips to build per matchday. Each one uses fixtures the previous slips did not, so they are independent bets — more sample without reusing a result.">
+          Slips/day
+          <select className="field" value={perDay} onChange={e => setPerDay(e.target.value)}
+            style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+            {[1, 3, 5, 10, 20].map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
         <label className="muted" style={{ fontSize: 11.5 }}>Legs
           <input className="field" type="number" min="1" max="20" value={minLegs} onChange={e => setMinLegs(e.target.value)}
             style={{ marginLeft: 6, width: 58, padding: '4px 8px' }} />
@@ -174,6 +199,9 @@ export default function SlipSimulator() {
         <button className="btn btn-primary" onClick={run} disabled={busy}>
           {running ? <><span className="spin" /> Simulating…</> : '▶ Run simulation'}
         </button>
+        <input className="field" placeholder="label this run (optional)" value={label}
+          onChange={e => setLabel(e.target.value)}
+          style={{ width: 210, padding: '5px 8px', fontSize: 11.5 }} />
         <button className="btn" onClick={runSweep} disabled={busy}>
           {sweeping ? <><span className="spin" /> Sweeping…</> : '⚖ Compare slip shapes'}
         </button>
@@ -216,7 +244,9 @@ export default function SlipSimulator() {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 10, marginBottom: 14 }}>
             {[
-              ['Slips built', `${res.slips.won} / ${res.slips.n}`, `${res.days.built} of ${res.days.considered} days`],
+              ['Slips built', `${res.slips.won} / ${res.slips.n}`,
+                `${res.days.withSlips ?? res.days.built} of ${res.days.considered} days` +
+                (res.config?.slipsPerDay > 1 ? ` · ${res.config.slipsPerDay}/day` : '')],
               ['Actual win rate', pct(res.slips.actualWinRate), `claimed ${pct(res.slips.claimedWinRate)}`],
               // A positive gap means the slips did BETTER than claimed. Calling that "overstated"
               // had it exactly backwards.
@@ -290,6 +320,40 @@ export default function SlipSimulator() {
                   {tab === 'lost' ? 'No slip lost in this run.' : 'No slip won in this run.'}
                 </div>
               )}
+            </div>
+          )}
+
+          {runs?.length > 1 && (
+            <div style={{ overflowX: 'auto', marginTop: 16 }}>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>
+                Recorded runs — same config, before and after a model change
+              </div>
+              <table className="tbl" style={{ fontSize: 11, minWidth: 620 }}>
+                <thead><tr>
+                  <th>When</th><th>Label</th><th className="num">Shape</th>
+                  <th className="num">Slips</th><th className="num">Actual</th>
+                  <th className="num">Claimed</th><th className="num">Leg hit</th><th className="num">Markets</th>
+                </tr></thead>
+                <tbody>
+                  {runs.map(r => (
+                    <tr key={r.id}>
+                      <td className="muted">{new Date(r.ranAt).toISOString().slice(5, 16).replace('T', ' ')}</td>
+                      <td>{r.label || <span className="muted2">—</span>}</td>
+                      <td className="num muted">{r.config.targetOdds}x {r.config.minLegs}–{r.config.maxLegs}</td>
+                      <td className="num">{r.slips.won}/{r.slips.n}</td>
+                      <td className="num" style={{ fontWeight: 700, color: 'var(--pos)' }}>{pct(r.slips.actualWinRate)}</td>
+                      <td className="num muted">{pct(r.slips.claimedWinRate)}</td>
+                      <td className="num">{pct(r.legs.actualHitRate)}</td>
+                      <td className="num muted2">{r.safeMarketCount ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 6 }}>
+                The slips themselves are not stored: their legs come from Pick rows the reliability
+                loop already learns from, so keeping them would count the same evidence twice.
+                Each row records the configuration and the model it was measured against.
+              </div>
             </div>
           )}
 
