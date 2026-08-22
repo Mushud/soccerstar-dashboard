@@ -103,6 +103,16 @@ export default function BetBuilder() {
   const [sbAvail, setSbAvail]       = useState(null)   // { at, listed, byId: { [fixtureId]: status } }
   // On by default: a pick SportyBet is not listing cannot be booked, so showing it is showing
   // work you cannot act on. Remembered per session, so turning it off stays off while you browse.
+  // Applied by the BACKEND, before the limit is taken — so "top 50" means 50 bettable picks and
+  // the AI analysis never runs on a fixture you cannot book. Remembered across sessions because
+  // it changes what a fetch costs, not just what is displayed.
+  const [sbFetchOnly, setSbFetchOnly] = useState(() => {
+    try { return localStorage.getItem('ss_sb_fetch') !== '0' } catch { return true }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ss_sb_fetch', sbFetchOnly ? '1' : '0') } catch { /* private mode */ }
+  }, [sbFetchOnly])
+
   const [sbOnly, setSbOnly]         = useState(() => {
     try { return sessionStorage.getItem('ss_sb_only') !== '0' } catch { return true }
   })
@@ -225,7 +235,7 @@ export default function BetBuilder() {
     setPage(1)
 
     const useValue = overrides.valueMode ?? valueMode
-    const body = { risk: risks, limit, showAll: effectiveShowAll }
+    const body = { risk: risks, limit, showAll: effectiveShowAll, sportybetOnly: overrides.sportybetOnly ?? sbFetchOnly }
     // Value mode ranks by disagreement with a REAL bookmaker price instead of by risk tier,
     // so the tier gate and showAll are irrelevant to it.
     if (useValue) { body.mode = 'edge'; body.minEdge = minEdge }
@@ -460,12 +470,15 @@ export default function BetBuilder() {
   // on first paint: the filter has no card to filter against until the slate has been read.
   const sbAutoRef = useRef(false)
   useEffect(() => {
+    // Nothing to discover when the backend already gated the slate — every pick came back
+    // bookable, so a second read of the card would only re-confirm it.
+    if (meta?.sportybetOnly && !meta?.sbFailed) return
     if (!sbOnly || sbAvail || sbChecking || loading || !picks.length) return
     if (sbAutoRef.current) return          // failed once — do not loop on it
     sbAutoRef.current = true
     checkSportybet({ all: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sbOnly, sbAvail, sbChecking, loading, picks.length])
+  }, [sbOnly, sbAvail, sbChecking, loading, picks.length, meta])
 
   // ── SportyBet availability ──────────────────────────────────────────────────
   // One scrape of the card answers the whole slate, so you find out which legs are not even
@@ -832,6 +845,19 @@ export default function BetBuilder() {
               >
                 {valueMode ? '💎 Value on' : '💎 Value off'}
               </button>
+              {/* Applied server-side, before the limit — see the sportybetOnly note in the
+                  generate handler for why this is not the same as filtering the table. */}
+              <button
+                className="chip"
+                style={sbFetchOnly ? { background: 'var(--pos-soft)', borderColor: 'var(--pos-dim)', color: 'var(--pos)' } : undefined}
+                onClick={() => setSbFetchOnly(v => !v)}
+                disabled={loading || rerunning}
+                title={sbFetchOnly
+                  ? 'Fetching only fixtures SportyBet is listing. The limit counts bettable picks, and AI analysis runs only on those.'
+                  : 'Fetching every fixture that clears the risk gate, bookable or not.'}
+              >
+                {sbFetchOnly ? '🎰 SportyBet only' : '🎰 All bookmakers'}
+              </button>
               {valueMode && (
                 <select className="field" value={minEdge} onChange={e => setMinEdge(Number(e.target.value))} disabled={loading}
                   title="Minimum model-vs-market disagreement. Below 10pp the market has historically been the better forecaster."
@@ -952,11 +978,21 @@ export default function BetBuilder() {
           </div>
 
           {/* Notices */}
-          {(meta?.failedEnrichment > 0 || meta?.debug?.noPred > 0 || (!showAll && meta && meta.fixturesScanned > picks.length)) && (
+          {(meta?.failedEnrichment > 0 || meta?.debug?.noPred > 0 || meta?.sbDropped > 0 || meta?.sbFailed || (!showAll && meta && meta.fixturesScanned > picks.length)) && (
             <div className="card card-pad" style={{ padding: '10px 16px', fontSize: 11.5, display: 'flex', gap: 14, flexWrap: 'wrap', color: 'var(--tx-3)' }}>
               {meta?.failedEnrichment > 0 && (
                 <span title="Picks excluded because form/standings/H2H contradicted the model" style={{ color: 'var(--neg)' }}>
                   {meta.failedEnrichment} blocked by data
+                </span>
+              )}
+              {meta?.sportybetOnly && meta?.sbDropped > 0 && (
+                <span title={`SportyBet's card was showing ${meta.sbListed} matches when this slate was built`} style={{ color: 'var(--warn)' }}>
+                  🎰 {meta.sbDropped} not on SportyBet
+                </span>
+              )}
+              {meta?.sbFailed && (
+                <span style={{ color: 'var(--neg)' }} title={meta.sbFailed}>
+                  🎰 SportyBet check failed — these picks are unfiltered
                 </span>
               )}
               {meta?.debug?.noPred > 0 && (
@@ -1011,14 +1047,17 @@ export default function BetBuilder() {
                 {Object.values(sbAvail.byId).filter(v => v === 'available').length} of {Object.keys(sbAvail.byId).length} on SportyBet
               </span>
             )}
-            {/* Always rendered, not gated on sbAvail: it is on by default, so hiding it until a
-                check lands would mean a filter you cannot switch off while it is running. */}
+            {/* Rendered unless the backend already gated the slate, in which case it is a control
+                with nothing left to do. Not gated on sbAvail otherwise: it is on by default, so
+                hiding it until a check lands would mean a filter you cannot switch off. */}
+            {!(meta?.sportybetOnly && !meta?.sbFailed && !sbAvail) && (
             <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
               title="Show only picks SportyBet is listing. On by default — a pick that is not on the card cannot be booked.">
               <input type="checkbox" checked={sbOnly} onChange={e => { setSbOnly(e.target.checked); setPage(1) }} style={{ cursor: 'pointer' }} />
               Only bettable
               {sbOnly && !sbAvail && sbChecking && <span className="spin" style={{ marginLeft: 2 }} />}
             </label>
+            )}
 
             {selected.size > 0 && (
               <>
