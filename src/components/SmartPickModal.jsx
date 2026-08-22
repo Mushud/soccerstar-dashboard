@@ -74,6 +74,24 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // Restrict the legs to the shared safe-market allow-list. On by default, and the reason the
   // Half Time legs that used to spoil these slips can no longer be chosen at all.
   const [safeOnly, setSafeOnly] = useState(true)
+  // How many slips to build. Each uses fixtures the previous ones did not, so three slips are
+  // three separate bets — booking three cuts of one pool means one result takes every ticket.
+  const [slipCount, setSlipCount] = useState(1)
+  const [minLegProb, setMinLegProb] = useState(0)
+  // Per-market floors. `on` is the whitelist; a market switched off is not used at all.
+  const [rules, setRules] = useState(() => ({
+    'Over/Under|Over 1.5':             { on: true,  min: 0.80 },
+    'Double Chance|1X (Home or Draw)': { on: true,  min: 0.85 },
+    'Double Chance|X2 (Away or Draw)': { on: true,  min: 0.85 },
+    'Over/Under|Over 2.5':             { on: false, min: 0.70 },
+    'Over/Under|Under 3.5':            { on: false, min: 0.75 },
+    'Home Goals|Under 2.5':            { on: false, min: 0.80 },
+    'Away Goals|Under 2.5':            { on: false, min: 0.80 },
+    '1X2|Home Win':                    { on: false, min: 0.70 },
+    '1X2|Away Win':                    { on: false, min: 0.70 },
+  }))
+  const [useRules, setUseRules] = useState(false)
+  const [slipIdx, setSlipIdx] = useState(0)
 
   const [building, setBuilding] = useState(false)
   const [result, setResult]     = useState(null)
@@ -101,11 +119,17 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   async function build() {
     setBuilding(true); setError(null); setResult(null); setBook(null)
     try {
+      const active = Object.entries(rules).filter(([, v]) => v.on)
+      const marketRules = useRules && active.length
+        ? { allow: active.map(([k]) => k),
+            minProb: Object.fromEntries(active.map(([k, v]) => [k, v.min])) }
+        : null
       const { data } = await api.post('/api/betbuilder/target-slip', {
-        targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly, candidates,
+        targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly,
+        slips: slipCount, uniqueBy: 'team', minLegProb, marketRules, candidates,
       }, { timeout: 3 * 60 * 1000 })
       if (!data.ok) { setError(data.reason || 'Could not build a slip from these picks.'); setResult(null) }
-      else setResult(data)
+      else { setResult(data); setSlipIdx(0) }
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Build failed.')
     } finally {
@@ -114,12 +138,12 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   }
 
   async function getCode() {
-    if (!result?.legs?.length) return
+    if (!view?.legs?.length) return
     setBooking(true); setError(null)
     try {
       const { data } = await api.post('/api/betbuilder/target-slip/book', {
-        legs: result.legs,
-        targetOdds: target, minLegs, maxLegs, winProb: result.winProb, sportybetOnly: sbOnly,
+        legs: view.legs,
+        targetOdds: target, minLegs, maxLegs, winProb: view.winProb, sportybetOnly: sbOnly,
       }, { timeout: 2 * 60 * 1000 })
       setBook(data)
     } catch (err) {
@@ -130,13 +154,17 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   }
 
   function apply() {
-    const ids = (result?.legs || []).map(l => l.fixtureId).filter(Boolean)
+    const ids = (view?.legs || []).map(l => l.fixtureId).filter(Boolean)
     onApply?.(ids)
     if (analyse) onAnalyse?.(ids)
     onClose()
   }
 
-  const overshoot = result ? result.totalOdds / target - 1 : 0
+  // Every slip the build returned; `view` is the one on screen. Falling back to the top-level
+  // result keeps this working against an older response that had no `slips` array.
+  const allSlips = result?.slips?.length ? result.slips : result?.ok ? [result] : []
+  const view = allSlips[Math.min(slipIdx, allSlips.length - 1)] || null
+  const overshoot = view ? view.totalOdds / target - 1 : 0
 
   return (
     <div className="modal-scrim" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -203,6 +231,63 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
             </div>
           </div>
 
+          {/* How many slips, and the floor under every leg */}
+          <div className="toolbar" style={{ gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
+            <label className="muted" style={{ fontSize: 12 }}
+              title="Each slip is built from the fixtures the previous ones did not use, so no club appears in two slips. Book them separately.">
+              Slips
+              <select className="field" value={slipCount} onChange={e => setSlipCount(Number(e.target.value))}
+                disabled={building} style={{ marginLeft: 6, width: 'auto', padding: '5px 9px' }}>
+                {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+            <label className="muted" style={{ fontSize: 12 }}
+              title="Refuse any leg below this, whatever its market. Applied after the reliability correction, so it is the number you see on the leg.">
+              Min leg
+              <select className="field" value={minLegProb} onChange={e => setMinLegProb(Number(e.target.value))}
+                disabled={building} style={{ marginLeft: 6, width: 'auto', padding: '5px 9px' }}>
+                {[0, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9].map(v =>
+                  <option key={v} value={v}>{v ? `${(v * 100).toFixed(0)}%` : 'any'}</option>)}
+              </select>
+            </label>
+          </div>
+
+          {useRules && (
+            <div className="card card-pad" style={{ padding: '10px 12px', marginBottom: 12 }}>
+              <div className="eyebrow" style={{ marginBottom: 8 }}>
+                Markets Smart Pick may use, and the minimum for each
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 6 }}>
+                {Object.entries(rules).map(([key, v]) => {
+                  const [market, selection] = key.split('|')
+                  return (
+                    <label key={key} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5,
+                      opacity: v.on ? 1 : 0.5, cursor: 'pointer',
+                    }}>
+                      <input type="checkbox" checked={v.on} disabled={building}
+                        onChange={e => setRules(r => ({ ...r, [key]: { ...r[key], on: e.target.checked } }))} />
+                      <span style={{ flex: 1 }}>
+                        <span className="muted">{market}:</span>{' '}
+                        <b style={{ color: 'var(--tx-2)' }}>{selection}</b>
+                      </span>
+                      <select className="field" value={v.min} disabled={building || !v.on}
+                        onChange={e => setRules(r => ({ ...r, [key]: { ...r[key], min: Number(e.target.value) } }))}
+                        style={{ width: 'auto', padding: '3px 6px', fontSize: 11 }}>
+                        {[0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95].map(m =>
+                          <option key={m} value={m}>≥{(m * 100).toFixed(0)}%</option>)}
+                      </select>
+                    </label>
+                  )
+                })}
+              </div>
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.5 }}>
+                Thresholds are checked against the corrected probability shown on each leg, not the
+                model's raw claim — so a leg on screen can never sit below its own rule.
+              </div>
+            </div>
+          )}
+
           {/* Options */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
             <label className={`switch${sbOnly ? ' on' : ''}`}>
@@ -210,6 +295,13 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
               <div>
                 <div className="sw-label">SportyBet matches only</div>
                 <div className="sw-hint">Price every leg off the live card. Off, some prices are model estimates and the target is notional.</div>
+              </div>
+            </label>
+            <label className={`switch${useRules ? ' on' : ''}`}>
+              <input type="checkbox" checked={useRules} onChange={e => setUseRules(e.target.checked)} disabled={building} />
+              <div>
+                <div className="sw-label">Choose markets & thresholds</div>
+                <div className="sw-hint">Pick which markets may be used and the minimum the model must give each one.</div>
               </div>
             </label>
             <label className={`switch${safeOnly ? ' on' : ''}`}>
@@ -244,19 +336,40 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
           )}
 
           {/* ── Result ── */}
-          {result && (
+          {view && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {allSlips.length > 1 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div className="seg" style={{ flexWrap: 'wrap' }}>
+                    {allSlips.map((sl, i) => (
+                      <button key={i} className={slipIdx === i ? 'on' : ''} onClick={() => { setSlipIdx(i); setBook(null) }}>
+                        Slip {i + 1} · {sl.totalOdds}x · {(sl.winProb * 100).toFixed(0)}%
+                      </button>
+                    ))}
+                  </div>
+                  <div className="muted2" style={{ fontSize: 10.5, marginTop: 5 }}>
+                    {/* Each slip is booked on its own — they share no club, so they can lose
+                        independently, which is the only reason to place more than one. */}
+                    No club appears in two of these. Generate a separate code for each.
+                  </div>
+                </div>
+              )}
+              {result?.slipsNote && (
+                <div style={{ fontSize: 11.5, color: 'var(--warn)', marginBottom: 10, lineHeight: 1.5 }}>
+                  ⚠ {result.slipsNote}
+                </div>
+              )}
               <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
                 <div className="stat" style={{ padding: '12px 14px' }}>
                   <div className="stat-label">Combined odds</div>
-                  <div className="stat-value num" style={{ fontSize: 24, color: 'var(--warn)' }}>{result.totalOdds}x</div>
+                  <div className="stat-value num" style={{ fontSize: 24, color: 'var(--warn)' }}>{view.totalOdds}x</div>
                   <div className="stat-foot">
                     {overshoot > 0.005 ? `${(overshoot * 100).toFixed(0)}% over target` : 'on target'}
                   </div>
                 </div>
                 <div className="stat" style={{ padding: '12px 14px' }}>
                   <div className="stat-label">Legs</div>
-                  <div className="stat-value num" style={{ fontSize: 24 }}>{result.legs.length}</div>
+                  <div className="stat-value num" style={{ fontSize: 24 }}>{view.legs.length}</div>
                   <div className="stat-foot">from {result.considered} fixtures</div>
                 </div>
                 <div
@@ -267,18 +380,18 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                   <div className="stat-label">All land</div>
                   <div className="stat-value num" style={{
                     fontSize: 24,
-                    color: result.winProb >= 0.4 ? 'var(--pos)' : result.winProb >= 0.15 ? 'var(--warn)' : 'var(--neg)',
-                  }}>{pct(result.winProb)}</div>
+                    color: view.winProb >= 0.4 ? 'var(--pos)' : view.winProb >= 0.15 ? 'var(--warn)' : 'var(--neg)',
+                  }}>{pct(view.winProb)}</div>
                   {/* The headline is now computed on MEASURED hit rates — the correction runs
                       before the search, so these legs were chosen on it rather than merely
                       reported against it afterwards. What the model originally claimed is shown
                       underneath, because the gap is the interesting number. */}
-                  {result.winProbClaimed != null ? (
+                  {view.winProbClaimed != null ? (
                     <div
                       className="stat-foot"
-                      title={`The figure above uses each market's measured hit rate against what it claimed, over this app's own graded picks — and the legs were selected on it. ${result.legsAdjusted} of ${result.legs.length} legs carried a correction. The model's own unadjusted claim was ${pct(result.winProbClaimed)}.`}
+                      title={`The figure above uses each market's measured hit rate against what it claimed, over this app's own graded picks — and the legs were selected on it. ${view.legsAdjusted} of ${view.legs.length} legs carried a correction. The model's own unadjusted claim was ${pct(view.winProbClaimed)}.`}
                     >
-                      model claimed <span style={{ color: 'var(--warn)' }}>{pct(result.winProbClaimed)}</span> · {result.legsAdjusted} legs corrected
+                      model claimed <span style={{ color: 'var(--warn)' }}>{pct(view.winProbClaimed)}</span> · {view.legsAdjusted} legs corrected
                     </div>
                   ) : (
                     <div className="stat-foot">
@@ -295,15 +408,15 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                   chance is below the number above. Over 1.5 is now a candidate on every fixture
                   and it is both the most reliable market and priced where a target needs it, so
                   slips WILL come back heavy in it. That is the right pick; this is the caveat. */}
-              {result.concentration && result.concentration.topCount >= 3 && result.concentration.share >= 0.5 && (
+              {view.concentration && view.concentration.topCount >= 3 && view.concentration.share >= 0.5 && (
                 <div style={{
                   background: 'var(--warn-soft)', border: '1px solid var(--warn-dim)',
                   borderRadius: 'var(--r)', padding: '9px 12px', fontSize: 11.5,
                   color: 'var(--warn)', lineHeight: 1.5,
                 }}>
-                  {result.concentration.topCount} of {result.legs.length} legs are <b>{result.concentration.topSelection}</b>.
+                  {view.concentration.topCount} of {view.legs.length} legs are <b>{view.concentration.topSelection}</b>.
                   {' '}Same-market legs fail together — a low-scoring round takes all of them — so the
-                  true chance is below the {pct(result.winProb)} above, which assumes independence.
+                  true chance is below the {pct(view.winProb)} above, which assumes independence.
                   {' '}Lower the target or the leg count for a more mixed slip.
                 </div>
               )}
@@ -341,7 +454,7 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
               )}
 
               <div className="leg-list">
-                {result.legs.map((l, i) => (
+                {view.legs.map((l, i) => (
                   <div className="leg" key={`${l.fixtureId}-${i}`}>
                     <span className="n">{i + 1}</span>
                     <div style={{ minWidth: 0 }}>
@@ -410,7 +523,7 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                 </button>
               )}
               <button className="btn btn-primary" onClick={apply} style={{ marginLeft: 'auto' }}>
-                Select these {result.legs.length} legs{analyse ? ' & analyse' : ''}
+                Select these {view.legs.length} legs{analyse ? ' & analyse' : ''}
               </button>
             </>
           )}

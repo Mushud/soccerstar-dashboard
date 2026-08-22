@@ -93,6 +93,19 @@ export default function SlipSimulator() {
   const [minLegProb, setMinLegProb]   = useState(0)
   const [minSlipProb, setMinSlipProb] = useState(0)
   const [uniqueBy, setUniqueBy]   = useState('team')
+  // Identical shape to Smart Pick's, so a rule set tested here is the rule set that gets booked.
+  const [useRules, setUseRules]   = useState(false)
+  const [rules, setRules]         = useState(() => ({
+    'Over/Under|Over 1.5':             { on: true,  min: 0.80 },
+    'Double Chance|1X (Home or Draw)': { on: true,  min: 0.85 },
+    'Double Chance|X2 (Away or Draw)': { on: true,  min: 0.85 },
+    'Over/Under|Over 2.5':             { on: false, min: 0.70 },
+    'Over/Under|Under 3.5':            { on: false, min: 0.75 },
+    'Home Goals|Under 2.5':            { on: false, min: 0.80 },
+    'Away Goals|Under 2.5':            { on: false, min: 0.80 },
+    '1X2|Home Win':                    { on: false, min: 0.70 },
+    '1X2|Away Win':                    { on: false, min: 0.70 },
+  }))
   const [running, setRunning]     = useState(false)
   const [sweeping, setSweeping]   = useState(false)
   const [res, setRes]             = useState(null)
@@ -106,6 +119,12 @@ export default function SlipSimulator() {
     from, to, targetOdds: Number(targetOdds), minLegs: Number(minLegs), maxLegs: Number(maxLegs),
     safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, slipsPerDay: Number(perDay), windowDays: Number(windowDays),
     mode, minLegProb: Number(minLegProb), minSlipProb: Number(minSlipProb), uniqueBy,
+    marketRules: (() => {
+      const active = Object.entries(rules).filter(([, v]) => v.on)
+      return useRules && active.length
+        ? { allow: active.map(([k]) => k), minProb: Object.fromEntries(active.map(([k, v]) => [k, v.min])) }
+        : null
+    })(),
     label: label || null, ...extra,
   })
 
@@ -257,6 +276,10 @@ export default function SlipSimulator() {
           </select>
         </label>
         <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer' }}
+          title="Choose which markets may be used and the minimum each must clear — the same rules Smart Pick applies.">
+          <input type="checkbox" checked={useRules} onChange={e => setUseRules(e.target.checked)} /> Market rules
+        </label>
+        <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer' }}
           title="Restrict legs to the safe-market allow-list, exactly as Smart Pick does">
           <input type="checkbox" checked={safeOnly} onChange={e => setSafeOnly(e.target.checked)} /> Safe markets only
         </label>
@@ -278,6 +301,30 @@ export default function SlipSimulator() {
           {sweeping ? <><span className="spin" /> Sweeping…</> : '⚖ Compare slip shapes'}
         </button>
       </div>
+
+      {useRules && (
+        <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>Markets allowed, and the minimum for each</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 6 }}>
+            {Object.entries(rules).map(([key, v]) => {
+              const [market, selection] = key.split('|')
+              return (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11.5, opacity: v.on ? 1 : 0.5, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={v.on}
+                    onChange={e => setRules(r => ({ ...r, [key]: { ...r[key], on: e.target.checked } }))} />
+                  <span style={{ flex: 1 }}><span className="muted">{market}:</span> <b style={{ color: 'var(--tx-2)' }}>{selection}</b></span>
+                  <select className="field" value={v.min} disabled={!v.on}
+                    onChange={e => setRules(r => ({ ...r, [key]: { ...r[key], min: Number(e.target.value) } }))}
+                    style={{ width: 'auto', padding: '3px 6px', fontSize: 11 }}>
+                    {[0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95].map(mn =>
+                      <option key={mn} value={mn}>≥{(mn * 100).toFixed(0)}%</option>)}
+                  </select>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div style={{
