@@ -113,7 +113,13 @@ export default function SlipSimulator() {
     setRunning(true); setError(null); setRes(null); setSweep(null)
     try {
       const { data } = await api.post('/api/betbuilder/slip-backtest', body(), { timeout: 5 * 60 * 1000 })
-      if (!data.ok) setError(data.reason || 'No slips could be built')
+      if (!data.ok) {
+        // Keep the per-reason breakdown too: "nothing built" is rarely the useful part.
+        const detail = data.failures && Object.keys(data.failures).length
+          ? ' · ' + Object.entries(data.failures).map(([k, v]) => `${k} (${v})`).join(', ')
+          : ''
+        setError((data.reason || 'No slips could be built') + detail)
+      }
       setRes(data.ok ? data : null)
     } catch (e) {
       setError(e.response?.data?.error || e.message)
@@ -273,7 +279,13 @@ export default function SlipSimulator() {
         </button>
       </div>
 
-      {error && <div style={{ fontSize: 12.5, color: 'var(--neg)', marginBottom: 10 }}>{error}</div>}
+      {error && (
+        <div style={{
+          fontSize: 12.5, color: 'var(--neg)', marginBottom: 10, lineHeight: 1.55,
+          background: 'var(--neg-soft)', border: '1px solid var(--neg-dim)',
+          borderRadius: 'var(--r-sm)', padding: '9px 12px',
+        }}>{error}</div>
+      )}
 
       {/* ── Sweep ── */}
       {sweep?.length > 0 && (
