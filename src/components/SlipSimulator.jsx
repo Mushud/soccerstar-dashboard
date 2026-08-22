@@ -20,6 +20,54 @@ const SB_TONE = {
   off:                     ['var(--tx-3)', 'SportyBet filter disabled — every fixture in the database was eligible.'],
 }
 
+/**
+ * One simulated slip, every leg shown — not only the ones that lost.
+ *
+ * A slip that went down on a single 49% leg reached for to hit the target teaches something
+ * quite different from one beaten by five, and a list of failures alone cannot tell you which
+ * you are looking at. The score line is there so each leg can be checked against what happened.
+ */
+function SlipDetail({ slip, lost }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ marginBottom: 6, borderLeft: `2px solid var(--${lost ? 'neg' : 'pos'}-dim)`, paddingLeft: 10 }}>
+      <button onClick={() => setOpen(v => !v)}
+        style={{ fontSize: 11.5, textAlign: 'left', width: '100%', padding: '2px 0' }}>
+        <span className="muted">{slip.day}</span> · {slip.legs} legs @{' '}
+        <b style={{ color: 'var(--warn)' }}>{slip.odds}x</b>
+        {lost
+          ? <span style={{ color: 'var(--neg)' }}> · {slip.legsLost} leg{slip.legsLost === 1 ? '' : 's'} lost</span>
+          : <span style={{ color: 'var(--pos)' }}> · won</span>}
+        <span className="muted2" style={{ marginLeft: 6, fontSize: 10.5 }}>{open ? '▾ hide legs' : '▸ show all legs'}</span>
+      </button>
+      {open && (
+        <div style={{ overflowX: 'auto', margin: '4px 0 8px' }}>
+          <table className="tbl" style={{ fontSize: 11, minWidth: 520 }}>
+            <thead><tr>
+              <th style={{ width: 22 }} /><th>Match</th><th className="num">Result</th>
+              <th>Selection</th><th className="num">Odds</th><th className="num">Model</th>
+            </tr></thead>
+            <tbody>
+              {(slip.allLegs || []).map((l, j) => (
+                <tr key={j} style={{ opacity: l.won ? 1 : 0.95 }}>
+                  <td style={{ color: l.won ? 'var(--pos)' : 'var(--neg)', fontWeight: 800 }}>{l.won ? '✓' : '✗'}</td>
+                  <td style={{ color: l.won ? 'var(--tx)' : 'var(--neg)' }}>{l.match}</td>
+                  <td className="num mono" style={{ fontWeight: 700 }}>{l.score || '—'}</td>
+                  <td className="muted">{l.market}: <span style={{ color: 'var(--tx-2)', fontWeight: 600 }}>{l.selection}</span></td>
+                  <td className="num" style={{ color: 'var(--warn)' }}>{l.odds}</td>
+                  <td className="num" style={{ color: l.prob >= 0.8 ? 'var(--pos)' : l.prob >= 0.6 ? 'var(--warn)' : 'var(--neg)' }}>
+                    {l.prob != null ? (l.prob * 100).toFixed(0) + '%' : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function SlipSimulator() {
   const [from, setFrom]           = useState(daysAgo(60))
   const [to, setTo]               = useState(daysAgo(0))
@@ -34,6 +82,7 @@ export default function SlipSimulator() {
   const [res, setRes]             = useState(null)
   const [sweep, setSweep]         = useState(null)
   const [error, setError]         = useState(null)
+  const [slipTab, setSlipTab]     = useState('lost')
 
   const body = extra => ({
     from, to, targetOdds: Number(targetOdds), minLegs: Number(minLegs), maxLegs: Number(maxLegs),
@@ -202,15 +251,20 @@ export default function SlipSimulator() {
             </div>
           )}
 
-          {res.worstDays?.length > 0 && (
+          {(res.worstDays?.length > 0 || res.wonDays?.length > 0) && (
             <div>
-              <div className="eyebrow" style={{ marginBottom: 6 }}>Slips that missed by the fewest legs</div>
-              {res.worstDays.map((d, i) => (
-                <div key={i} style={{ fontSize: 11.5, marginBottom: 4 }}>
-                  <span className="muted">{d.day}</span> · {d.legs} legs @ {d.odds}x ·{' '}
-                  <span style={{ color: 'var(--neg)' }}>{d.legsLost} leg{d.legsLost === 1 ? '' : 's'} lost</span>
-                  <div className="muted2" style={{ fontSize: 10.5, paddingLeft: 12 }}>{d.lostOn.join(' · ')}</div>
+              <div className="toolbar" style={{ marginBottom: 8, gap: 6 }}>
+                <div className="seg">
+                  <button className={slipTab === 'lost' ? 'on' : ''} onClick={() => setSlipTab('lost')}>
+                    Near misses ({res.worstDays?.length || 0})
+                  </button>
+                  <button className={slipTab === 'won' ? 'on' : ''} onClick={() => setSlipTab('won')}>
+                    Winners ({res.wonDays?.length || 0})
+                  </button>
                 </div>
+              </div>
+              {(slipTab === 'lost' ? res.worstDays : res.wonDays)?.map((d, i) => (
+                <SlipDetail key={`${slipTab}-${i}`} slip={d} lost={slipTab === 'lost'} />
               ))}
             </div>
           )}
