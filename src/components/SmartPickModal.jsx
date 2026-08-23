@@ -16,7 +16,11 @@ import api from '../api'
  */
 
 const MIN_ODDS = 1.5
-const MAX_ODDS = 500
+// 2000, not 500. The DP behind this represents odds as log buckets and tops out around 3.6e5x
+// (MAX_BUCKETS 3200 x STEP 0.004), so the old ceiling was a slider limit rather than an engine
+// one. Whether a card can REACH 2000x is a separate question — it usually cannot, and the build
+// says so with the ceiling it actually found.
+const MAX_ODDS = 2000
 const STEPS = 200
 
 // slider position (0..STEPS) ⟷ odds, on a log scale
@@ -199,9 +203,9 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
               onChange={e => setTarget(posToOdds(Number(e.target.value)))}
               disabled={building}
             />
-            <div className="slider-scale"><span>1.5x</span><span>10x</span><span>50x</span><span>500x</span></div>
+            <div className="slider-scale"><span>1.5x</span><span>15x</span><span>150x</span><span>2000x</span></div>
             <div className="chip-row" style={{ marginTop: 8 }}>
-              {[5, 10, 20, 50, 100].map(v => (
+              {[5, 20, 50, 100, 500, 1000, 2000].map(v => (
                 <button key={v} className={`chip${target === v ? ' on' : ''}`} onClick={() => setTarget(v)} disabled={building}>{v}x</button>
               ))}
             </div>
