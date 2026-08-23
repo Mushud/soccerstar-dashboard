@@ -82,6 +82,10 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // three separate bets — booking three cuts of one pool means one result takes every ticket.
   const [slipCount, setSlipCount] = useState(1)
   const [minLegProb, setMinLegProb] = useState(0)
+  // Ceiling on how many legs of one market family a slip may carry. Not only taste: same-family
+  // legs fail together, so eleven per-team Unders is one bet on "goals are scarce today" wearing
+  // eleven names, and winProb — a plain product — assumes an independence it does not have.
+  const [slipShare, setSlipShare] = useState(0.35)
   // Per-market floors. `on` is the whitelist; a market switched off is not used at all.
   const [rules, setRules] = useState(() => ({
     'Over/Under|Over 1.5':             { on: true,  min: 0.80 },
@@ -130,7 +134,7 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
         : null
       const { data } = await api.post('/api/betbuilder/target-slip', {
         targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly,
-        slips: slipCount, uniqueBy: 'team', minLegProb, marketRules, candidates,
+        slips: slipCount, uniqueBy: 'team', minLegProb, marketRules, maxMarketShare: slipShare, candidates,
       }, { timeout: 3 * 60 * 1000 })
       if (!data.ok) {
         setError(data.reason || 'Could not build a slip from these picks.')
@@ -247,6 +251,15 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
               <select className="field" value={slipCount} onChange={e => setSlipCount(Number(e.target.value))}
                 disabled={building} style={{ marginLeft: 6, width: 'auto', padding: '5px 9px' }}>
                 {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </label>
+            <label className="muted" style={{ fontSize: 12 }}
+              title="Most legs one market family may take. Per-team Unders carry the most probability per unit of price, so without a cap the optimiser fills the whole slip with them — and same-market legs fail together.">
+              Max/market
+              <select className="field" value={slipShare} onChange={e => setSlipShare(Number(e.target.value))}
+                disabled={building} style={{ marginLeft: 6, width: 'auto', padding: '5px 9px' }}>
+                {[0, 0.25, 0.35, 0.5].map(v =>
+                  <option key={v} value={v}>{v ? `${(v * 100).toFixed(0)}%` : 'no cap'}</option>)}
               </select>
             </label>
             <label className="muted" style={{ fontSize: 12 }}
