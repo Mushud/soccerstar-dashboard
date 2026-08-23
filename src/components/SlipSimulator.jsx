@@ -390,6 +390,13 @@ export default function SlipSimulator() {
             ))}
           </div>
 
+          {res.pendingInWindow > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 8 }}>
+              ⏳ {res.pendingInWindow} pick{res.pendingInWindow === 1 ? '' : 's'} in this window
+              {' '}have not settled yet — matches grade as they finish, so recent days are incomplete
+              and the rates below are built on only part of the card.
+            </div>
+          )}
           {res.slips.n < 10 && (
             <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 8 }}>
               ⚠ Only {res.slips.n} slip{res.slips.n === 1 ? '' : 's'} was built, so the rates above are
