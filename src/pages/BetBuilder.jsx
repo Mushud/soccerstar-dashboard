@@ -125,6 +125,16 @@ export default function BetBuilder() {
     try { localStorage.setItem('ss_min_odds', String(minOdds)) } catch { /* private mode */ }
   }, [minOdds])
 
+  // Ceiling on how much of the card any one market family may take. Without it the per-team
+  // Under markets take ~80% of the slots, because Low Risk ranks on probability alone and those
+  // markets genuinely have the highest probabilities — they just all pay 1.16.
+  const [maxShare, setMaxShare] = useState(() => {
+    try { const v = localStorage.getItem('ss_max_share'); return v == null ? 0.3 : Number(v) } catch { return 0.3 }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ss_max_share', String(maxShare)) } catch { /* private mode */ }
+  }, [maxShare])
+
   const [sbFetchOnly, setSbFetchOnly] = useState(() => {
     try { return localStorage.getItem('ss_sb_fetch') !== '0' } catch { return true }
   })
@@ -254,7 +264,7 @@ export default function BetBuilder() {
     setPage(1)
 
     const useValue = overrides.valueMode ?? valueMode
-    const body = { risk: risks, limit, showAll: effectiveShowAll, sportybetOnly: overrides.sportybetOnly ?? sbFetchOnly, minOdds }
+    const body = { risk: risks, limit, showAll: effectiveShowAll, sportybetOnly: overrides.sportybetOnly ?? sbFetchOnly, minOdds, maxMarketShare: maxShare }
     // Value mode ranks by disagreement with a REAL bookmaker price instead of by risk tier,
     // so the tier gate and showAll are irrelevant to it.
     if (useValue) { body.mode = 'edge'; body.minEdge = minEdge }
@@ -864,6 +874,16 @@ export default function BetBuilder() {
               >
                 {valueMode ? '💎 Value on' : '💎 Value off'}
               </button>
+              <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}
+                title="Ceiling on how much of the card any one market can take. Per-team Unders have the highest model probabilities, so without a cap they fill the slate — this makes later fixtures fall through to their best leg from a different market.">
+                Max/market
+                <select className="field" value={maxShare} onChange={e => setMaxShare(Number(e.target.value))}
+                  disabled={loading || rerunning}
+                  style={{ marginLeft: 4, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
+                  {[0, 0.2, 0.25, 0.3, 0.4, 0.5].map(v =>
+                    <option key={v} value={v}>{v ? `${(v * 100).toFixed(0)}%` : 'no cap'}</option>)}
+                </select>
+              </label>
               <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}
                 title="Hide legs priced below this. Per-team Under markets have the highest model probabilities but pay almost nothing — without a floor they take about 84% of the top slots and bury Over 1.5.">
                 Min odds

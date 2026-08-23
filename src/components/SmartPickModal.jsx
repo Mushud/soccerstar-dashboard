@@ -128,8 +128,12 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
         targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly,
         slips: slipCount, uniqueBy: 'team', minLegProb, marketRules, candidates,
       }, { timeout: 3 * 60 * 1000 })
-      if (!data.ok) { setError(data.reason || 'Could not build a slip from these picks.'); setResult(null) }
-      else { setResult(data); setSlipIdx(0) }
+      if (!data.ok) {
+        setError(data.reason || 'Could not build a slip from these picks.')
+        // Keep the payload even on failure — it carries the candidate pool, which is the only way
+        // to see whether the filters were too tight or the card genuinely could not reach it.
+        setResult(data)
+      } else { setResult(data); setSlipIdx(0) }
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Build failed.')
     } finally {
@@ -336,6 +340,37 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
           )}
 
           {/* ── Result ── */}
+          {/* What it had to work with, when it could not build anything. */}
+          {result && !result.ok && result.pool?.length > 0 && (
+            <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>
+                The {result.poolSize} fixture{result.poolSize === 1 ? '' : 's'} it had, longest price first
+              </div>
+              <div style={{ overflowX: 'auto', maxHeight: 300, overflowY: 'auto' }}>
+                <table className="tbl" style={{ fontSize: 11, minWidth: 460 }}>
+                  <thead><tr>
+                    <th>Match</th><th>Best leg</th><th className="num">Odds</th><th className="num">Model</th><th className="num">Alts</th>
+                  </tr></thead>
+                  <tbody>
+                    {result.pool.map((c, i) => (
+                      <tr key={i}>
+                        <td>{c.match}</td>
+                        <td className="muted">{c.market}: <span style={{ color: 'var(--tx-2)' }}>{c.selection}</span></td>
+                        <td className="num" style={{ color: 'var(--warn)' }}>{c.odds}</td>
+                        <td className="num" style={{ color: c.prob >= 0.8 ? 'var(--pos)' : 'var(--warn)' }}>{(c.prob * 100).toFixed(0)}%</td>
+                        <td className="num muted2">{c.alternatives || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
+                Multiply the longest few together to see the ceiling. These are the best leg per
+                fixture — "Alts" is how many other markets that fixture also offered.
+              </div>
+            </div>
+          )}
+
           {view && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {allSlips.length > 1 && (
