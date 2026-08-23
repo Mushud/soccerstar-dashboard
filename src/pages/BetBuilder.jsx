@@ -115,6 +115,16 @@ export default function BetBuilder() {
   // Applied by the BACKEND, before the limit is taken — so "top 50" means 50 bettable picks and
   // the AI analysis never runs on a fixture you cannot book. Remembered across sessions because
   // it changes what a fetch costs, not just what is displayed.
+  // Hide legs priced below this. The per-team goals markets have the highest probabilities on
+  // the card and almost no price, so without a floor they take ~84% of the top slots and bury
+  // Over 1.5. Persisted because it changes what a fetch returns, not just what is displayed.
+  const [minOdds, setMinOdds] = useState(() => {
+    try { const v = localStorage.getItem('ss_min_odds'); return v == null ? 1.2 : Number(v) } catch { return 1.2 }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ss_min_odds', String(minOdds)) } catch { /* private mode */ }
+  }, [minOdds])
+
   const [sbFetchOnly, setSbFetchOnly] = useState(() => {
     try { return localStorage.getItem('ss_sb_fetch') !== '0' } catch { return true }
   })
@@ -244,7 +254,7 @@ export default function BetBuilder() {
     setPage(1)
 
     const useValue = overrides.valueMode ?? valueMode
-    const body = { risk: risks, limit, showAll: effectiveShowAll, sportybetOnly: overrides.sportybetOnly ?? sbFetchOnly }
+    const body = { risk: risks, limit, showAll: effectiveShowAll, sportybetOnly: overrides.sportybetOnly ?? sbFetchOnly, minOdds }
     // Value mode ranks by disagreement with a REAL bookmaker price instead of by risk tier,
     // so the tier gate and showAll are irrelevant to it.
     if (useValue) { body.mode = 'edge'; body.minEdge = minEdge }
@@ -854,6 +864,16 @@ export default function BetBuilder() {
               >
                 {valueMode ? '💎 Value on' : '💎 Value off'}
               </button>
+              <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}
+                title="Hide legs priced below this. Per-team Under markets have the highest model probabilities but pay almost nothing — without a floor they take about 84% of the top slots and bury Over 1.5.">
+                Min odds
+                <select className="field" value={minOdds} onChange={e => setMinOdds(Number(e.target.value))}
+                  disabled={loading || rerunning}
+                  style={{ marginLeft: 4, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
+                  {[0, 1.15, 1.2, 1.25, 1.3, 1.4, 1.5].map(v =>
+                    <option key={v} value={v}>{v ? v.toFixed(2) : 'any'}</option>)}
+                </select>
+              </label>
               {/* Applied server-side, before the limit — see the sportybetOnly note in the
                   generate handler for why this is not the same as filtering the table. */}
               <button
