@@ -47,10 +47,11 @@ const sameLeg = (a, b) => !!a && !!b && a.market === b.market && a.selection ===
 /**
  * Every leg one fixture offers — engine pick first, deduplicated by market|selection.
  *
- * Deliberately the same pool the server flattens in /target-slip (routes/betbuilder.js): the
- * main pick, the goals line, the six scored alternatives, and Over 1.5 on every fixture the
- * model has a number for. If the two lists differed, Smart Pick could hand back a leg the table
- * has no way to show or change.
+ * The server's own pool in /target-slip (routes/betbuilder.js) is the first four of these — main
+ * pick, goals line, the six scored alternatives, Over 1.5 everywhere — so any leg Smart Pick can
+ * hand back is a leg this list can show and change. The two straight-result legs at the end are
+ * offered here only: they are for choosing by hand off the percentages on the row, not for an
+ * odds-seeking optimiser, which would reach for exactly the long ones the model is worst at.
  */
 function legsFor(pick, chosen) {
   const out = []
@@ -69,6 +70,17 @@ function legsFor(pick, chosen) {
   // No price, deliberately: over15 is a model probability rather than a quote, and SportyBet
   // prices it when the code is created — which is what the server does with it too.
   if (pick.over15 != null) add(legOf('Over/Under', 'Over 1.5', null, pick.over15, 'over15', false))
+  // The straight result, both sides, on every row that has a blend.
+  //
+  // The 1X2 column prints these percentages on every pick — "H 53%" — and they were a number you
+  // could read and not bet: a 53% home side never clears the risk gate, so Home Win is simply
+  // absent from the six markets the engine scored. Same treatment as Over 1.5, and the same
+  // reason: the market is on SportyBet's card for every fixture, so the only thing missing was
+  // the ability to choose it. Dedup keeps the engine's priced entry when it scored one already.
+  if (pick.blend) {
+    if (pick.blend.home > 0) add(legOf('1X2', 'Home Win', null, pick.blend.home, 'blend', false))
+    if (pick.blend.away > 0) add(legOf('1X2', 'Away Win', null, pick.blend.away, 'blend', false))
+  }
   // The chosen leg last. When the row already lists that market it REPLACES the entry rather
   // than being skipped — Smart Pick prices its legs off SportyBet's live card, and the stored
   // estimate underneath is not the number the slip was built on. When the row does not list it
@@ -1299,8 +1311,9 @@ export default function BetBuilder() {
               </div>
               <div className="muted2" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.5 }}>
                 ★ marks the engine's own pick. Everything else is a market the same fixture scored —
-                its goals line, its alternatives, and Over 1.5, which is offered on every fixture the
-                model has a number for. A leg you set here is locked: the booking pass will still
+                its goals line and its alternatives — plus Over 1.5 and the straight Home Win / Away
+                Win, which are offered on every fixture whether or not they cleared the risk gate.
+                Those three carry no stored price and no risk-gate approval: read the percentage. A leg you set here is locked: the booking pass will still
                 replace it if SportyBet refuses to price it, but it will not swap it for a market it
                 merely prefers.
               </div>
@@ -1744,9 +1757,18 @@ const PickRow = memo(function PickRow({
   const active = chosen || legs[0]
   const overridden = !!chosen
   const alts = legs.slice(1)
-  // Two by default, the rest behind a toggle. A fixture now scores fifteen-odd markets and
-  // rendering them all inline would bury the pick itself.
-  const shownAlts = showAllOpts ? alts : alts.slice(0, 2)
+  // Two of the SCORED alternatives by default, the rest behind a toggle — a fixture now scores
+  // fifteen-odd markets and rendering them all inline would bury the pick itself.
+  //
+  // The always-offered legs are exempt from that cut. Over 1.5 and the straight Home / Away Win
+  // have a column of their own on this row already, so hiding the line that lets you take one
+  // behind "+ N more markets" would leave the row advertising three percentages it will not let
+  // you bet — which is the thing this whole list exists to fix.
+  const alwaysOffered = l => l.source === 'over15' || l.source === 'blend'
+  const scoredAlts = alts.filter(l => !alwaysOffered(l))
+  const shownAlts = showAllOpts
+    ? alts
+    : [...scoredAlts.slice(0, 2), ...alts.filter(alwaysOffered)]
   // A chosen leg that sits outside those two is appended anyway — otherwise the row reports a
   // leg with no way to see the numbers behind it or switch off it.
   const visibleAlts = (chosen && !shownAlts.some(l => sameLeg(l, chosen)))
@@ -1783,6 +1805,11 @@ const PickRow = memo(function PickRow({
             O1.5
           </span>
         )}
+        {leg.source === 'blend' && (
+          <span className="tag tag-info" title="The straight result, taken from the blended 1X2 shown in the 1X2 column. Offered on every fixture — it is on SportyBet's card for all of them — whether or not it cleared the risk gate, so read the percentage before taking it.">
+            1X2
+          </span>
+        )}
       </div>
     )
   }
@@ -1796,13 +1823,13 @@ const PickRow = memo(function PickRow({
     // expanded. Option 1 is the engine pick.
     optRows.push(legRow(leg, `Option ${alts.indexOf(leg) + 2}`, `${pick.fixtureId ?? idx}-opt-${leg.market}|${leg.selection}`))
   }
-  if (alts.length > 2) {
+  if (scoredAlts.length > 2) {
     optRows.push(
       <div key={`${pick.fixtureId ?? idx}-opt-more`} className="pk-sub alt">
         <span className="lead" />
         <button onClick={e => { e.stopPropagation(); setShowAllOpts(v => !v) }}
           style={{ color: 'var(--accent-2)', fontSize: 11, textDecoration: 'underline', gridColumn: 'span 4', textAlign: 'left' }}>
-          {showAllOpts ? '− fewer markets' : `+ ${alts.length - 2} more markets on this match`}
+          {showAllOpts ? '− fewer markets' : `+ ${scoredAlts.length - 2} more markets on this match`}
         </button>
       </div>
     )
@@ -2018,7 +2045,7 @@ const PickRow = memo(function PickRow({
             const top = home >= draw && home >= away ? ['H', home]
                       : away >= draw ? ['A', away] : ['D', draw]
             return (
-              <span className="num" title={`Blended 1X2 — Home ${(home * 100).toFixed(0)}% · Draw ${(draw * 100).toFixed(0)}% · Away ${(away * 100).toFixed(0)}%`}
+              <span className="num" title={`Blended 1X2 — Home ${(home * 100).toFixed(0)}% · Draw ${(draw * 100).toFixed(0)}% · Away ${(away * 100).toFixed(0)}%. Home Win and Away Win are both offered as legs below.`}
                 style={{ fontSize: 12.5, fontWeight: 700, color: top[1] >= 0.60 ? 'var(--pos)' : top[1] >= 0.45 ? 'var(--accent-2)' : 'var(--tx-3)' }}>
                 {top[0]} {(top[1] * 100).toFixed(0)}%
               </span>
