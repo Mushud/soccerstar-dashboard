@@ -165,10 +165,15 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
     }
   }
 
+  // The LEGS, not the fixture ids. Which market each fixture contributes is the whole output of
+  // the optimiser — it will take a fixture's Over 1.5 or its Double Chance line over the engine's
+  // own pick whenever that is the cheaper honest way to the target. Handing back ids alone threw
+  // that away, and the builder then booked each fixture's engine pick at a different price to the
+  // slip shown here.
   function apply() {
-    const ids = (view?.legs || []).map(l => l.fixtureId).filter(Boolean)
-    onApply?.(ids)
-    if (analyse) onAnalyse?.(ids)
+    const legs = (view?.legs || []).filter(l => l.fixtureId)
+    onApply?.(legs)
+    if (analyse) onAnalyse?.(legs.map(l => l.fixtureId))
     onClose()
   }
 
@@ -525,6 +530,14 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                     <span className="o">{l.odds}x</span>
                   </div>
                 ))}
+              </div>
+
+              {/* Said out loud because it was not true until now: these exact markets are what
+                  gets booked, and they remain changeable afterwards rather than being final. */}
+              <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                These exact legs carry over to the builder — "Your slip" there lists each one with
+                every other market on the same match, so any of them can be swapped before you
+                generate a code.
               </div>
 
               {/* ── Booking code ── */}

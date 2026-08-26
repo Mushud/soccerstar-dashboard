@@ -542,6 +542,11 @@ input[type='date']::-webkit-calendar-picker-indicator { filter: invert(0.6); cur
 .pk-sub.alt   { background: rgba(96, 165, 250, 0.05);  box-shadow: inset 3px 0 0 var(--info-dim); }
 .pk-sub.goals { background: rgba(52, 211, 153, 0.05); box-shadow: inset 3px 0 0 var(--pos-dim); }
 .pk-sub .lead { font-size: 10px; color: var(--tx-4); font-weight: 700; min-width: 74px; }
+/* Every sub-row is a leg you can take, so it behaves like one: it lifts under the pointer, and
+   the one currently on the slip is marked rather than merely implied. */
+.pk-sub.alt:hover, .pk-sub.goals:hover { background: var(--surface-2); }
+.pk-sub.on { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.pk-sub.on:hover { background: rgba(124, 108, 245, 0.2); }
 
 .pk-tags { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .tag {

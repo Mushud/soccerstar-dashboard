@@ -26,6 +26,62 @@ const GOAL_MARKETS = ['Over 1.5', 'Over 2.5', 'BTTS']
 const isGoalsPick = p => GOAL_MARKETS.includes(p.selection) ||
   ((p.market === 'Home Goals' || p.market === 'Away Goals') && /^over/i.test(p.selection || ''))
 
+// ── Which leg a pick actually contributes ─────────────────────────────────────
+//
+// A row is a FIXTURE plus the engine's first-choice market on it. The goals line and the
+// alternative markets printed underneath are equally bookable, and the model often rates one of
+// them higher — so the table lets you choose one, and this is the shape that choice travels in.
+const legOf = (market, selection, odds, prob, source, hasRealOdds) => ({
+  market, selection,
+  odds: odds != null && odds > 1 ? odds : null,
+  modelProbRaw: prob ?? null,
+  modelProb: prob != null ? `${(prob * 100).toFixed(0)}%` : null,
+  source,
+  hasRealOdds: !!hasRealOdds,
+})
+
+const mainLeg = p => legOf(p.market, p.selection, p.odds, p.modelProbRaw, 'main', p.hasRealOdds)
+
+const sameLeg = (a, b) => !!a && !!b && a.market === b.market && a.selection === b.selection
+
+/**
+ * Every leg one fixture offers — engine pick first, deduplicated by market|selection.
+ *
+ * Deliberately the same pool the server flattens in /target-slip (routes/betbuilder.js): the
+ * main pick, the goals line, the six scored alternatives, and Over 1.5 on every fixture the
+ * model has a number for. If the two lists differed, Smart Pick could hand back a leg the table
+ * has no way to show or change.
+ */
+function legsFor(pick, chosen) {
+  const out = []
+  const at = new Map()
+  const add = leg => {
+    if (!leg.market || !leg.selection) return
+    const key = `${leg.market}|${leg.selection}`
+    if (at.has(key)) return
+    at.set(key, out.length)
+    out.push(leg)
+  }
+  add(mainLeg(pick))
+  const g = pick.goalsOption
+  if (g) add(legOf(g.market, g.selection, g.odds, g.modelProbRaw, 'goals', g.hasRealOdds))
+  for (const o of pick.options || []) add(legOf(o.market, o.selection, o.odds, o.modelProbRaw, 'alt', o.hasRealOdds))
+  // No price, deliberately: over15 is a model probability rather than a quote, and SportyBet
+  // prices it when the code is created — which is what the server does with it too.
+  if (pick.over15 != null) add(legOf('Over/Under', 'Over 1.5', null, pick.over15, 'over15', false))
+  // The chosen leg last. When the row already lists that market it REPLACES the entry rather
+  // than being skipped — Smart Pick prices its legs off SportyBet's live card, and the stored
+  // estimate underneath is not the number the slip was built on. When the row does not list it
+  // at all it is appended, so the optimiser's own answer is never silently dropped.
+  if (chosen && chosen.market && chosen.selection) {
+    const i = at.get(`${chosen.market}|${chosen.selection}`)
+    if (i == null) add({ ...chosen })
+    // Never index 0: choosing the engine's own pick clears the override instead of storing one.
+    else if (i > 0) out[i] = { ...chosen }
+  }
+  return out
+}
+
 function fmt(dateStr) {
   if (!dateStr) return ''
   return new Date(dateStr).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -80,15 +136,24 @@ export default function BetBuilder() {
   const [rerunning, setRerunning] = useState(false)
   const [rerunMsg, setRerunMsg] = useState(null)
 
-  // Compact rows, ON by default.
+  // Compact rows, OFF by default.
   //
-  // The table was emitting up to ten visual lines per pick — data flags, a goals/results history
-  // block, history warnings, a news line, a goals sub-row and two option sub-rows — so twenty
-  // picks filled several screens and the columns stopped reading as a table. Compact keeps one
-  // row per pick and moves the rest behind a per-row expander, so scanning a slate is scanning,
-  // and the detail is one click away rather than always on.
-  const [compact, setCompact] = useState(true)
+  // Compact keeps one line per pick by moving the data flags, the goals/results history, the
+  // news line and — the reason this now defaults off — the alternative markets behind a per-row
+  // expander. Those alternatives are choosable legs, not decoration: hiding them by default hid
+  // the numbers the slip is actually built from. Leave it off to read the whole card, turn it on
+  // when a long slate needs scanning rather than reading.
+  const [compact, setCompact] = useState(false)
   const [expandedRow, setExpandedRow] = useState(new Set())
+
+  // Which leg each fixture contributes to the slip.
+  //
+  // The checkbox selects a FIXTURE, and the booking code used to take that fixture's engine pick
+  // no matter what — so the goals line and the alternative markets on screen were information
+  // you could read and not act on, and a Smart Pick slip built on Over 1.5 legs was booked as
+  // something else entirely. This maps fixtureId → the leg chosen by hand or by Smart Pick.
+  // Absent means "the engine's own pick", so an untouched slate behaves exactly as before.
+  const [legChoice, setLegChoice] = useState(new Map())
 
   // Haiku by default for the AI pass. It is the same three calls, just on the fast model.
   const [fastAI, setFastAI] = useState(true)
@@ -174,14 +239,60 @@ export default function BetBuilder() {
     setExpandedRow(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   }, [])
 
+  // Choosing a leg selects its fixture too — clicking the market you want and then finding the
+  // row was never ticked is the obvious way to lose a leg off the slip. `isMain` clears the
+  // override rather than storing a copy of the engine pick, so "no entry" always means "engine".
+  const chooseLeg = useCallback((fixtureId, leg, isMain) => {
+    if (!fixtureId) return
+    setLegChoice(prev => {
+      const m = new Map(prev)
+      if (isMain) m.delete(fixtureId)
+      else m.set(fixtureId, leg)
+      return m
+    })
+    setSelected(prev => prev.has(fixtureId) ? prev : new Set(prev).add(fixtureId))
+  }, [])
+
+  // Smart Pick returns LEGS, not fixtures. The optimiser is free to take a fixture's Over 1.5 or
+  // its Double Chance line instead of the engine's pick, and that choice IS the output — applying
+  // only the fixture ids (what this used to do) reverted every leg to the engine pick and booked
+  // a slip at a different price to the one the modal had just shown.
+  const applySmartLegs = useCallback(legs => {
+    const ids = legs.map(l => l.fixtureId).filter(Boolean)
+    setSelected(new Set(ids))
+    setLegChoice(prev => {
+      const m = new Map(prev)
+      for (const l of legs) {
+        if (!l?.fixtureId || !l.market || !l.selection) continue
+        const p = picks.find(x => x.fixtureId === l.fixtureId)
+        // Same market the engine already picked — no override needed, and storing one would
+        // flag the leg as hand-chosen when nothing was changed.
+        if (p && p.market === l.market && p.selection === l.selection) { m.delete(l.fixtureId); continue }
+        m.set(l.fixtureId, legOf(l.market, l.selection, l.odds, l.prob, l.source || 'smart', l.odds > 1))
+      }
+      return m
+    })
+  }, [picks])
+
   // Operates on the visible set, not every pick — with a kickoff filter on, ticking the header
   // box should not silently add matches that are filtered out of the table.
   function selectAll() {
     setSelected(visible.length === selected.size ? new Set() : new Set(visible.map(p => p.fixtureId)))
   }
 
-  async function runPickAndAnalyse(fixtureIds, { fast = fastAI, preferGoals = false } = {}) {
+  // keepLegs: the caller has just set the leg for each of these fixtures (Smart Pick), so the
+  // overrides must survive. Everywhere else an auto-pick re-decides the market itself, and a
+  // leftover override from an earlier slip would quietly win over the market it just chose.
+  async function runPickAndAnalyse(fixtureIds, { fast = fastAI, preferGoals = false, keepLegs = false } = {}) {
     setSelected(new Set(fixtureIds))
+    if (!keepLegs) {
+      setLegChoice(prev => {
+        if (!prev.size) return prev
+        const m = new Map(prev)
+        fixtureIds.forEach(id => m.delete(id))
+        return m
+      })
+    }
     if (!fixtureIds.length) return
     setAnalysing(true)
     try {
@@ -261,6 +372,7 @@ export default function BetBuilder() {
     setLoadProgress(null)
     setLoadMessage('')
     setSelected(new Set())
+    setLegChoice(new Map())
     setPage(1)
 
     const useValue = overrides.valueMode ?? valueMode
@@ -461,6 +573,7 @@ export default function BetBuilder() {
     setPicks(usable)
     setMeta({ ...(autoSlate.meta || {}), duration: `auto · ${autoSlate.day}`, risk: autoSlate.risk, auto: true })
     setSelected(new Set(usable.map(p => p.fixtureId).filter(Boolean)))
+    setLegChoice(new Map())
     setPage(1)
     setError(null)
     // The stored slate already carries a SportyBet verdict per pick when the 07:30 run did the
@@ -548,18 +661,26 @@ export default function BetBuilder() {
       // fixtureId and modelProb travel with the pick so the code can be recorded and graded
       // later — without the fixture there is nothing to settle the leg against, and the slip
       // would be dead weight in the results table.
-      const payload = selectedPicks.map(p => ({
-        fixtureId: p.fixtureId,
-        match:     p.match,
-        league:    p.league,
-        homeTeam:  p.match?.split(' v ')[0]?.trim() || '',
-        awayTeam:  p.match?.split(' v ')[1]?.trim() || '',
-        market:    p.market,
-        selection: p.selection,
-        odds:      p.odds,
-        modelProb: p.modelProbRaw,
-        date:      p.fixtureDate,
-      }))
+      const payload = selectedPicks.map(p => {
+        const chosen = legChoice.get(p.fixtureId)
+        const leg = chosen || mainLeg(p)
+        return {
+          fixtureId: p.fixtureId,
+          match:     p.match,
+          league:    p.league,
+          homeTeam:  p.match?.split(' v ')[0]?.trim() || '',
+          awayTeam:  p.match?.split(' v ')[1]?.trim() || '',
+          market:    leg.market,
+          selection: leg.selection,
+          odds:      leg.odds,
+          modelProb: leg.modelProbRaw,
+          date:      p.fixtureDate,
+          // A leg you picked by hand is not a suggestion. The server may still REPLACE it when
+          // SportyBet will not price it — a locked leg that cannot be booked is just a lost leg
+          // — but it will not be swapped for something the upgrade pass merely prefers.
+          locked:    chosen ? true : undefined,
+        }
+      })
       const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug, risk: risks, minLegProb: legFloorOn ? minLegProb : 0, upgradePicks: sbUpgrade, freeLegs: sbFree, preview }, { timeout: 10 * 60 * 1000 })
       setSbResult(data)
     } catch (err) {
@@ -653,15 +774,23 @@ export default function BetBuilder() {
   // correlated). `sameFixture` counts that case so the readout can say so rather than quietly
   // overstate. Correlated legs make the true probability HIGHER than the product, not lower.
   const slip = useMemo(() => {
-    const legs = picks.filter(p => selected.has(p.fixtureId))
+    // The chosen leg, not the row's engine pick. A slip priced off markets you did not select
+    // would report a payout and a win chance that belong to a different bet.
+    const legs = picks
+      .filter(p => selected.has(p.fixtureId))
+      .map(p => ({ id: p.fixtureId, match: p.match, ...(legChoice.get(p.fixtureId) || mainLeg(p)) }))
     if (!legs.length) return null
-    const priced = legs.filter(p => p.modelProbRaw != null && p.modelProbRaw > 0)
+    const priced = legs.filter(l => l.modelProbRaw != null && l.modelProbRaw > 0)
     const winProb = priced.length === legs.length
-      ? priced.reduce((s, p) => s * p.modelProbRaw, 1)
+      ? priced.reduce((s, l) => s * l.modelProbRaw, 1)
       : null
-    const odds = legs.every(p => p.odds > 1) ? legs.reduce((s, p) => s * p.odds, 1) : null
+    const odds = legs.every(l => l.odds > 1) ? legs.reduce((s, l) => s * l.odds, 1) : null
+    // Legs carrying a probability but no stored price — Over 1.5 is the common case. SportyBet
+    // quotes them at booking, so the combined odds above is unknowable until then rather than
+    // wrong, and the readout says so instead of printing a number built on a guess.
+    const unpriced = legs.filter(l => !(l.odds > 1)).length
     const seen = new Set(), dup = new Set()
-    for (const p of legs) { if (seen.has(p.match)) dup.add(p.match); seen.add(p.match) }
+    for (const l of legs) { if (seen.has(l.match)) dup.add(l.match); seen.add(l.match) }
     // How many legs the slip target actually allows.
     //
     // Strongest legs first, multiplying until the product would fall under the target. This is
@@ -670,15 +799,28 @@ export default function BetBuilder() {
     // and then hand-unpicking eight rows is how the number gets ignored.
     const byStrength = [...priced].sort((a, b) => b.modelProbRaw - a.modelProbRaw)
     let prod = 1, k = 0
-    for (const p of byStrength) {
-      const next = prod * p.modelProbRaw
+    for (const l of byStrength) {
+      const next = prod * l.modelProbRaw
       if (next < slipTarget) break
       prod = next; k++
     }
-    const forTarget = { legs: k, prob: k ? prod : null, ids: byStrength.slice(0, k).map(p => p.fixtureId) }
+    const forTarget = { legs: k, prob: k ? prod : null, ids: byStrength.slice(0, k).map(l => l.id) }
 
-    return { n: legs.length, winProb, odds, missing: legs.length - priced.length, sameFixture: dup.size, forTarget }
-  }, [picks, selected, slipTarget])
+    return { n: legs.length, winProb, odds, unpriced, missing: legs.length - priced.length, sameFixture: dup.size, forTarget }
+  }, [picks, selected, slipTarget, legChoice])
+
+  // The slip, fixture by fixture, each with the full list of markets that match offers.
+  //
+  // Kickoff order rather than pick order: a slip is read against the clock, and the first leg to
+  // settle is the one worth checking first.
+  const slipRows = useMemo(() => picks
+    .filter(p => selected.has(p.fixtureId))
+    .sort((a, b) => new Date(a.fixtureDate || 0) - new Date(b.fixtureDate || 0))
+    .map(p => {
+      const chosen  = legChoice.get(p.fixtureId) || null
+      const options = legsFor(p, chosen)
+      return { pick: p, chosen, leg: chosen || options[0], options }
+    }), [picks, selected, legChoice])
 
   const visible = useMemo(() => {
     const p2 = n => String(n).padStart(2, '0')
@@ -980,7 +1122,14 @@ export default function BetBuilder() {
               <div className="stat-value num" style={{ color: slip?.odds ? 'var(--warn)' : undefined }}>
                 {slip?.odds ? `${slip.odds.toFixed(2)}x` : '—'}
               </div>
-              <div className="stat-foot">{slip ? `${slip.n} leg${slip.n === 1 ? '' : 's'} on the slip` : 'Select picks to build a slip'}</div>
+              <div className="stat-foot">
+                {slip ? `${slip.n} leg${slip.n === 1 ? '' : 's'} on the slip` : 'Select picks to build a slip'}
+                {slip?.unpriced > 0 && (
+                  <span style={{ color: 'var(--warn)' }} title="These legs carry a model probability but no stored price. SportyBet quotes them when the booking code is created, so the combined price is not knowable until then.">
+                    {' '}· {slip.unpriced} priced at booking
+                  </span>
+                )}
+              </div>
             </div>
             <div
               className="stat"
@@ -1054,6 +1203,107 @@ export default function BetBuilder() {
                     style={{ color: 'var(--accent-2)', textDecoration: 'underline', fontSize: 11.5 }}>show all</button>
                 </span>
               )}
+            </div>
+          )}
+
+          {/* ── Your slip ──────────────────────────────────────────────────────────
+              One line per selected match, and the market it will actually be booked on.
+              Smart Pick and Goals Pick choose the LEG, not merely the fixture, and that choice
+              used to be discarded the moment the picker closed — the booking code went back to
+              each fixture's engine pick, so the slip that was placed was not the slip that was
+              shown. Here the chosen leg is named, and every other market on the same match is
+              one click away without hunting for the row in the table below. */}
+          {slipRows.length > 0 && (
+            <div className="card card-pad" style={{ padding: '12px 16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 9 }}>
+                <span className="eyebrow">Your slip — {slipRows.length} leg{slipRows.length === 1 ? '' : 's'}</span>
+                {legChoice.size > 0 && (
+                  <>
+                    <span className="pill" style={{ color: 'var(--accent-2)' }}>
+                      {legChoice.size} chosen by hand
+                    </span>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setLegChoice(new Map())}
+                      title="Put every leg back to the market the engine picked for its fixture">
+                      ↺ back to engine picks
+                    </button>
+                  </>
+                )}
+                <span className="muted2" style={{ fontSize: 11, marginLeft: 'auto' }}>
+                  The booking code uses exactly what is set here.
+                </span>
+              </div>
+              {/* Capped height rather than capped rows: ticking the header box selects every
+                  visible pick, and a few hundred of them must not push the buttons that act on
+                  this list off the bottom of the page. */}
+              <div style={{ overflowX: 'auto', maxHeight: 420, overflowY: 'auto' }}>
+                <table className="tbl" style={{ fontSize: 11.5, minWidth: 620 }}>
+                  <thead><tr>
+                    <th>Match</th>
+                    <th>Leg — pick any market on this match</th>
+                    <th className="r">Odds</th>
+                    <th className="r">Model</th>
+                    <th />
+                  </tr></thead>
+                  <tbody>
+                    {slipRows.map(({ pick, chosen, leg, options }) => (
+                      <tr key={pick.fixtureId}>
+                        <td style={{ maxWidth: 210 }}>
+                          <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pick.match}</div>
+                          {pick.fixtureDate && <div className="muted2" style={{ fontSize: 10 }}>{fmt(pick.fixtureDate)}</div>}
+                        </td>
+                        <td>
+                          {/* Indexed by position rather than by market name: two markets can
+                              share a selection string ("Over 1.5" on the total and on a team),
+                              and the index is what makes each row of the list distinct. */}
+                          <select
+                            className="field"
+                            value={options.findIndex(o => sameLeg(o, leg))}
+                            onChange={e => {
+                              const i = Number(e.target.value)
+                              chooseLeg(pick.fixtureId, options[i], i === 0)
+                            }}
+                            style={{
+                              width: '100%', padding: '5px 8px', fontSize: 11.5,
+                              ...(chosen ? { color: 'var(--accent-2)', borderColor: 'var(--accent-dim)' } : {}),
+                            }}
+                            title={chosen
+                              ? `You chose this leg. The engine picked ${pick.market}: ${pick.selection}.`
+                              : 'The market the engine picked for this match. Choose another and the slip, the odds and the booking code all follow.'}
+                          >
+                            {options.map((o, i) => (
+                              <option key={`${o.market}|${o.selection}|${i}`} value={i}>
+                                {i === 0 ? '★ ' : ''}{o.market}: {o.selection}
+                                {' · '}{o.odds ? `${o.odds}x` : 'priced at booking'}
+                                {o.modelProb ? ` · ${o.modelProb}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="r num" style={{ color: leg.odds ? 'var(--warn)' : 'var(--tx-4)' }}>
+                          {leg.odds ? `${leg.odds}x` : '—'}
+                        </td>
+                        <td className="r num" style={{
+                          color: (leg.modelProbRaw ?? 0) >= 0.8 ? 'var(--pos)' : (leg.modelProbRaw ?? 0) >= 0.65 ? 'var(--warn)' : 'var(--neg)',
+                        }}>
+                          {leg.modelProb ?? '—'}
+                        </td>
+                        <td className="r">
+                          <button className="icon-btn" style={{ width: 24, height: 24 }}
+                            onClick={() => toggleSelect(pick.fixtureId)}
+                            title="Take this match off the slip">✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.5 }}>
+                ★ marks the engine's own pick. Everything else is a market the same fixture scored —
+                its goals line, its alternatives, and Over 1.5, which is offered on every fixture the
+                model has a number for. A leg you set here is locked: the booking pass will still
+                replace it if SportyBet refuses to price it, but it will not swap it for a market it
+                merely prefers.
+              </div>
             </div>
           )}
 
@@ -1206,7 +1456,7 @@ export default function BetBuilder() {
             </div>
 
             <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none', marginLeft: 'auto' }}
-              title="One line per pick. The data flags, goals/results history, news line and alternative markets move behind the ▸ button on each row.">
+              title="One line per pick. The data flags, goals/results history, news line and the choosable alternative markets all move behind the ▸ button on each row. Off by default, so the numbers you pick from are on screen.">
               <input type="checkbox" checked={compact} onChange={e => setCompact(e.target.checked)} style={{ cursor: 'pointer' }} />
               Compact rows
             </label>
@@ -1250,6 +1500,8 @@ export default function BetBuilder() {
                 compact={compact}
                 rowExpanded={expandedRow.has(pick.fixtureId)}
                 onToggleRow={toggleRow}
+                chosen={legChoice.get(pick.fixtureId) || null}
+                onChooseLeg={chooseLeg}
                 sbStatus={sbAvail?.byId?.[pick.fixtureId] ?? pick.sportybet ?? null}
                 isAnalysing={analysingId === pick.fixtureId}
                 anyAnalysing={!!analysingId}
@@ -1437,8 +1689,8 @@ export default function BetBuilder() {
         // The filtered list, for the same reason the other pickers use it — a kickoff window set
         // on the toolbar should constrain what the builder is allowed to choose from.
         picks={visible.length ? visible : picks}
-        onApply={ids => setSelected(new Set(ids))}
-        onAnalyse={ids => runPickAndAnalyse(ids)}
+        onApply={applySmartLegs}
+        onAnalyse={ids => runPickAndAnalyse(ids, { keepLegs: true })}
       />
     </AppShell>
   )
@@ -1469,8 +1721,8 @@ const TAGS = {
  */
 const PickRow = memo(function PickRow({
   pick, idx, isSel, aiExpanded, isAnalysing, anyAnalysing, isEnriching, anyEnriching,
-  compact, rowExpanded, sbStatus,
-  onToggleSelect, onToggleAI, onToggleRow, onEnrich, onAnalyse,
+  compact, rowExpanded, sbStatus, chosen,
+  onToggleSelect, onToggleAI, onToggleRow, onEnrich, onAnalyse, onChooseLeg,
 }) {
   // In compact mode the per-row detail (data flags, goals/results history, news, alternative
   // markets) is behind the ▸ button. `showDetail` is what every one of those blocks tests, so
@@ -1485,45 +1737,76 @@ const PickRow = memo(function PickRow({
   )
   const valTone = pick.value === 'Good value' ? 'pos' : pick.value === 'Poor value' ? 'neg' : 'warn'
 
+  // Every market this fixture offers, engine pick first — and every one of them is a leg you can
+  // take. Clicking a line makes it THE leg for this match: the checkbox above selects the
+  // fixture, this decides what is booked on it.
+  const legs = legsFor(pick, chosen)
+  const active = chosen || legs[0]
+  const overridden = !!chosen
+  const alts = legs.slice(1)
   // Two by default, the rest behind a toggle. A fixture now scores fifteen-odd markets and
   // rendering them all inline would bury the pick itself.
-  const allOpts = pick.options || []
-  const shownOpts = showAllOpts ? allOpts : allOpts.slice(0, 2)
-  const optRows = shownOpts.map((opt, j) => (
-    <div key={`${pick.fixtureId ?? idx}-opt-${j}`} className="pk-sub alt">
-      <span className="lead">└ Option {j + 2}</span>
-      <span className="muted">{opt.market}</span>
-      <span style={{ fontWeight: 700, color: 'var(--info)' }}>{opt.selection}</span>
-      <span className="num" style={{ fontWeight: 700, color: 'var(--warn)' }}>{opt.odds}x</span>
-      <span className="num" style={{ fontWeight: 700, color: 'var(--pos)' }}>{opt.modelProb}</span>
-    </div>
-  ))
-  if (allOpts.length > 2) {
-    optRows.push(
-      <div key={`${pick.fixtureId ?? idx}-opt-more`} className="pk-sub alt">
-        <span className="lead" />
-        <button onClick={() => setShowAllOpts(v => !v)}
-          style={{ color: 'var(--accent-2)', fontSize: 11, textDecoration: 'underline', gridColumn: 'span 4', textAlign: 'left' }}>
-          {showAllOpts ? '− fewer markets' : `+ ${allOpts.length - 2} more markets on this match`}
-        </button>
+  const shownAlts = showAllOpts ? alts : alts.slice(0, 2)
+  // A chosen leg that sits outside those two is appended anyway — otherwise the row reports a
+  // leg with no way to see the numbers behind it or switch off it.
+  const visibleAlts = (chosen && !shownAlts.some(l => sameLeg(l, chosen)))
+    ? [...shownAlts, alts.find(l => sameLeg(l, chosen))].filter(Boolean)
+    : shownAlts
+
+  const legRow = (leg, label, key) => {
+    const on      = sameLeg(leg, active)
+    const isMain  = sameLeg(leg, legs[0])
+    const goalsey = leg.source === 'goals' || leg.source === 'over15'
+    return (
+      <div key={key}
+        className={`pk-sub ${goalsey ? 'goals' : 'alt'}${on ? ' on' : ''}`}
+        onClick={e => { e.stopPropagation(); onChooseLeg(pick.fixtureId, leg, isMain) }}
+        title={on
+          ? 'This is the leg the booking code will use for this match'
+          : `Use ${leg.market}: ${leg.selection} as this match's leg instead`}
+        style={{ cursor: pick.fixtureId ? 'pointer' : 'default' }}
+      >
+        <span className="lead" style={on ? { color: 'var(--accent-2)' } : undefined}>
+          {on ? '●' : '○'} {label}
+        </span>
+        <span className="muted">{leg.market}</span>
+        <span style={{ fontWeight: 700, color: goalsey ? 'var(--pos)' : 'var(--info)' }}>{leg.selection}</span>
+        {/* A leg with no stored price is not a leg without a price — SportyBet quotes it at
+            booking. An asterisk marks a price the model estimated rather than a book quoted. */}
+        <span className="num" style={{ fontWeight: 700, color: leg.odds ? 'var(--warn)' : 'var(--tx-4)' }}
+          title={leg.odds ? (leg.hasRealOdds ? 'Bookmaker price' : 'Model estimate, not a bookmaker price') : 'SportyBet prices this leg when the booking code is created'}>
+          {leg.odds ? `${leg.odds}x${leg.hasRealOdds ? '' : '*'}` : '— priced at booking'}
+        </span>
+        <span className="num" style={{ fontWeight: 700, color: 'var(--pos)' }}>{leg.modelProb ?? '—'}</span>
+        {leg.source === 'over15' && (
+          <span className="tag tag-pos" title="Over 1.5 — the most reliable market in the measured data (80.7% actual against 81.2% predicted on low-tier fixtures). Offered on every fixture, not only where it won the main slot.">
+            O1.5
+          </span>
+        )}
       </div>
     )
   }
 
-  // Goals line, shown only when the main pick is NOT already a goals market.
-  // High Risk picks come out as 1X2 almost every time, yet those fixtures are the
-  // highest-scoring on the card — this surfaces the goals market before kickoff
-  // instead of leaving it to be noticed in the final score.
-  const g = pick.goalsOption
-  const goalsRow = (g && !isGoalsPick(pick)) ? (
-    <div key={`${pick.fixtureId ?? idx}-goals`} className="pk-sub goals">
-      <span className="lead" style={{ color: 'var(--pos)' }}>└ ⚽ Goals</span>
-      <span className="muted">{g.market}</span>
-      <span style={{ fontWeight: 700, color: 'var(--pos)' }}>{g.selection}</span>
-      <span className="num" style={{ fontWeight: 700, color: 'var(--warn)' }}>{g.odds}x{g.hasRealOdds ? '' : '*'}</span>
-      <span className="num" style={{ fontWeight: 700, color: 'var(--pos)' }}>{g.modelProb}</span>
-    </div>
-  ) : null
+  const optRows = []
+  // The engine's own pick, offered back only once you have moved off it — until then the main
+  // row above IS that leg, and repeating it would be a line per pick that says nothing.
+  if (overridden) optRows.push(legRow(legs[0], '↺ Engine pick', `${pick.fixtureId ?? idx}-main`))
+  for (const leg of visibleAlts) {
+    // Numbered off the full list, so a market keeps its number whether or not the list is
+    // expanded. Option 1 is the engine pick.
+    optRows.push(legRow(leg, `Option ${alts.indexOf(leg) + 2}`, `${pick.fixtureId ?? idx}-opt-${leg.market}|${leg.selection}`))
+  }
+  if (alts.length > 2) {
+    optRows.push(
+      <div key={`${pick.fixtureId ?? idx}-opt-more`} className="pk-sub alt">
+        <span className="lead" />
+        <button onClick={e => { e.stopPropagation(); setShowAllOpts(v => !v) }}
+          style={{ color: 'var(--accent-2)', fontSize: 11, textDecoration: 'underline', gridColumn: 'span 4', textAlign: 'left' }}>
+          {showAllOpts ? '− fewer markets' : `+ ${alts.length - 2} more markets on this match`}
+        </button>
+      </div>
+    )
+  }
 
   const tags = [
     TAGS[pick.tier],
@@ -1637,9 +1920,17 @@ const PickRow = memo(function PickRow({
 
         <div className="pk-league">{pick.league}</div>
 
-        <div className="pk-market" style={{ color: pickChanged ? 'var(--warn)' : 'var(--info)' }}>
-          {pick.market}
-          {pickChanged && pick.market !== pick.originalMarket && (
+        {/* The CHOSEN leg, which is the engine's pick until you pick something else. What was
+            replaced is kept underneath rather than dropped — a leg you cannot see you changed
+            is a leg you will not notice is wrong. */}
+        <div className="pk-market" style={{ color: overridden ? 'var(--accent-2)' : pickChanged ? 'var(--warn)' : 'var(--info)' }}>
+          {active.market}
+          {overridden && active.market !== pick.market && (
+            <span className="muted2" title={`Engine pick: ${pick.market}`} style={{ display: 'block', fontSize: 9.5, textDecoration: 'line-through' }}>
+              {pick.market}
+            </span>
+          )}
+          {!overridden && pickChanged && pick.market !== pick.originalMarket && (
             <span className="muted2" title={`Engine suggested: ${pick.originalMarket}`} style={{ display: 'block', fontSize: 9.5, textDecoration: 'line-through' }}>
               {pick.originalMarket}
             </span>
@@ -1647,12 +1938,12 @@ const PickRow = memo(function PickRow({
         </div>
 
         {(() => {
-          const side  = selectionSide(pick.market, pick.selection)
+          const side  = selectionSide(active.market, active.selection)
           const style = side ? SIDE_STYLE[side] : null
-          const pair  = pairedOutcome(pick.market, pick.selection, pick.blend)
-          // A manual override keeps its own amber colour — knowing the pick was changed matters
-          // more than knowing which side it backs.
-          const colour = pickChanged ? 'var(--warn)' : (style?.color ?? 'var(--info)')
+          const pair  = pairedOutcome(active.market, active.selection, pick.blend)
+          // A changed pick keeps its own colour — knowing the leg was changed, and by whom,
+          // matters more than knowing which side it backs.
+          const colour = overridden ? 'var(--accent-2)' : pickChanged ? 'var(--warn)' : (style?.color ?? 'var(--info)')
           return (
             <div className="pk-sel" style={{ color: colour }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1662,7 +1953,13 @@ const PickRow = memo(function PickRow({
                     style={{ fontSize: 9, fontWeight: 800, lineHeight: 1, padding: '2px 4px', borderRadius: 3, border: `1px solid ${colour}`, color: colour, opacity: 0.85, flexShrink: 0 }}
                   >{style.tag}</span>
                 )}
-                <span>{pick.selection}</span>
+                <span>{active.selection}</span>
+                {overridden && (
+                  <span className="tag" style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-dim)', color: 'var(--accent-2)' }}
+                    title={`You chose this leg. The engine's own pick was ${pick.market}: ${pick.selection} — the "↺ Engine pick" line below puts it back.`}>
+                    ⚑ yours
+                  </span>
+                )}
               </span>
               {pair && (
                 <span
@@ -1673,7 +1970,12 @@ const PickRow = memo(function PickRow({
                   {pair.label}: {pair.detail}
                 </span>
               )}
-              {pickChanged && pick.selection !== pick.originalSelection && (
+              {overridden && active.selection !== pick.selection && (
+                <span className="muted" title={`Engine pick: ${pick.selection}`} style={{ display: 'block', fontSize: 9.5, fontWeight: 400, textDecoration: 'line-through' }}>
+                  {pick.selection}
+                </span>
+              )}
+              {!overridden && pickChanged && pick.selection !== pick.originalSelection && (
                 <span className="muted" title={`Engine suggested: ${pick.originalSelection}`} style={{ display: 'block', fontSize: 9.5, fontWeight: 400, textDecoration: 'line-through' }}>
                   {pick.originalSelection}
                 </span>
@@ -1682,20 +1984,22 @@ const PickRow = memo(function PickRow({
           )
         })()}
 
-        <div className="pk-odds" style={{ color: pick.odds < 1.35 ? 'var(--neg)' : 'var(--warn)' }}>
-          {pick.odds}x
-          {pick.odds < 1.35 && <span title="Very short odds — model may be overconfident. One loss costs many wins." style={{ fontSize: 10 }}>⚠</span>}
+        <div className="pk-odds" style={{ color: active.odds == null ? 'var(--tx-4)' : active.odds < 1.35 ? 'var(--neg)' : 'var(--warn)' }}>
+          {active.odds != null
+            ? `${active.odds}x`
+            : <span title="No stored price for this market — SportyBet quotes it when the booking code is created">—</span>}
+          {active.odds != null && active.odds < 1.35 && <span title="Very short odds — model may be overconfident. One loss costs many wins." style={{ fontSize: 10 }}>⚠</span>}
         </div>
 
         <div className="pk-prob">
-          {pick.modelProb && (
+          {active.modelProb && (
             <span className="num"
-              title={`Model probability for this selection${pick.certaintyScore != null ? ` · engine score ${pick.certaintyScore.toFixed(3)}` : ''}`}
-              style={{ fontSize: 14, color: 'var(--pos)', fontWeight: 800 }}>{pick.modelProb}</span>
+              title={`Model probability for this selection${!overridden && pick.certaintyScore != null ? ` · engine score ${pick.certaintyScore.toFixed(3)}` : ''}`}
+              style={{ fontSize: 14, color: 'var(--pos)', fontWeight: 800 }}>{active.modelProb}</span>
           )}
           {/* Edge is only meaningful against a REAL price — against estOdds it is
               structurally zero, since estOdds is derived from modelProb itself. */}
-          {pick.hasRealOdds && pick.edge != null && (
+          {!overridden && pick.hasRealOdds && pick.edge != null && (
             <span className={`tag ${pick.edge >= 0.10 ? 'tag-warn' : pick.edge > 0 ? 'tag-pos' : 'tag-neg'}`}
               title={`Model ${pick.modelProb} vs bookmaker ${(pick.bookImplied * 100).toFixed(0)}% implied`}
               style={{ marginLeft: 5 }}>
@@ -1802,8 +2106,17 @@ const PickRow = memo(function PickRow({
         </div>
       </div>
 
-      {showDetail && goalsRow}
       {showDetail && optRows}
+      {/* Compact hides the leg list, so an override made elsewhere would otherwise be a claim
+          with nothing behind it. The line naming it stays. */}
+      {!showDetail && overridden && (
+        <div className="pk-sub on" onClick={e => { e.stopPropagation(); onToggleRow(pick.fixtureId) }} style={{ cursor: 'pointer' }}>
+          <span className="lead" style={{ color: 'var(--accent-2)' }}>● Your leg</span>
+          <span className="muted">{active.market}</span>
+          <span style={{ fontWeight: 700, color: 'var(--accent-2)' }}>{active.selection}</span>
+          <span className="muted2" style={{ fontSize: 10 }}>▸ open the row to change it or go back to the engine pick</span>
+        </div>
+      )}
 
       {hasAI && aiExpanded && (
         <div key={`${pick.fixtureId ?? idx}-ai`} className="pk-ai">
