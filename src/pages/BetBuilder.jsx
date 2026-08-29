@@ -135,8 +135,14 @@ export default function BetBuilder() {
   const [sbDebug, setSbDebug]       = useState(false)
   // On by default: when the code is generated, every selected leg is re-checked against the
   // other markets on its own fixture, and swapped if the model AND the price both call the
-  // alternative clearly safer. Off leaves your selections exactly as picked.
+  // alternative clearly safer. Off leaves every BOOKABLE selection exactly as picked.
   const [sbUpgrade, setSbUpgrade]   = useState(true)
+  // ...and separately, whether a leg SportyBet will not price may be swapped for the fixture's
+  // next-safest market. This is a different question from the one above and used to have no
+  // switch at all: it ran whatever "Upgrade picks" was set to, so turning upgrades off still
+  // came back with rewritten legs — most visibly at booking time, when the card has moved since
+  // the preview and legs that were priced a minute ago are not any more.
+  const [sbReplace, setSbReplace]   = useState(true)
   // Free legs: a second selection on the same match that cannot lose if the leg already on the
   // slip wins (a home win requires the home team to score, so Home Win carries Home Over 0.5).
   // On by default — it raises the payout without changing what has to happen for the slip to win.
@@ -693,7 +699,7 @@ export default function BetBuilder() {
           locked:    chosen ? true : undefined,
         }
       })
-      const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug, risk: risks, minLegProb: legFloorOn ? minLegProb : 0, upgradePicks: sbUpgrade, freeLegs: sbFree, preview }, { timeout: 10 * 60 * 1000 })
+      const { data } = await api.post(`/api/sportybet/booking-code`, { picks: payload, debug: sbDebug, risk: risks, minLegProb: legFloorOn ? minLegProb : 0, upgradePicks: sbUpgrade, allowAlternatives: sbReplace, freeLegs: sbFree, preview }, { timeout: 10 * 60 * 1000 })
       setSbResult(data)
     } catch (err) {
       setSbResult({ success: false, error: err.response?.data?.error || err.message })
@@ -1385,9 +1391,18 @@ export default function BetBuilder() {
                   {sbLoading === 'book' ? <><span className="spin" /> Adding…</> : `🎰 SportyBet code (${selected.size})`}
                 </button>
                 <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
-                  title="Before booking, re-check every selected leg against the other markets on the same fixture and swap it when both the model and SportyBet's price call the alternative clearly safer">
+                  title="Before booking, re-check every BOOKABLE leg against the other markets on the same fixture and swap it when the model rates the alternative clearly higher and the price barely moves. Off leaves your bookable picks exactly as chosen.">
                   <input type="checkbox" checked={sbUpgrade} onChange={e => setSbUpgrade(e.target.checked)} style={{ cursor: 'pointer' }} />
                   Upgrade picks
+                </label>
+                {/* The other half of the swap pass, and the one that kept rewriting picks with
+                    "Upgrade picks" switched off — it only ever answered to allowAlternatives,
+                    which nothing on this page set. Off means an unpriced leg is left off the
+                    slip rather than replaced. */}
+                <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
+                  title="If SportyBet is not pricing a leg at booking time, swap it for the safest other market on the same fixture. Off drops the leg instead — it is then listed under Left off.">
+                  <input type="checkbox" checked={sbReplace} onChange={e => setSbReplace(e.target.checked)} style={{ cursor: 'pointer' }} />
+                  Replace unpriced
                 </label>
                 <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer', userSelect: 'none' }}
                   title="Add second selections on the same match that cannot lose if your leg wins — a home win requires the home team to score, so Home Win carries Home Over 0.5 for free. Raises the payout without changing what has to happen.">
@@ -1616,6 +1631,12 @@ export default function BetBuilder() {
                       <div key={i} style={{ fontSize: 11.5, marginBottom: 5, lineHeight: 1.45 }}>
                         <span style={{ color: 'var(--info)' }}>
                           {sub.kind === 'upgraded' ? '↑' : '⇄'} {sub.match}
+                          {/* Named, not just arrowed: an upgrade is a leg this pass CHOSE to
+                              change, a replacement is one SportyBet would not price. They have
+                              separate switches, so the report has to say which one fired. */}
+                          <span className="muted2" style={{ fontSize: 10, marginLeft: 5 }}>
+                            {sub.kind === 'upgraded' ? 'upgraded' : 'not priced — replaced'}
+                          </span>
                         </span>
                         <div className="muted2" style={{ fontSize: 10.5, paddingLeft: 14 }}>
                           {sub.from}{sub.fromOdds ? ` @${sub.fromOdds}` : ''} → <b style={{ color: 'var(--tx)' }}>{sub.to}</b>
@@ -1624,7 +1645,7 @@ export default function BetBuilder() {
                             <> · model {(sub.toProb * 100).toFixed(0)}% · book {(sub.bookProb * 100).toFixed(0)}%</>
                           )}
                           {sub.gain != null && (
-                            <span style={{ color: 'var(--pos)' }}> · +{(sub.gain * 100).toFixed(0)}pp safer</span>
+                            <span style={{ color: 'var(--pos)' }}> · +{(sub.gain * 100).toFixed(0)}pp model</span>
                           )}
                         </div>
                       </div>
