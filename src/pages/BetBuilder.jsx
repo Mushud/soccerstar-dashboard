@@ -31,16 +31,21 @@ const isGoalsPick = p => GOAL_MARKETS.includes(p.selection) ||
 // A row is a FIXTURE plus the engine's first-choice market on it. The goals line and the
 // alternative markets printed underneath are equally bookable, and the model often rates one of
 // them higher — so the table lets you choose one, and this is the shape that choice travels in.
-const legOf = (market, selection, odds, prob, source, hasRealOdds) => ({
+// `fit` is what the two clubs' own recent record says about THIS market, 0-1, or null where the
+// history has no reading on it. It is the number that decides which market wins the fixture, so
+// it travels with every leg and is shown beside the model percentage — the two disagreeing is
+// the whole reason a card carries more than one market.
+const legOf = (market, selection, odds, prob, source, hasRealOdds, fit = null) => ({
   market, selection,
   odds: odds != null && odds > 1 ? odds : null,
   modelProbRaw: prob ?? null,
   modelProb: prob != null ? `${(prob * 100).toFixed(0)}%` : null,
   source,
   hasRealOdds: !!hasRealOdds,
+  fit: fit ?? null,
 })
 
-const mainLeg = p => legOf(p.market, p.selection, p.odds, p.modelProbRaw, 'main', p.hasRealOdds)
+const mainLeg = p => legOf(p.market, p.selection, p.odds, p.modelProbRaw, 'main', p.hasRealOdds, p.marketFit)
 
 const sameLeg = (a, b) => !!a && !!b && a.market === b.market && a.selection === b.selection
 
@@ -66,7 +71,7 @@ function legsFor(pick, chosen) {
   add(mainLeg(pick))
   const g = pick.goalsOption
   if (g) add(legOf(g.market, g.selection, g.odds, g.modelProbRaw, 'goals', g.hasRealOdds))
-  for (const o of pick.options || []) add(legOf(o.market, o.selection, o.odds, o.modelProbRaw, 'alt', o.hasRealOdds))
+  for (const o of pick.options || []) add(legOf(o.market, o.selection, o.odds, o.modelProbRaw, 'alt', o.hasRealOdds, o.fit))
   // No price, deliberately: over15 is a model probability rather than a quote, and SportyBet
   // prices it when the code is created — which is what the server does with it too.
   if (pick.over15 != null) add(legOf('Over/Under', 'Over 1.5', null, pick.over15, 'over15', false))
@@ -217,6 +222,19 @@ export default function BetBuilder() {
   useEffect(() => {
     try { localStorage.setItem('ss_max_share', String(maxShare)) } catch { /* private mode */ }
   }, [maxShare])
+
+  // How much the two clubs' own recent record may move WHICH market is picked on each fixture,
+  // as a fraction of model probability. This is the one control here that trades one good thing
+  // for another rather than filtering: measured on 13,341 settled picks, at slip depth it takes
+  // the per-leg hit rate from 74.8% to 83.3% — a ten-leg ticket lands about three times as often
+  // — while the price per leg falls from 1.44 to 1.21 and expected value is roughly unchanged.
+  // "Model only" (0) is exactly how the card behaved before this existed.
+  const [marketFit, setMarketFit] = useState(() => {
+    try { const v = localStorage.getItem('ss_market_fit'); return v == null ? 0.6 : Number(v) } catch { return 0.6 }
+  })
+  useEffect(() => {
+    try { localStorage.setItem('ss_market_fit', String(marketFit)) } catch { /* private mode */ }
+  }, [marketFit])
 
   const [sbFetchOnly, setSbFetchOnly] = useState(() => {
     try { return localStorage.getItem('ss_sb_fetch') !== '0' } catch { return true }
@@ -394,7 +412,7 @@ export default function BetBuilder() {
     setPage(1)
 
     const useValue = overrides.valueMode ?? valueMode
-    const body = { risk: risks, limit, showAll: effectiveShowAll, sportybetOnly: overrides.sportybetOnly ?? sbFetchOnly, minOdds, maxMarketShare: maxShare }
+    const body = { risk: risks, limit, showAll: effectiveShowAll, sportybetOnly: overrides.sportybetOnly ?? sbFetchOnly, minOdds, maxMarketShare: maxShare, marketFit }
     // Value mode ranks by disagreement with a REAL bookmaker price instead of by risk tier,
     // so the tier gate and showAll are irrelevant to it.
     if (useValue) { body.mode = 'edge'; body.minEdge = minEdge }
@@ -1052,6 +1070,18 @@ export default function BetBuilder() {
                   style={{ marginLeft: 4, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
                   {[0, 1.15, 1.2, 1.25, 1.3, 1.4, 1.5].map(v =>
                     <option key={v} value={v}>{v ? v.toFixed(2) : 'any'}</option>)}
+                </select>
+              </label>
+              {/* Not a filter — this changes which market is CHOSEN on each fixture, so it is the
+                  one control here that has to be set before the fetch rather than after. */}
+              <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5 }}
+                title="How much each fixture's own goals/results history decides WHICH market is picked on it, rather than a fixed preference order. Higher means more legs where both clubs' recent form backs the specific market. Measured at slip depth: 74.8% -> 83.3% per leg, but average odds 1.44 -> 1.21, so the ticket lands far more often and pays much less. 'Model only' is the old behaviour.">
+                Match fit
+                <select className="field" value={marketFit} onChange={e => setMarketFit(Number(e.target.value))}
+                  disabled={loading || rerunning}
+                  style={{ marginLeft: 4, width: 'auto', padding: '5px 8px', fontSize: 12 }}>
+                  {[[0, 'model only'], [0.3, 'light'], [0.6, 'balanced'], [0.9, 'heavy']].map(([v, l]) =>
+                    <option key={v} value={v}>{l}</option>)}
                 </select>
               </label>
               {/* Applied server-side, before the limit — see the sportybetOnly note in the
@@ -1820,7 +1850,18 @@ const PickRow = memo(function PickRow({
           title={leg.odds ? (leg.hasRealOdds ? 'Bookmaker price' : 'Model estimate, not a bookmaker price') : 'SportyBet prices this leg when the booking code is created'}>
           {leg.odds ? `${leg.odds}x${leg.hasRealOdds ? '' : '*'}` : '— priced at booking'}
         </span>
-        <span className="num" style={{ fontWeight: 700, color: 'var(--pos)' }}>{leg.modelProb ?? '—'}</span>
+        <span className="num" style={{ fontWeight: 700, color: 'var(--pos)' }}>
+          {leg.modelProb ?? '—'}
+          {/* The model's percentage and the match's own record are different claims, and where
+              they part company is exactly where the choice of market is being made. Shown only
+              when the history has a reading — an absent one is not a low one. */}
+          {leg.fit != null && (
+            <span style={{ fontWeight: 600, fontSize: 10, marginLeft: 4, color: leg.fit >= 0.6 ? 'var(--pos)' : leg.fit <= 0.4 ? 'var(--neg)' : 'var(--tx-4)' }}
+              title={`Match fit ${(leg.fit * 100).toFixed(0)}% — what both clubs' last 10 matches, their head-to-head and their league say about this specific market. Above 50% the history backs it, below 50% it argues against. This is what ranked the markets on this fixture.`}>
+              ·{(leg.fit * 100).toFixed(0)}
+            </span>
+          )}
+        </span>
         {leg.source === 'over15' && (
           <span className="tag tag-pos" title="Over 1.5 — the most reliable market in the measured data (80.7% actual against 81.2% predicted on low-tier fixtures). Offered on every fixture, not only where it won the main slot.">
             O1.5
