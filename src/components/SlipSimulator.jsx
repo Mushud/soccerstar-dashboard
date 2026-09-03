@@ -109,6 +109,10 @@ export default function SlipSimulator() {
   // score before ranking is how you find that out. 0 makes the ranking deterministic.
   const [gutNoise, setGutNoise]   = useState(0.03)
   const [maxPerFamily, setMaxPerFamily] = useState(3)
+  // Lean toward Over 1.5 and away from the Unders. An instruction, not something fitted — but
+  // the one the record argues for: inside human-mode slips Over 1.5 ran 87.9% against a claimed
+  // 88.9% on 783 legs, while Under 3.5 ran 70.1% vs 83.0% and Under 4.5 68.2% vs 84.0%.
+  const [preferOver15, setPreferOver15] = useState(0)
   // Each term of the judgement, on or off. Off is the interesting setting — with all five off the
   // run reproduces "Hit a target" exactly, which is how you tell whether any of them carry
   // anything. Measured over 372 slips, none of them did.
@@ -149,7 +153,7 @@ export default function SlipSimulator() {
         : null
     })(),
     ...(mode === 'human' ? {
-      gutNoise: Number(gutNoise), maxPerFamily: Number(maxPerFamily),
+      gutNoise: Number(gutNoise), maxPerFamily: Number(maxPerFamily), preferOver15: Number(preferOver15),
       humanWeights: Object.fromEntries(Object.entries(terms).map(([k, v]) => [k, v ? 1 : 0])),
     } : {}),
     label: label || null, ...extra,
@@ -305,13 +309,13 @@ export default function SlipSimulator() {
           </select>
         </label>
         <label className="muted" style={{ fontSize: 11.5 }}
-          title="What may not repeat across the slips built for one window. Two slips sharing a leg are not two bets — they lose together.">
+          title="What may not repeat across the slips built for one window. Two slips sharing a leg are not two bets — they lose together. Allow repeats lets slips share fixtures, reusing a match on a different market; they are still never identical, but they overlap, so the sample counts for less than its size.">
           Unique
           <select className="field" value={uniqueBy} onChange={e => setUniqueBy(e.target.value)}
             style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
             <option value="team">Team once</option>
             <option value="match">Match once</option>
-            <option value="none">Allow repeats</option>
+            <option value="none">Allow repeats (overlapping)</option>
           </select>
         </label>
         <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer' }}
@@ -360,6 +364,15 @@ export default function SlipSimulator() {
               </select>
             </label>
             <label className="muted" style={{ fontSize: 11.5 }}
+              title="Push Over 1.5 up the ranking and the Unders down, by this many probability points. It steers the SEARCH only — the probability each leg claims is unchanged, so the slip's stated confidence stays honest. Measured over 372 August slips at a 3x target with no market cap: 4pp took Over 1.5 from 58% of legs to 93%, Unders to zero, and slips landed 45 per 100 against the plain model's 40.">
+              Prefer Over 1.5
+              <select className="field" value={preferOver15} onChange={e => setPreferOver15(e.target.value)}
+                style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+                {[0, 0.02, 0.04, 0.06, 0.1].map(v =>
+                  <option key={v} value={v}>{v ? `+${(v * 100).toFixed(0)}pp` : 'no lean'}</option>)}
+              </select>
+            </label>
+            <label className="muted" style={{ fontSize: 11.5 }}
               title="Most legs one market family may take. Six Over 1.5s on one ticket is one bet on a high-scoring round wearing six names, and the win probability — a plain product — assumes an independence it does not have.">
               Max/market
               <select className="field" value={maxPerFamily} onChange={e => setMaxPerFamily(e.target.value)}
@@ -387,7 +400,10 @@ export default function SlipSimulator() {
             that already contains its own result. Turn all five terms off and this reproduces
             “Hit a target” exactly, which is the control worth running first: measured over 372
             slips in August, every term landed within noise of the plain model, and all five
-            together did too.
+            together did too. “Prefer Over 1.5” is the exception — it is an instruction rather
+            than a fitted term, and it was the only setting that beat the plain model, at every
+            market cap tested. Watch the concentration it buys: at +4pp with no cap, 93% of legs
+            are Over 1.5, which is one bet on a high-scoring round wearing five names.
           </div>
         </div>
       )}
@@ -551,6 +567,15 @@ export default function SlipSimulator() {
                 Every adjustment is shrunk toward zero by how little evidence sits behind it and
                 capped at a few points, so a club seen twenty times cannot overturn the model.
               </div>
+            </div>
+          )}
+
+          {/* Said out loud wherever the slips overlap. Every rate above counts each slip as one
+              observation, and overlapping slips cannot lose independently — so `n` is a count of
+              tickets, not a count of evidence. */}
+          {res.sampling?.note && (
+            <div style={{ fontSize: 11.5, color: 'var(--warn)', marginBottom: 8, lineHeight: 1.55 }}>
+              ⚠ {res.sampling.note}
             </div>
           )}
 
