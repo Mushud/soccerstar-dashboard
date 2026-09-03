@@ -106,6 +106,15 @@ function fmt(dateStr) {
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i)
 
+/** "2h 14m" / "9m" / "any moment now" — a countdown a person reads, not a timestamp. */
+function until(iso, now) {
+  if (!iso) return null
+  const ms = new Date(iso).getTime() - now
+  if (!(ms > 0)) return 'any moment now'
+  const m = Math.round(ms / 60000)
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`
+}
+
 
 export default function BetBuilder() {
   const [duration, setDuration]   = useState('today')
@@ -261,6 +270,10 @@ export default function BetBuilder() {
 
   // The slate the scheduler already built.
   const [autoSlate, setAutoSlate]       = useState(null)
+  // When the scheduler next runs, and what it is configured to build.
+  const [schedule, setSchedule]         = useState(null)
+  // Ticks once a minute so the countdown below moves without a reload.
+  const [now, setNow]                   = useState(() => Date.now())
   const [autoBuilding, setAutoBuilding] = useState(false)
   const [autoDismissed, setAutoDismissed] = useState(false)
 
@@ -598,13 +611,24 @@ export default function BetBuilder() {
     }
   }
 
+  // A countdown that never updates is worse than no countdown — it reads as "in 3 hours" an hour
+  // later. One tick a minute is enough for a five-hourly job and costs nothing.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(t)
+  }, [])
+
   // ── The scheduled slate ─────────────────────────────────────────────────────
   // Checked once on open. Cheap — a stored document, no engine run and no Claude call — so the
   // page can offer this morning's finished slate instead of making you rebuild it.
   useEffect(() => {
     let alive = true
     api.get('/api/betbuilder/auto-slate')
-      .then(({ data }) => { if (alive && data?.slate) setAutoSlate({ ...data.slate, stale: data.stale }) })
+      .then(({ data }) => {
+        if (!alive) return
+        if (data?.schedule) setSchedule(data.schedule)
+        if (data?.slate) setAutoSlate({ ...data.slate, stale: data.stale })
+      })
       .catch(() => { /* nothing stored yet, or the endpoint is older than the frontend */ })
     return () => { alive = false }
   }, [])
@@ -637,9 +661,12 @@ export default function BetBuilder() {
     setError(null)
     try {
       const { data } = await api.post('/api/betbuilder/auto-slate/run',
-        { risk: risks, limit: 10, analyse: true },
+        // Same shape the scheduler runs, so "rebuild now" produces what the next automatic run
+        // would have produced rather than a differently-scoped slate.
+        { risk: risks, limit: 10, analyse: true, hoursAhead: 24, buildSlips: true },
         { timeout: 15 * 60 * 1000 })
       const { data: fresh } = await api.get('/api/betbuilder/auto-slate')
+      if (fresh?.schedule) setSchedule(fresh.schedule)
       if (fresh?.slate) {
         setAutoSlate({ ...fresh.slate, stale: fresh.stale })
         setAutoDismissed(false)
@@ -967,6 +994,74 @@ export default function BetBuilder() {
           </button>
           <button className="icon-btn" style={{ width: 26, height: 26, marginLeft: 'auto' }}
             onClick={() => setAutoDismissed(true)} title="Hide">✕</button>
+
+          {/* ── The tickets this slate produced ──
+              Built and booked by the scheduler the moment the slate finished, so the codes are
+              waiting rather than being something you still have to go and make. */}
+          {!!autoSlate.autoSlips?.length && (
+            <div style={{ flexBasis: '100%', borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 2 }}>
+              <div className="eyebrow" style={{ marginBottom: 7 }}>
+                Tickets built from this slate
+                {autoSlate.autoSlipsAt && ` · ${new Date(autoSlate.autoSlipsAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`}
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {autoSlate.autoSlips.map((sl, i) => (
+                  <div key={i} className="card" style={{ padding: '8px 11px', minWidth: 210 }}>
+                    {!sl.ok ? (
+                      <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                        <b>{sl.targetOdds}x</b> — not buildable.
+                        <div style={{ marginTop: 2 }}>{sl.reason}</div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, flexWrap: 'wrap' }}>
+                          <b style={{ fontSize: 12.5 }}>{sl.targetOdds}x target</b>
+                          <span className="num" style={{ fontSize: 15, fontWeight: 800, color: 'var(--warn)' }}>{sl.totalOdds}x</span>
+                          <span className="muted" style={{ fontSize: 11 }}>{sl.legs?.length} legs</span>
+                          <span className="num" style={{ fontSize: 11, fontWeight: 700, color: sl.winProb >= 0.4 ? 'var(--pos)' : 'var(--warn)' }}>
+                            {sl.winProb != null ? `${(sl.winProb * 100).toFixed(0)}%` : '—'}
+                          </span>
+                        </div>
+                        {sl.code ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                            <code style={{ fontFamily: 'var(--mono)', fontSize: 13, fontWeight: 700, color: 'var(--warn)', letterSpacing: '0.08em' }}>{sl.code}</code>
+                            <button className="btn btn-sm" style={{ padding: '2px 7px', fontSize: 10.5 }}
+                              onClick={() => navigator.clipboard?.writeText(sl.code)}>Copy</button>
+                            {sl.shareUrl && (
+                              <a className="btn btn-sm btn-info" style={{ padding: '2px 7px', fontSize: 10.5 }}
+                                href={sl.shareUrl} target="_blank" rel="noreferrer">Open ↗</a>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="muted2" style={{ fontSize: 10.5, marginTop: 5 }}>
+                            {sl.bookError ? `Not booked — ${sl.bookError}` : 'Built, not booked.'}
+                          </div>
+                        )}
+                        {sl.rejected > 0 && (
+                          <div style={{ fontSize: 10.5, color: 'var(--warn)', marginTop: 3 }}>
+                            SportyBet dropped {sl.rejected} leg — check before staking.
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* When the next one lands. Shown whether or not a slate is stored, because "nothing here
+          yet" and "nothing here for another four hours" are different things to know. */}
+      {schedule?.enabled && schedule.nextRunAt && (
+        <div className="muted2" style={{ fontSize: 11, marginBottom: 14, marginTop: -8, lineHeight: 1.5 }}>
+          ⏱ Next slate in <b style={{ color: 'var(--tx-2)' }}>{until(schedule.nextRunAt, now)}</b>
+          {' '}({new Date(schedule.nextRunAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })})
+          {' '}— every {schedule.everyHours}h over the next {schedule.windowHours}h
+          {schedule.booking && schedule.targets?.length
+            ? `, booking ${schedule.targets.join('x and ')}x tickets automatically`
+            : ', tickets not booked automatically'}
         </div>
       )}
       {autoSlate && !autoSlate.picks?.length && !autoDismissed && (
