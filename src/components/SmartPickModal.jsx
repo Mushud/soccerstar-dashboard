@@ -69,6 +69,47 @@ const CANDIDATE_CAP = 400
 // visible. The booking guard sits above this at 50, so a slip built here is always bookable.
 const MAX_SLIP_LEGS = 40
 
+// SportyBet's own ceiling on selections per booking code (services/sportybetApi.js
+// MAX_BOOKING_LEGS). A single slip can never exceed it — the DP stops at 40 — but a selection
+// merged from several slips easily can, and the server rejects the whole booking when it does.
+const MAX_BOOKING_LEGS = 50
+
+/**
+ * A generated SportyBet code. Rendered per slip and for the merged selection, because several can
+ * be live at once — one shared code meant generating a second silently replaced the first on
+ * screen while both were still bookable.
+ */
+function BookingCode({ book }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--bd)' }}>
+      <div className="eyebrow" style={{ color: 'var(--pos)' }}>✓ Booking code — saved for settlement</div>
+      <div className="code-box">{book.code}</div>
+      <div className="toolbar" style={{ gap: 8 }}>
+        <button className="btn btn-pos" style={{ padding: '4px 9px', fontSize: 11 }}
+          onClick={() => navigator.clipboard?.writeText(book.code)}>Copy</button>
+        {book.shareUrl && (
+          <a className="btn btn-info" style={{ padding: '4px 9px', fontSize: 11 }}
+            href={book.shareUrl} target="_blank" rel="noreferrer">Open on SportyBet ↗</a>
+        )}
+        <span className="muted" style={{ fontSize: 11 }}>
+          {book.totalOdds}x
+          {book.deadline && ` · expires ${new Date(book.deadline).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
+        </span>
+      </div>
+      {book.rejected > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--warn)' }}>
+          SportyBet dropped {book.rejected} leg — check the slip before staking.
+        </div>
+      )}
+      <div className="muted2" style={{ fontSize: 10.5 }}>
+        {book.recorded
+          ? 'Recorded — graded automatically once every leg has played.'
+          : 'Code created, but it could not be saved for settlement.'}
+      </div>
+    </div>
+  )
+}
+
 export default function SmartPickModal({ open, onClose, picks, onApply, onAnalyse }) {
   const [target, setTarget]   = useState(20)
   const [minLegs, setMinLegs] = useState(10)
@@ -99,14 +140,30 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
     '1X2|Away Win':                    { on: false, min: 0.70 },
   }))
   const [useRules, setUseRules] = useState(false)
-  const [slipIdx, setSlipIdx] = useState(0)
 
   const [building, setBuilding] = useState(false)
   const [result, setResult]     = useState(null)
   const [error, setError]       = useState(null)
 
   const [booking, setBooking]   = useState(false)
-  const [book, setBook]         = useState(null)
+  // Booking codes, keyed by which slip they belong to — a slip index, or 'selection' for the
+  // merged pick. One shared code meant generating a second replaced the first on screen while
+  // both were live on SportyBet.
+  const [books, setBooks]       = useState({})
+  const [bookingKey, setBookingKey] = useState(null)
+
+  // ── Mode ──
+  // 'human' ranks legs on the judgement layer the Slip Simulator measures rather than on the
+  // model's probability alone. Kept identical in shape to the simulator's control so a setting
+  // tested there is the setting booked here.
+  const [mode, setMode] = useState('model')
+  const [preferOver15, setPreferOver15] = useState(0)
+
+  // ── Merged selection ──
+  // Legs ticked across every slip on screen, keyed fixtureId|market|selection. It deliberately
+  // SURVIVES a rebuild: that is what makes mixing possible — build with the model, tick the legs
+  // you like, switch to human judgement, rebuild, tick more, and book the combination.
+  const [picked, setPicked] = useState(() => new Map())
 
   // Escape closes, and the page behind must not scroll under the modal.
   useEffect(() => {
@@ -118,14 +175,14 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   }, [open, onClose])
 
   // A fresh slate invalidates a slip built from the previous one.
-  useEffect(() => { setResult(null); setBook(null); setError(null) }, [picks])
+  useEffect(() => { setResult(null); setBooks({}); setError(null); setPicked(new Map()) }, [picks])
 
   const candidates = useMemo(() => slimPicks(picks || [], CANDIDATE_CAP), [picks])
 
   if (!open) return null
 
   async function build() {
-    setBuilding(true); setError(null); setResult(null); setBook(null)
+    setBuilding(true); setError(null); setResult(null); setBooks({})
     try {
       const active = Object.entries(rules).filter(([, v]) => v.on)
       const marketRules = useRules && active.length
@@ -135,13 +192,14 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
       const { data } = await api.post('/api/betbuilder/target-slip', {
         targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly,
         slips: slipCount, uniqueBy: 'team', minLegProb, marketRules, maxMarketShare: slipShare, candidates,
+        mode, preferOver15: mode === 'human' ? preferOver15 : 0,
       }, { timeout: 3 * 60 * 1000 })
       if (!data.ok) {
         setError(data.reason || 'Could not build a slip from these picks.')
         // Keep the payload even on failure — it carries the candidate pool, which is the only way
         // to see whether the filters were too tight or the card genuinely could not reach it.
         setResult(data)
-      } else { setResult(data); setSlipIdx(0) }
+      } else { setResult(data) }
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Build failed.')
     } finally {
@@ -149,20 +207,63 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
     }
   }
 
-  async function getCode() {
-    if (!view?.legs?.length) return
-    setBooking(true); setError(null)
+  /**
+   * Book one set of legs. `key` is the slip index, or 'selection' for the merged pick, so several
+   * codes can be live at once and each stays attached to the thing it was made from.
+   */
+  async function getCode(key, legs) {
+    if (!legs?.length) return
+    setBooking(true); setBookingKey(key); setError(null)
     try {
       const { data } = await api.post('/api/betbuilder/target-slip/book', {
-        legs: view.legs,
-        targetOdds: target, minLegs, maxLegs, winProb: view.winProb, sportybetOnly: sbOnly,
+        legs,
+        targetOdds: target, minLegs, maxLegs,
+        winProb: legs.reduce((a, l) => a * (l.prob ?? 1), 1),
+        sportybetOnly: sbOnly,
       }, { timeout: 2 * 60 * 1000 })
-      setBook(data)
+      setBooks(b => ({ ...b, [key]: data }))
     } catch (err) {
       setError(err.response?.data?.error || err.message || 'Booking failed.')
     } finally {
-      setBooking(false)
+      setBooking(false); setBookingKey(null)
     }
+  }
+
+  const legKey = l => `${l.fixtureId}|${l.market}|${l.selection}`
+
+  /**
+   * Tick or untick a leg.
+   *
+   * One leg per FIXTURE, enforced here rather than left to the user. Ticking a second leg on a
+   * match that is already in the selection replaces it — two legs on one match are correlated,
+   * the combined probability below would stop meaning anything, and SportyBet would reject the
+   * pair anyway. It matters most in exactly the case this feature exists for: the same fixture
+   * can appear in a model-built slip and a human-built one under different markets.
+   */
+  function toggleLeg(l) {
+    setPicked(prev => {
+      const m = new Map(prev)
+      const k = legKey(l)
+      if (m.has(k)) { m.delete(k); return m }
+      for (const [k2, v] of m) if (v.fixtureId === l.fixtureId) m.delete(k2)
+      m.set(k, l)
+      return m
+    })
+  }
+
+  function toggleSlip(legs, allOn) {
+    setPicked(prev => {
+      const m = new Map(prev)
+      for (const l of legs) {
+        const k = legKey(l)
+        if (allOn) m.delete(k)
+        else {
+          for (const [k2, v] of m) if (v.fixtureId === l.fixtureId) m.delete(k2)
+          m.set(k, l)
+        }
+      }
+      return m
+    })
   }
 
   // The LEGS, not the fixture ids. Which market each fixture contributes is the whole output of
@@ -170,18 +271,22 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // own pick whenever that is the cheaper honest way to the target. Handing back ids alone threw
   // that away, and the builder then booked each fixture's engine pick at a different price to the
   // slip shown here.
-  function apply() {
-    const legs = (view?.legs || []).filter(l => l.fixtureId)
-    onApply?.(legs)
-    if (analyse) onAnalyse?.(legs.map(l => l.fixtureId))
+  function apply(legs) {
+    const use = (legs || []).filter(l => l.fixtureId)
+    if (!use.length) return
+    onApply?.(use)
+    if (analyse) onAnalyse?.(use.map(l => l.fixtureId))
     onClose()
   }
 
-  // Every slip the build returned; `view` is the one on screen. Falling back to the top-level
-  // result keeps this working against an older response that had no `slips` array.
+  // Every slip the build returned. Falling back to the top-level result keeps this working
+  // against an older response that had no `slips` array.
   const allSlips = result?.slips?.length ? result.slips : result?.ok ? [result] : []
-  const view = allSlips[Math.min(slipIdx, allSlips.length - 1)] || null
-  const overshoot = view ? view.totalOdds / target - 1 : 0
+  // Kept for the failure path and the header stats; the slips themselves now all render at once.
+  const view = allSlips[0] || null
+  const sel = [...picked.values()]
+  const selOdds = sel.reduce((a, l) => a * (l.odds || 1), 1)
+  const selProb = sel.reduce((a, l) => a * (l.prob ?? 1), 1)
 
   return (
     <div className="modal-scrim" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
@@ -314,6 +419,39 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
             </div>
           )}
 
+          {/* How the legs are ranked.
+              Identical in shape to the Slip Simulator's mode control, so a setting measured
+              there is the setting booked here — the two drifting apart would make the simulator
+              a measurement of something you never place. */}
+          <div className="toolbar" style={{ gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
+            <label className="muted" style={{ fontSize: 12 }}
+              title="Model ranks legs on the model's corrected probability. Human judgement ranks them on the same layer the Slip Simulator grades — the model's number marked up or down by what this league, these clubs, this price source and this data quality have actually delivered.">
+              Rank by
+              <select className="field" value={mode} onChange={e => setMode(e.target.value)}
+                disabled={building} style={{ marginLeft: 6, width: 'auto', padding: '5px 9px' }}>
+                <option value="model">Model probability</option>
+                <option value="human">Human judgement</option>
+              </select>
+            </label>
+            {mode === 'human' && (
+              <label className="muted" style={{ fontSize: 12 }}
+                title="Push Over 1.5 up the ranking and the Unders down. It steers the search only — what each leg claims is unchanged, so the win probability stays honest. Measured over 372 simulated August slips at a 3x target: +4pp took slips from 40 landing per 100 to 45.">
+                Prefer Over 1.5
+                <select className="field" value={preferOver15} onChange={e => setPreferOver15(Number(e.target.value))}
+                  disabled={building} style={{ marginLeft: 6, width: 'auto', padding: '5px 9px' }}>
+                  {[0, 0.02, 0.04, 0.06, 0.1].map(v =>
+                    <option key={v} value={v}>{v ? `+${(v * 100).toFixed(0)}pp` : 'no lean'}</option>)}
+                </select>
+              </label>
+            )}
+            {mode === 'human' && (
+              <span className="muted2" style={{ fontSize: 10.5, maxWidth: 340, lineHeight: 1.45 }}>
+                Build with one, tick the legs you want, switch to the other and rebuild — the
+                selection is kept, so a ticket can hold legs chosen by both.
+              </span>
+            )}
+          </div>
+
           {/* Options */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
             <label className={`switch${sbOnly ? ' on' : ''}`}>
@@ -393,94 +531,22 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
             </div>
           )}
 
-          {view && (
+          {allSlips.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {allSlips.length > 1 && (
-                <div style={{ marginBottom: 12 }}>
-                  <div className="seg" style={{ flexWrap: 'wrap' }}>
-                    {allSlips.map((sl, i) => (
-                      <button key={i} className={slipIdx === i ? 'on' : ''} onClick={() => { setSlipIdx(i); setBook(null) }}>
-                        Slip {i + 1} · {sl.totalOdds}x · {(sl.winProb * 100).toFixed(0)}%
-                      </button>
-                    ))}
-                  </div>
-                  <div className="muted2" style={{ fontSize: 10.5, marginTop: 5 }}>
-                    {/* Each slip is booked on its own — they share no club, so they can lose
-                        independently, which is the only reason to place more than one. */}
-                    No club appears in two of these. Generate a separate code for each.
-                  </div>
-                </div>
-              )}
+
               {result?.slipsNote && (
-                <div style={{ fontSize: 11.5, color: 'var(--warn)', marginBottom: 10, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 11.5, color: 'var(--warn)', lineHeight: 1.5 }}>
                   ⚠ {result.slipsNote}
                 </div>
               )}
-              <div className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-                <div className="stat" style={{ padding: '12px 14px' }}>
-                  <div className="stat-label">Combined odds</div>
-                  <div className="stat-value num" style={{ fontSize: 24, color: 'var(--warn)' }}>{view.totalOdds}x</div>
-                  <div className="stat-foot">
-                    {overshoot > 0.005 ? `${(overshoot * 100).toFixed(0)}% over target` : 'on target'}
-                  </div>
-                </div>
-                <div className="stat" style={{ padding: '12px 14px' }}>
-                  <div className="stat-label">Legs</div>
-                  <div className="stat-value num" style={{ fontSize: 24 }}>{view.legs.length}</div>
-                  <div className="stat-foot">from {result.considered} fixtures</div>
-                </div>
-                <div
-                  className="stat"
-                  style={{ padding: '12px 14px' }}
-                  title="Product of every leg's model probability — the chance all of them land. It assumes the legs are independent, which is why one leg per match matters."
-                >
-                  <div className="stat-label">All land</div>
-                  <div className="stat-value num" style={{
-                    fontSize: 24,
-                    color: view.winProb >= 0.4 ? 'var(--pos)' : view.winProb >= 0.15 ? 'var(--warn)' : 'var(--neg)',
-                  }}>{pct(view.winProb)}</div>
-                  {/* The headline is now computed on MEASURED hit rates — the correction runs
-                      before the search, so these legs were chosen on it rather than merely
-                      reported against it afterwards. What the model originally claimed is shown
-                      underneath, because the gap is the interesting number. */}
-                  {view.winProbClaimed != null ? (
-                    <div
-                      className="stat-foot"
-                      title={`The figure above uses each market's measured hit rate against what it claimed, over this app's own graded picks — and the legs were selected on it. ${view.legsAdjusted} of ${view.legs.length} legs carried a correction. The model's own unadjusted claim was ${pct(view.winProbClaimed)}.`}
-                    >
-                      model claimed <span style={{ color: 'var(--warn)' }}>{pct(view.winProbClaimed)}</span> · {view.legsAdjusted} legs corrected
-                    </div>
-                  ) : (
-                    <div className="stat-foot">
-                      {result.calibrate ? 'no measured corrections yet' : 'model estimate, uncorrected'}
-                    </div>
-                  )}
-                </div>
-              </div>
 
-              {/* Concentration.
-                  "All land" is a plain product, which only means what it says if the legs are
-                  independent. Twelve different markets across twelve fixtures are close enough.
-                  Twelve Over 1.5 legs are not — one low-scoring round takes them all, so the real
-                  chance is below the number above. Over 1.5 is now a candidate on every fixture
-                  and it is both the most reliable market and priced where a target needs it, so
-                  slips WILL come back heavy in it. That is the right pick; this is the caveat. */}
-              {view.concentration && view.concentration.topCount >= 3 && view.concentration.share >= 0.5 && (
-                <div style={{
-                  background: 'var(--warn-soft)', border: '1px solid var(--warn-dim)',
-                  borderRadius: 'var(--r)', padding: '9px 12px', fontSize: 11.5,
-                  color: 'var(--warn)', lineHeight: 1.5,
-                }}>
-                  {view.concentration.topCount} of {view.legs.length} legs are <b>{view.concentration.topSelection}</b>.
-                  {' '}Same-market legs fail together — a low-scoring round takes all of them — so the
-                  true chance is below the {pct(view.winProb)} above, which assumes independence.
-                  {' '}Lower the target or the leg count for a more mixed slip.
+              {result?.human && (
+                <div className="muted2" style={{ fontSize: 11 }}>
+                  Human judgement over {result.human.legsJudged} legs, from {result.human.fittedOnPicks.toLocaleString()} settled picks
+                  {result.human.preferOver15 > 0 && ` · Over 1.5 lean +${(result.human.preferOver15 * 100).toFixed(0)}pp`}
                 </div>
               )}
 
-              {/* Legs whose model probability sat far above the market's. Worth showing by name:
-                  a 46-point gap is not value, it is the model being wrong about that fixture, and
-                  the optimiser would otherwise have preferred exactly those legs. */}
               {result.sportybet?.capped > 0 && (
                 <div style={{
                   background: 'var(--info-soft)', border: '1px solid var(--info-dim)',
@@ -490,15 +556,6 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                   {result.sportybet.capped} candidate leg{result.sportybet.capped === 1 ? '' : 's'} claimed a probability
                   more than {(result.sportybet.maxModelEdge * 100).toFixed(0)}pp above the SportyBet price and
                   {result.sportybet.capped === 1 ? ' was' : ' were'} pulled back to it.
-                  {result.sportybet.worstDisagreements?.length > 0 && (
-                    <div style={{ marginTop: 5 }}>
-                      {result.sportybet.worstDisagreements.slice(0, 3).map((d, i) => (
-                        <div key={i} className="muted2" style={{ fontSize: 10.5 }}>
-                          {d.match} — {d.market}: {d.selection} · model {pct(d.modelProb)} vs {d.odds}x implying {pct(d.impliedProb)}
-                        </div>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -510,90 +567,160 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                 </div>
               )}
 
-              <div className="leg-list">
-                {view.legs.map((l, i) => (
-                  <div className="leg" key={`${l.fixtureId}-${i}`}>
-                    <span className="n">{i + 1}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.match}</div>
-                      <div className="pick">
-                        {l.market}: {l.selection}
-                        {l.source === 'over15' && (
-                          <span className="tag tag-pos" style={{ marginLeft: 5 }}
-                            title="Over 1.5 — the most reliable market in the backtest (80.7% actual vs 81.2% predicted on low-tier fixtures). Offered on every fixture, not only where it won the main slot.">
-                            O1.5
-                          </span>
-                        )}
-                      </div>
+              {/* ── Every slip, listed ──
+                  These used to be tabs, which showed one slip and hid the rest — so asking for
+                  three produced what looked like one. Listing them makes the whole build visible
+                  and, more to the point, makes legs from different slips tickable side by side. */}
+              {allSlips.map((sl, i) => {
+                const legs = sl.legs || []
+                const allOn = legs.length > 0 && legs.every(l => picked.has(legKey(l)))
+                const someOn = legs.some(l => picked.has(legKey(l)))
+                const over = sl.totalOdds / target - 1
+                const bk = books[i]
+                return (
+                  <div key={i} className="card" style={{ padding: '10px 12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', marginBottom: 8 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+                        title={allOn ? 'Remove every leg of this slip from the selection' : 'Add every leg of this slip to the selection'}>
+                        <input type="checkbox" checked={allOn}
+                          ref={el => { if (el) el.indeterminate = someOn && !allOn }}
+                          onChange={() => toggleSlip(legs, allOn)} />
+                        <b style={{ fontSize: 12.5 }}>Slip {i + 1}</b>
+                      </label>
+                      <span className="muted" style={{ fontSize: 11.5 }}>{legs.length} legs</span>
+                      <span className="num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--warn)' }}>{sl.totalOdds}x</span>
+                      <span className="muted2" style={{ fontSize: 10.5 }}>
+                        {over > 0.005 ? `${(over * 100).toFixed(0)}% over target` : 'on target'}
+                      </span>
+                      <span className="num" style={{
+                        fontSize: 12, fontWeight: 700,
+                        color: sl.winProb >= 0.4 ? 'var(--pos)' : sl.winProb >= 0.15 ? 'var(--warn)' : 'var(--neg)',
+                      }} title="Product of every leg's probability — the chance all of them land.">
+                        {pct(sl.winProb)} all land
+                      </span>
+                      {sl.concentration && sl.concentration.topCount >= 3 && sl.concentration.share >= 0.5 && (
+                        <span style={{ fontSize: 10.5, color: 'var(--warn)' }}
+                          title="Same-market legs fail together — one low-scoring round takes all of them — so the true chance is below the figure shown, which assumes independence.">
+                          ⚠ {sl.concentration.topCount} × {sl.concentration.topSelection}
+                        </span>
+                      )}
+                      <button className="btn" style={{ marginLeft: 'auto', padding: '4px 9px', fontSize: 11 }}
+                        onClick={() => getCode(i, legs)} disabled={booking || !sbOnly}
+                        title={sbOnly ? 'Book this slip on its own' : 'Turn on "SportyBet matches only" and rebuild — a booking code needs real SportyBet outcomes'}>
+                        {booking && bookingKey === i ? <span className="spin" /> : '🎰 Code'}
+                      </button>
                     </div>
-                    <span className="p">{pct(l.prob)}</span>
-                    <span className="o">{l.odds}x</span>
-                  </div>
-                ))}
-              </div>
 
-              {/* Said out loud because it was not true until now: these exact markets are what
-                  gets booked, and they remain changeable afterwards rather than being final. */}
-              <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5 }}>
-                These exact legs carry over to the builder — "Your slip" there lists each one with
-                every other market on the same match, so any of them can be swapped before you
-                generate a code.
-              </div>
-
-              {/* ── Booking code ── */}
-              {book?.code && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div className="eyebrow" style={{ color: 'var(--pos)' }}>✓ SportyBet booking code — saved for settlement</div>
-                  <div className="code-box">{book.code}</div>
-                  <div className="toolbar">
-                    <button className="btn btn-pos" onClick={() => navigator.clipboard?.writeText(book.code)}>Copy code</button>
-                    {book.shareUrl && (
-                      <a className="btn btn-info" href={book.shareUrl} target="_blank" rel="noreferrer">Open on SportyBet ↗</a>
-                    )}
-                    <span className="muted" style={{ fontSize: 11.5 }}>
-                      {book.totalOdds}x
-                      {book.deadline && ` · expires ${new Date(book.deadline).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
-                    </span>
-                  </div>
-                  {book.rejected > 0 && (
-                    <div style={{ fontSize: 11.5, color: 'var(--warn)' }}>
-                      SportyBet dropped {book.rejected} leg — check the slip before staking.
+                    <div className="leg-list">
+                      {legs.map((l, j) => {
+                        const on = picked.has(legKey(l))
+                        return (
+                          <label className="leg" key={`${l.fixtureId}-${j}`} style={{ cursor: 'pointer', opacity: on ? 1 : 0.82 }}>
+                            <input type="checkbox" checked={on} onChange={() => toggleLeg(l)} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.match}</div>
+                              <div className="pick">
+                                {l.market}: {l.selection}
+                                {l.source === 'over15' && (
+                                  <span className="tag tag-pos" style={{ marginLeft: 5 }}
+                                    title="Over 1.5 — the most reliable market in the measured data.">O1.5</span>
+                                )}
+                                {/* Only present in human mode: the model's own number before the
+                                    judgement moved it, and the terms that moved it. */}
+                                {l.judgedFrom != null && Math.abs(l.judgedFrom - l.prob) >= 0.005 && (
+                                  <span className="muted2" style={{ marginLeft: 6, fontSize: 10 }}
+                                    title={(l.why || []).map(w => `${w.term} ${w.deltaPP >= 0 ? '+' : ''}${w.deltaPP}pp`).join(', ') || 'judged'}>
+                                    model {pct(l.judgedFrom)} → {pct(l.prob)}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <span className="p">{pct(l.prob)}</span>
+                            <span className="o">{l.odds}x</span>
+                          </label>
+                        )
+                      })}
                     </div>
-                  )}
-                  <div className="muted2" style={{ fontSize: 11 }}>
-                    {book.recorded
-                      ? 'Recorded — this slip will be graded automatically once every leg has played.'
-                      : 'Code created, but it could not be saved for settlement.'}
+
+                    {bk?.code && <BookingCode book={bk} />}
                   </div>
-                </div>
-              )}
+                )
+              })}
+
+              {/* ── The merged selection ──
+                  Survives a rebuild on purpose: tick what you like from a model-built card,
+                  switch to human judgement, rebuild, tick more, and book the combination. */}
+              <div className="card" style={{
+                padding: '10px 12px', position: 'sticky', bottom: 0,
+                border: `1px solid ${sel.length ? 'var(--pos-dim)' : 'var(--bd)'}`,
+                background: 'var(--bg-1)',
+              }}>
+                {sel.length === 0 ? (
+                  <div className="muted2" style={{ fontSize: 11.5, lineHeight: 1.55 }}>
+                    Tick legs from any of the slips above to build one ticket out of them. The
+                    selection is kept when you rebuild, so you can change the mode or the target
+                    and keep adding to it — one leg per match, always.
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <b style={{ fontSize: 12.5 }}>Selection</b>
+                      <span className="muted" style={{ fontSize: 11.5 }}>{sel.length} legs</span>
+                      <span className="num" style={{ fontSize: 15, fontWeight: 800, color: 'var(--warn)' }}>
+                        {selOdds.toFixed(2)}x
+                      </span>
+                      <span className="num" style={{
+                        fontSize: 12, fontWeight: 700,
+                        color: selProb >= 0.4 ? 'var(--pos)' : selProb >= 0.15 ? 'var(--warn)' : 'var(--neg)',
+                      }}>{pct(selProb)} all land</span>
+                      <button className="btn" style={{ padding: '4px 9px', fontSize: 11 }}
+                        onClick={() => setPicked(new Map())}>Clear</button>
+                      <button className="btn btn-warn" style={{ marginLeft: 'auto', padding: '5px 10px', fontSize: 11.5 }}
+                        onClick={() => getCode('selection', sel)} disabled={booking || !sbOnly || sel.length > MAX_BOOKING_LEGS}
+                        title={!sbOnly ? 'Turn on "SportyBet matches only" and rebuild — a booking code needs real SportyBet outcomes'
+                          : sel.length > MAX_BOOKING_LEGS ? `SportyBet accepts at most ${MAX_BOOKING_LEGS} selections — untick ${sel.length - MAX_BOOKING_LEGS}`
+                          : 'One booking code for the legs you have ticked'}>
+                        {booking && bookingKey === 'selection' ? <><span className="spin" /> Booking…</> : '🎰 Code for selection'}
+                      </button>
+                    </div>
+                    <div className="muted2" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
+                      Drawn from {new Set(sel.map(l => l.fixtureId)).size} matches.
+                      {' '}“All land” is a plain product and assumes the legs are independent —
+                      true enough across different matches and different markets, less so the more
+                      of one market you take.
+                    </div>
+                    {books.selection?.code && <BookingCode book={books.selection} />}
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
 
         <div className="modal-foot">
           {/* Keyed on `view`, not `result`. A failed build still sets `result` (it carries the
-              candidate pool, which is the only way to see WHY nothing was buildable), and the
-              branch below dereferences view.legs — so keying on `result` crashed the whole modal
-              the moment a build came back ok:false, which is exactly what "choose markets &
-              thresholds" does when the rules are tight. */}
+              candidate pool, which is the only way to see WHY nothing was buildable), so keying
+              on `result` crashed the modal the moment a build came back ok:false — which is
+              exactly what "choose markets & thresholds" does when the rules are tight. */}
           {!view ? (
             <button className="btn btn-primary btn-lg" onClick={build} disabled={building || picks.length < 2} style={{ flex: 1 }}>
               {building ? <><span className="spin" /> Searching combinations…</> : result ? `Try again at ${target}x` : `Build a ${target}x slip`}
             </button>
           ) : (
             <>
-              <button className="btn" onClick={build} disabled={building}>
+              <button className="btn" onClick={build} disabled={building}
+                title="Rebuild with the current settings. Anything you have ticked is kept, so this is how you mix a model-built card with a human-judged one.">
                 {building ? <span className="spin" /> : '↻ Rebuild'}
               </button>
-              {!book?.code && (
-                <button className="btn btn-warn" onClick={getCode} disabled={booking || !sbOnly}
-                  title={sbOnly ? 'Create a SportyBet booking code for these legs' : 'Turn on "SportyBet matches only" and rebuild — a booking code needs real SportyBet outcomes'}>
-                  {booking ? <><span className="spin" /> Booking…</> : '🎰 Get booking code'}
-                </button>
-              )}
-              <button className="btn btn-primary" onClick={apply} style={{ marginLeft: 'auto' }}>
-                Select these {view.legs.length} legs{analyse ? ' & analyse' : ''}
+              <span className="muted2" style={{ fontSize: 10.5, maxWidth: 260, lineHeight: 1.4 }}>
+                {sel.length ? `${sel.length} legs ticked — kept across rebuilds` : 'Tick legs above to build one ticket from several slips'}
+              </span>
+              <button className="btn btn-primary" style={{ marginLeft: 'auto' }}
+                onClick={() => apply(sel.length ? sel : (allSlips[0]?.legs || []))}
+                disabled={!sel.length && !allSlips[0]?.legs?.length}>
+                {sel.length
+                  ? `Select these ${sel.length} legs${analyse ? ' & analyse' : ''}`
+                  : `Select slip 1's ${allSlips[0]?.legs?.length || 0} legs${analyse ? ' & analyse' : ''}`}
               </button>
             </>
           )}
