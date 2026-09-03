@@ -104,6 +104,9 @@ function fmt(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-GB', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
+
+
 export default function BetBuilder() {
   const [duration, setDuration]   = useState('today')
   const [risks, setRisks]         = useState(['low'])
@@ -130,6 +133,12 @@ export default function BetBuilder() {
   // what you want when the legs of an accumulator should all kick off together, where a rolling
   // "within N hours" window still spans everything before it.
   const [kickoffHour, setKickoffHour] = useState(null)
+  // A time-of-day RANGE, 0-23 inclusive, or '' for no limit. Different from `kickoffHour` above,
+  // which pins one exact slot on one date: this takes the same stretch of the clock on every day
+  // in the window, so "the afternoon card" stays the afternoon card across a weekend. Start after
+  // end wraps midnight (22 → 02 is the late programme).
+  const [fromHour, setFromHour] = useState('')
+  const [toHour, setToHour] = useState('')
   const [limit, setLimit]         = useState(1500)
   const [page, setPage]           = useState(1)
   const [showAll, setShowAll]       = useState(false)
@@ -861,6 +870,19 @@ export default function BetBuilder() {
   const visible = useMemo(() => {
     const p2 = n => String(n).padStart(2, '0')
     let out = windowed
+    if (fromHour !== '' || toHour !== '') {
+      const lo = fromHour === '' ? null : Number(fromHour)
+      const hi = toHour === '' ? null : Number(toHour)
+      out = out.filter(p => {
+        const d = new Date(p.fixtureDate)
+        if (isNaN(d.getTime())) return false
+        const h = d.getHours()
+        if (lo == null) return h <= hi
+        if (hi == null) return h >= lo
+        // A start after the end is a window across midnight, not an empty one.
+        return lo <= hi ? (h >= lo && h <= hi) : (h >= lo || h <= hi)
+      })
+    }
     if (activeHour) {
       out = out.filter(p => {
         const d = new Date(p.fixtureDate)
@@ -875,7 +897,7 @@ export default function BetBuilder() {
     }
     if (legFloorOn) out = out.filter(p => (p.modelProbRaw ?? 0) >= minLegProb)
     return out
-  }, [windowed, activeHour, sbOnly, sbAvail, legFloorOn, minLegProb])
+  }, [windowed, activeHour, fromHour, toHour, sbOnly, sbAvail, legFloorOn, minLegProb])
 
   // Memoised because this copies and re-sorts EVERY pick, not just the twenty on screen. A full
   // slate is well over a thousand, and without this it re-ran on every unrelated state change —
@@ -1477,6 +1499,27 @@ export default function BetBuilder() {
                   <option value="">At any hour</option>
                   {hourOptions.map(o => <option key={o.key} value={o.key}>{o.label} ({o.count})</option>)}
                 </select>
+              )}
+              {/* Time of day, on every day in the window — the slot dropdown beside it pins one
+                  exact hour on one date, which is the right control when every leg must start
+                  together and the wrong one for "show me the afternoon card". */}
+              <span className="muted2" style={{ fontSize: 11 }}>between</span>
+              <select className="field" value={fromHour} onChange={e => { setFromHour(e.target.value); setPage(1) }}
+                title="Only matches kicking off at or after this hour, on every day in the window"
+                style={{ width: 'auto', padding: '6px 6px', fontSize: 12, ...(fromHour !== '' ? { color: 'var(--accent-2)', borderColor: 'var(--accent-dim)' } : {}) }}>
+                <option value="">any</option>
+                {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+              </select>
+              <span className="muted2" style={{ fontSize: 11 }}>–</span>
+              <select className="field" value={toHour} onChange={e => { setToHour(e.target.value); setPage(1) }}
+                title="Only matches kicking off at or before the end of this hour. Set it earlier than the start to wrap midnight — 22 to 02 is the late programme."
+                style={{ width: 'auto', padding: '6px 6px', fontSize: 12, ...(toHour !== '' ? { color: 'var(--accent-2)', borderColor: 'var(--accent-dim)' } : {}) }}>
+                <option value="">any</option>
+                {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:59</option>)}
+              </select>
+              {(fromHour !== '' || toHour !== '') && (
+                <button className="btn" style={{ padding: '4px 8px', fontSize: 11 }}
+                  onClick={() => { setFromHour(''); setToHour(''); setPage(1) }}>clear</button>
               )}
             </div>
 

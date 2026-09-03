@@ -4,6 +4,8 @@ import api from '../api'
 const pct = n => n != null ? (n * 100).toFixed(1) + '%' : '—'
 const sign = n => n == null ? '—' : `${n >= 0 ? '+' : ''}${n}pp`
 
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
+
 function daysAgo(n) {
   const d = new Date(); d.setDate(d.getDate() - n)
   return d.toISOString().slice(0, 10)
@@ -85,6 +87,12 @@ function SlipDetail({ slip, lost, defaultOpen = false }) {
 export default function SlipSimulator() {
   const [from, setFrom]           = useState(daysAgo(60))
   const [to, setTo]               = useState(daysAgo(0))
+  // Kickoff time of day, 0-23 inclusive, or '' for no limit. The dates choose which DAYS are
+  // replayed; this chooses which part of a day — a different question, and one the date range
+  // cannot answer. A Saturday is an early programme, a mid-afternoon block and an evening one,
+  // and they are not the same fixtures, leagues or prices. Start after end wraps midnight.
+  const [fromHour, setFromHour]   = useState('')
+  const [toHour, setToHour]       = useState('')
   const [targetOdds, setTarget]   = useState(20)
   const [minLegs, setMinLegs]     = useState(8)
   const [maxLegs, setMaxLegs]     = useState(12)
@@ -143,7 +151,15 @@ export default function SlipSimulator() {
   const [runs, setRuns]           = useState(null)
 
   const body = extra => ({
-    from, to, targetOdds: Number(targetOdds), minLegs: Number(minLegs), maxLegs: Number(maxLegs),
+    from, to,
+    fromHour: fromHour === '' ? null : Number(fromHour),
+    toHour:   toHour   === '' ? null : Number(toHour),
+    // The hours are read off the user's clock, so the database has to evaluate them in the same
+    // zone. Sent rather than assumed: the server need not be in the same timezone as the browser,
+    // and "the 15:00 kickoffs" silently meaning 15:00 UTC would be wrong by an hour for half the
+    // year in the UK alone.
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    targetOdds: Number(targetOdds), minLegs: Number(minLegs), maxLegs: Number(maxLegs),
     safeOnly, sportybetOnly: sbOnly, realOddsOnly: realOdds, slipsPerDay: Number(perDay), windowDays: Number(windowDays),
     mode, minLegProb: Number(minLegProb), minSlipProb: Number(minSlipProb), uniqueBy,
     marketRules: (() => {
@@ -237,6 +253,21 @@ export default function SlipSimulator() {
         <label className="muted" style={{ fontSize: 11.5 }}>To
           <input className="field" type="date" value={to} onChange={e => setTo(e.target.value)}
             style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }} />
+        </label>
+        <label className="muted" style={{ fontSize: 11.5 }}
+          title="Only fixtures kicking off inside this window, on every day in the range. Inclusive at both ends, read off your own clock. Set the start later than the end to wrap midnight — 22 to 02 is the late programme.">
+          Kickoff
+          <select className="field" value={fromHour} onChange={e => setFromHour(e.target.value)}
+            style={{ marginLeft: 6, width: 'auto', padding: '4px 6px' }}>
+            <option value="">any</option>
+            {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>)}
+          </select>
+          <span style={{ margin: '0 4px' }}>–</span>
+          <select className="field" value={toHour} onChange={e => setToHour(e.target.value)}
+            style={{ width: 'auto', padding: '4px 6px' }}>
+            <option value="">any</option>
+            {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, '0')}:59</option>)}
+          </select>
         </label>
         <label className="muted" style={{ fontSize: 11.5 }}
           title="Safest: take the N most likely legs, accept whatever odds result. Target: reach for a price, which is what forces a weak leg into the slip. Human: the same search as Target, but ranking legs on what this league, these clubs, this price source and this data quality have actually delivered rather than on the model's claim alone.">
@@ -501,6 +532,16 @@ export default function SlipSimulator() {
               these slips come out of a pool: a 5x that needs six legs eats six of the matches on
               the card, and how many hundred-match cards you would need is a real limit on
               placing them. */}
+          {(res.config?.fromHour != null || res.config?.toHour != null) && (
+            <div className="muted2" style={{ fontSize: 11, marginBottom: 8 }}>
+              Kickoffs {res.config.fromHour != null ? `from ${String(res.config.fromHour).padStart(2, '0')}:00` : 'any time'}
+              {' '}{res.config.toHour != null ? `to ${String(res.config.toHour).padStart(2, '0')}:59` : ''}
+              {' '}({res.config.timezone})
+              {res.config.fromHour != null && res.config.toHour != null && res.config.fromHour > res.config.toHour && ' — wrapping midnight'}
+              {' · '}every day from {res.config.from} to {res.config.to}
+            </div>
+          )}
+
           {res.perHundred && (
             <div style={{
               background: 'var(--info-soft)', border: '1px solid var(--info-dim)',
