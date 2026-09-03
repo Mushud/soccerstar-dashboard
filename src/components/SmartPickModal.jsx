@@ -453,6 +453,14 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
               </label>
             )}
             {mode === 'human' && (
+              <button className="btn btn-pos" style={{ padding: '4px 9px', fontSize: 11 }}
+                onClick={() => { setPreferOver15(0.06); setSlipShare(0) }}
+                disabled={building || (preferOver15 === 0.06 && slipShare === 0)}
+                title="Over 1.5 lean +6pp and no market cap — the configuration the Slip Simulator measures as best (46 slips landed per 100 at a 3x target over August, against the plain model's 40).">
+                ⚡ Use measured-best
+              </button>
+            )}
+            {mode === 'human' && (
               <span className="muted2" style={{ fontSize: 10.5, maxWidth: 340, lineHeight: 1.45 }}>
                 Build with one, tick the legs you want, switch to the other and rebuild — the
                 selection is kept, so a ticket can hold legs chosen by both.

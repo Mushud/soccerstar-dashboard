@@ -416,6 +416,16 @@ export default function SlipSimulator() {
                 {[0, 2, 3, 4, 6].map(v => <option key={v} value={v}>{v || 'no cap'}</option>)}
               </select>
             </label>
+            {/* One click to the configuration that measured best, because the settings live in
+                component state: a hot reload keeps the old values alive, so a default changed in
+                the source never reaches a tab that was already open. Reloading works too — this
+                is here so you do not have to know that. */}
+            <button className="btn btn-pos" style={{ padding: '4px 9px', fontSize: 11 }}
+              onClick={() => { setPreferOver15(0.06); setMaxPerFamily(0); setGutNoise(0) }}
+              disabled={Number(preferOver15) === 0.06 && Number(maxPerFamily) === 0 && Number(gutNoise) === 0}
+              title="Over 1.5 lean +6pp, no market cap, no fallibility — 46 slips landed per 100 at a 3x target over August, against the plain model's 40.">
+              ⚡ Use measured-best
+            </button>
             {Object.keys(terms).map(k => (
               <label key={k} className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer' }}
                 title={{
@@ -578,6 +588,25 @@ export default function SlipSimulator() {
               "it helped" is not checkable and "it stopped backing these leagues" is. */}
           {res.human && (
             <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
+              {/* What this run actually used, stated first. The settings are sent from the page's
+                  own state, so a tab left open across a default change keeps sending the old
+                  values and the result looks like the new behaviour failing. */}
+              <div style={{ fontSize: 11.5, marginBottom: 6 }}>
+                <b>Ran with:</b>{' '}
+                <span style={{ color: res.human.preferOver15 > 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                  Over 1.5 lean {res.human.preferOver15 > 0 ? `+${(res.human.preferOver15 * 100).toFixed(0)}pp` : 'OFF'}
+                </span>
+                {' · '}
+                <span style={{ color: res.human.maxPerFamily > 0 ? 'var(--warn)' : 'var(--pos)' }}>
+                  market cap {res.human.maxPerFamily > 0 ? res.human.maxPerFamily : 'off'}
+                </span>
+                {' · '}fallibility {res.human.gutNoise ? `±${(res.human.gutNoise * 100).toFixed(0)}pp` : 'none'}
+                {(!res.human.preferOver15 || res.human.maxPerFamily > 0) && (
+                  <span className="muted2" style={{ marginLeft: 6 }}>
+                    — measured best is a +6pp lean with the cap off; reload the page if these look stale.
+                  </span>
+                )}
+              </div>
               <div className="eyebrow" style={{ marginBottom: 6 }}>
                 Human judgement — fitted on {res.human.fittedOnPicks.toLocaleString()} picks
                 {res.human.fittedBefore ? ` before ${res.human.fittedBefore}` : ''}
