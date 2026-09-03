@@ -116,11 +116,16 @@ export default function SlipSimulator() {
   // exact argmax of a score fitted to this same history is not a strategy, and jittering the
   // score before ranking is how you find that out. 0 makes the ranking deterministic.
   const [gutNoise, setGutNoise]   = useState(0.03)
-  const [maxPerFamily, setMaxPerFamily] = useState(3)
+  // Off by default. The cap's argument is sound — same-family legs fail together — but it cannot
+  // choose what it forces in, and what it forces in is worse: over August at 3x, cap 3 landed 38
+  // per 100, cap 6 landed 42, no cap landed 45, while the Unders share fell 18% → 3% → 0%.
+  const [maxPerFamily, setMaxPerFamily] = useState(0)
   // Lean toward Over 1.5 and away from the Unders. An instruction, not something fitted — but
   // the one the record argues for: inside human-mode slips Over 1.5 ran 87.9% against a claimed
   // 88.9% on 783 legs, while Under 3.5 ran 70.1% vs 83.0% and Under 4.5 68.2% vs 84.0%.
-  const [preferOver15, setPreferOver15] = useState(0)
+  // +6pp by default: that is where the effect saturates (41 → 45 → 46 → 46 → 45 landed per 100
+  // at 0/4/6/8/12pp over August at a 3x target), not a number chosen to flatter it.
+  const [preferOver15, setPreferOver15] = useState(0.06)
   // Each term of the judgement, on or off. Off is the interesting setting — with all five off the
   // run reproduces "Hit a target" exactly, which is how you tell whether any of them carry
   // anything. Measured over 372 slips, none of them did.
@@ -431,10 +436,15 @@ export default function SlipSimulator() {
             that already contains its own result. Turn all five terms off and this reproduces
             “Hit a target” exactly, which is the control worth running first: measured over 372
             slips in August, every term landed within noise of the plain model, and all five
-            together did too. “Prefer Over 1.5” is the exception — it is an instruction rather
-            than a fitted term, and it was the only setting that beat the plain model, at every
-            market cap tested. Watch the concentration it buys: at +4pp with no cap, 93% of legs
-            are Over 1.5, which is one bet on a high-scoring round wearing five names.
+            together did too. “Prefer Over 1.5” is the exception — an instruction rather than a
+            fitted term, and the only setting that beat the plain model. With no market cap it
+            took slips from 41 landed per 100 to 46 at a 3x target, and 27 to 31 at 5x.
+            {' '}<b>The market cap costs more than it protects</b>: cap 3 landed 38, cap 6 landed
+            42, no cap landed 45, because the cap cannot choose what it substitutes and what it
+            substitutes is Double Chance and the Unders — the markets running 4-13pp short of
+            their claims. The concentration is real (97% of legs become Over 1.5) and the figures
+            above already contain it, since they are realised results; the longest losing run did
+            not worsen. One month of data, so both dials stay.
           </div>
         </div>
       )}

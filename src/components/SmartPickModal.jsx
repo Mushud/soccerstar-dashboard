@@ -126,7 +126,12 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // Ceiling on how many legs of one market family a slip may carry. Not only taste: same-family
   // legs fail together, so eleven per-team Unders is one bet on "goals are scarce today" wearing
   // eleven names, and winProb — a plain product — assumes an independence it does not have.
-  const [slipShare, setSlipShare] = useState(0.35)
+  // No cap by default, and the change is deliberate. It was 0.35, which meant Smart Pick applied
+  // a diversity rule the simulator's own baseline never applied — so the configuration being
+  // booked was not the configuration being measured. Measured with it: cap 3 landed 38 slips per
+  // 100, cap 6 landed 42, no cap landed 45. The cap cannot choose what it forces in, and what it
+  // forces in is Double Chance and the Unders.
+  const [slipShare, setSlipShare] = useState(0)
   // Per-market floors. `on` is the whitelist; a market switched off is not used at all.
   const [rules, setRules] = useState(() => ({
     'Over/Under|Over 1.5':             { on: true,  min: 0.80 },
@@ -156,8 +161,11 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // 'human' ranks legs on the judgement layer the Slip Simulator measures rather than on the
   // model's probability alone. Kept identical in shape to the simulator's control so a setting
   // tested there is the setting booked here.
-  const [mode, setMode] = useState('model')
-  const [preferOver15, setPreferOver15] = useState(0)
+  // Human judgement with the Over 1.5 lean is the configuration the Slip Simulator measures as
+  // best over August — 46 slips landed per 100 at a 3x target against the plain model's 40 —
+  // so it is what this offers first. Switch back to Model probability to compare.
+  const [mode, setMode] = useState('human')
+  const [preferOver15, setPreferOver15] = useState(0.06)
 
   // ── Merged selection ──
   // Legs ticked across every slip on screen, keyed fixtureId|market|selection. It deliberately
