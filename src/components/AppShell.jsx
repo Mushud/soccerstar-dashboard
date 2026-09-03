@@ -18,6 +18,7 @@ const NAV = [
       { to: '/?view=live',  icon: '🔴', text: 'Live',        live: true },
       { to: '/bet-builder', icon: '🎯', text: 'Bet Builder' },
       { to: '/betslip',     icon: '🧾', text: 'Bet Slip' },
+      { to: '/slate',       icon: '🗓', text: 'Slate' },
       { to: '/slips',       icon: '🎟', text: 'Booked Slips' },
     ],
   },
@@ -39,7 +40,7 @@ const NAV = [
 const TABS = [
   { to: '/',            icon: '⚽', text: 'Matches' },
   { to: '/bet-builder', icon: '🎯', text: 'Builder' },
-  { to: '/betslip',     icon: '🧾', text: 'Slip' },
+  { to: '/slate',       icon: '🗓', text: 'Slate' },
   { to: '/tournaments', icon: '🏆', text: 'Cups' },
 ]
 
