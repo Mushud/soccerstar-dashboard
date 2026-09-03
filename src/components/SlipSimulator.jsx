@@ -47,6 +47,10 @@ function SlipDetail({ slip, lost, defaultOpen = false }) {
             <thead><tr>
               <th style={{ width: 22 }} /><th>Match</th><th className="num">Result</th>
               <th>Selection</th><th className="num">Odds</th><th className="num">Model</th>
+              {/* Human mode only: what the model claimed on its own, before the league, club,
+                  price-source and data-quality records moved it. The gap IS the judgement
+                  layer — without it the mode is unfalsifiable. */}
+              {(slip.allLegs || []).some(l => l.modelProb != null) && <th className="num">Judged</th>}
             </tr></thead>
             <tbody>
               {(slip.allLegs || []).map((l, j) => (
@@ -57,8 +61,17 @@ function SlipDetail({ slip, lost, defaultOpen = false }) {
                   <td className="muted">{l.market}: <span style={{ color: 'var(--tx-2)', fontWeight: 600 }}>{l.selection}</span></td>
                   <td className="num" style={{ color: 'var(--warn)' }}>{l.odds}</td>
                   <td className="num" style={{ color: l.prob >= 0.8 ? 'var(--pos)' : l.prob >= 0.6 ? 'var(--warn)' : 'var(--neg)' }}>
-                    {l.prob != null ? (l.prob * 100).toFixed(0) + '%' : '—'}
+                    {(l.modelProb ?? l.prob) != null ? ((l.modelProb ?? l.prob) * 100).toFixed(0) + '%' : '—'}
                   </td>
+                  {(slip.allLegs || []).some(x => x.modelProb != null) && (
+                    <td className="num" style={{ color: l.prob >= 0.8 ? 'var(--pos)' : l.prob >= 0.6 ? 'var(--warn)' : 'var(--neg)' }}
+                      title={(l.why || []).length
+                        ? (l.why || []).map(w => `${w.term} ${w.deltaPP >= 0 ? '+' : ''}${w.deltaPP}pp`).join(', ')
+                        : 'nothing moved this leg'}>
+                      {l.prob != null ? (l.prob * 100).toFixed(0) + '%' : '—'}
+                      {(l.why || []).length > 0 && <span className="muted2" style={{ marginLeft: 3, fontSize: 9.5 }}>ⓘ</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -90,6 +103,16 @@ export default function SlipSimulator() {
   // price. Measured, safest wins +7.5pp at matched odds and never uses a leg below ~72%, which
   // is why it is the default here.
   const [mode, setMode]           = useState('safest')
+  // ── Human mode ──
+  // How wrong the judgement is allowed to be. Not decoration: a strategy that only works on the
+  // exact argmax of a score fitted to this same history is not a strategy, and jittering the
+  // score before ranking is how you find that out. 0 makes the ranking deterministic.
+  const [gutNoise, setGutNoise]   = useState(0.03)
+  const [maxPerFamily, setMaxPerFamily] = useState(3)
+  // Each term of the judgement, on or off. Off is the interesting setting — with all five off the
+  // run reproduces "Hit a target" exactly, which is how you tell whether any of them carry
+  // anything. Measured over 372 slips, none of them did.
+  const [terms, setTerms] = useState({ league: true, team: true, tier: true, price: true, data: true })
   const [minLegProb, setMinLegProb]   = useState(0)
   const [minSlipProb, setMinSlipProb] = useState(0)
   const [uniqueBy, setUniqueBy]   = useState('team')
@@ -125,6 +148,10 @@ export default function SlipSimulator() {
         ? { allow: active.map(([k]) => k), minProb: Object.fromEntries(active.map(([k, v]) => [k, v.min])) }
         : null
     })(),
+    ...(mode === 'human' ? {
+      gutNoise: Number(gutNoise), maxPerFamily: Number(maxPerFamily),
+      humanWeights: Object.fromEntries(Object.entries(terms).map(([k, v]) => [k, v ? 1 : 0])),
+    } : {}),
     label: label || null, ...extra,
   })
 
@@ -160,15 +187,18 @@ export default function SlipSimulator() {
   async function runSweep() {
     setSweeping(true); setError(null); setRes(null); setSweep(null)
     // In safest mode the target is meaningless, so the sweep varies the leg count instead.
+    // Human mode reaches for a price the same way Target does, so it sweeps prices too. The low
+    // end is where the useful answers are — a 2x that lands half the time is a different
+    // proposition from a 50x that lands twice a season, and only one of them is placeable.
     const shapes = mode === 'safest'
       ? [[2, 2, 0], [3, 3, 0], [4, 4, 0], [5, 5, 0], [6, 6, 0], [8, 8, 0], [10, 10, 0]]
-      : [[2, 3, 2], [3, 4, 3], [4, 5, 5], [6, 8, 10], [8, 12, 20], [10, 15, 50]]
+      : [[2, 14, 2], [2, 14, 3], [2, 14, 5], [4, 14, 10], [6, 14, 20], [8, 15, 50]]
     const out = []
     try {
       for (const [lo, hi, t] of shapes) {
         const { data } = await api.post('/api/betbuilder/slip-backtest',
           body({ minLegs: lo, maxLegs: hi, targetOdds: t }), { timeout: 5 * 60 * 1000 })
-        out.push({ label: mode === 'safest' ? `${lo} legs` : `${lo}–${hi} legs @ ${t}x`,
+        out.push({ label: mode === 'safest' ? `${lo} legs` : `${t}x target`,
                    ...(data.ok ? data : { failed: data.reason }) })
         setSweep([...out])
       }
@@ -205,17 +235,26 @@ export default function SlipSimulator() {
             style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }} />
         </label>
         <label className="muted" style={{ fontSize: 11.5 }}
-          title="Safest: take the N most likely legs, accept whatever odds result. Target: reach for a price, which is what forces a weak leg into the slip.">
+          title="Safest: take the N most likely legs, accept whatever odds result. Target: reach for a price, which is what forces a weak leg into the slip. Human: the same search as Target, but ranking legs on what this league, these clubs, this price source and this data quality have actually delivered rather than on the model's claim alone.">
           Mode
           <select className="field" value={mode} onChange={e => setMode(e.target.value)}
             style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
             <option value="safest">Safest legs</option>
             <option value="target">Hit a target</option>
+            <option value="human">Human judgement</option>
           </select>
         </label>
-        <label className="muted" style={{ fontSize: 11.5, opacity: mode === 'target' ? 1 : 0.45 }}>Target
+        <label className="muted" style={{ fontSize: 11.5, opacity: mode === 'safest' ? 0.45 : 1 }}>Target
           <input className="field" type="number" min="1.1" step="0.5" value={targetOdds} onChange={e => setTarget(e.target.value)}
-            disabled={mode !== 'target'} style={{ marginLeft: 6, width: 78, padding: '4px 8px' }} />
+            disabled={mode === 'safest'} style={{ marginLeft: 6, width: 78, padding: '4px 8px' }} />
+          {mode !== 'safest' && (
+            <span style={{ marginLeft: 6 }}>
+              {[2, 3, 5].map(v => (
+                <button key={v} className={`chip${Number(targetOdds) === v ? ' on' : ''}`}
+                  onClick={() => setTarget(v)} style={{ marginLeft: 3, padding: '2px 7px', fontSize: 10.5 }}>{v}x</button>
+              ))}
+            </span>
+          )}
         </label>
         <label className="muted" style={{ fontSize: 11.5 }}
           title="Days of fixtures in one slip's candidate pool — the same choice the bet builder's fixture window gives you. Smart Pick builds a single slip from everything in the window.">
@@ -301,6 +340,57 @@ export default function SlipSimulator() {
           {sweeping ? <><span className="spin" /> Sweeping…</> : '⚖ Compare slip shapes'}
         </button>
       </div>
+
+      {mode === 'human' && (
+        <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
+          <div className="eyebrow" style={{ marginBottom: 8 }}>
+            What the judgement is allowed to know, and how sure of itself it is
+          </div>
+          <div className="toolbar" style={{ gap: 14, flexWrap: 'wrap', marginBottom: 8 }}>
+            <label className="muted" style={{ fontSize: 11.5 }}
+              title="Probability points of jitter added to every leg before ranking. A strategy that only works on the exact best-scoring legs is not a strategy — this is how you find out whether yours survives picking slightly the wrong ones. Seeded, so the same settings always give the same answer.">
+              Fallibility
+              <select className="field" value={gutNoise} onChange={e => setGutNoise(e.target.value)}
+                style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+                <option value={0}>none (exact)</option>
+                <option value={0.02}>±2pp</option>
+                <option value={0.03}>±3pp</option>
+                <option value={0.05}>±5pp</option>
+                <option value={0.08}>±8pp</option>
+              </select>
+            </label>
+            <label className="muted" style={{ fontSize: 11.5 }}
+              title="Most legs one market family may take. Six Over 1.5s on one ticket is one bet on a high-scoring round wearing six names, and the win probability — a plain product — assumes an independence it does not have.">
+              Max/market
+              <select className="field" value={maxPerFamily} onChange={e => setMaxPerFamily(e.target.value)}
+                style={{ marginLeft: 6, width: 'auto', padding: '4px 8px' }}>
+                {[0, 2, 3, 4, 6].map(v => <option key={v} value={v}>{v || 'no cap'}</option>)}
+              </select>
+            </label>
+            {Object.keys(terms).map(k => (
+              <label key={k} className="muted" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, cursor: 'pointer' }}
+                title={{
+                  league: 'Mark a leg down when its competition has run below its claimed rate, shrunk by how much evidence there is.',
+                  team:   'Mark a leg down on the worse-performing of the two clubs. One unreliable side is enough to lose the leg.',
+                  tier:   'Mark a leg down when its risk tier has underdelivered.',
+                  price:  'Mark a leg down when the model claims more than a real bookmaker price implies. Only fires where a bookmaker actually quoted — about 15% of picks.',
+                  data:   'Mark a leg down when the fixture\'s input data was unverified rather than confirmed.',
+                }[k]}>
+                <input type="checkbox" checked={terms[k]} onChange={e => setTerms(t => ({ ...t, [k]: e.target.checked }))} />
+                {k}
+              </label>
+            ))}
+          </div>
+          <div className="muted2" style={{ fontSize: 10.5, lineHeight: 1.55 }}>
+            Same search as “Hit a target” — only the number each leg is ranked on changes. Records
+            are fitted strictly on days BEFORE this window, so a leg is never judged by a table
+            that already contains its own result. Turn all five terms off and this reproduces
+            “Hit a target” exactly, which is the control worth running first: measured over 372
+            slips in August, every term landed within noise of the plain model, and all five
+            together did too.
+          </div>
+        </div>
+      )}
 
       {useRules && (
         <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
@@ -389,6 +479,80 @@ export default function SlipSimulator() {
               </div>
             ))}
           </div>
+
+          {/* The question as actually asked — "out of a hundred, how many land" — stated as a
+              sentence rather than left to be read off a win rate. `matchesUsed` is there because
+              these slips come out of a pool: a 5x that needs six legs eats six of the matches on
+              the card, and how many hundred-match cards you would need is a real limit on
+              placing them. */}
+          {res.perHundred && (
+            <div style={{
+              background: 'var(--info-soft)', border: '1px solid var(--info-dim)',
+              borderRadius: 'var(--r-sm)', padding: '10px 13px', marginBottom: 12,
+              fontSize: 12.5, lineHeight: 1.6, color: 'var(--tx-2)',
+            }}>
+              Out of <b>100 of these tickets</b> at <b style={{ color: 'var(--warn)' }}>{res.slips.meanOdds}x</b>,{' '}
+              <b style={{ color: 'var(--pos)' }}>{res.perHundred.landed}</b> landed — staking 100 units returned{' '}
+              <b style={{ color: res.perHundred.profit >= 0 ? 'var(--pos)' : 'var(--neg)' }}>
+                {res.perHundred.returned}
+              </b>{' '}({res.perHundred.profit >= 0 ? '+' : ''}{res.perHundred.profit}).
+              {' '}They consume about <b>{res.perHundred.matchesUsed}</b> matches, and the worst run of
+              consecutive losses was <b style={{ color: 'var(--neg)' }}>{res.slips.longestLosingRun}</b>.
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 4 }}>
+                {/* The losing run is the number that decides whether a positive ROI is actually
+                    placeable — an edge you cannot sit through is not an edge you collect. */}
+                Returns are notional unless “Real odds only” is on — 15% of stored prices were real
+                bookmaker quotes; the rest are derived from the model's own probability.
+              </div>
+            </div>
+          )}
+
+          {/* What the judgement layer knew, and the extremes of what it believed. Named, because
+              "it helped" is not checkable and "it stopped backing these leagues" is. */}
+          {res.human && (
+            <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
+              <div className="eyebrow" style={{ marginBottom: 6 }}>
+                Human judgement — fitted on {res.human.fittedOnPicks.toLocaleString()} picks
+                {res.human.fittedBefore ? ` before ${res.human.fittedBefore}` : ''}
+                {' · '}{res.human.counts.leagues} leagues, {res.human.counts.teams} clubs
+              </div>
+              {/* An empty fit is silent otherwise: with no earlier days to learn from, every
+                  adjustment is zero and the run is target mode wearing a different name. That
+                  is easy to hit — set "From" to the first day you have data for and there is
+                  nothing before it. */}
+              {res.human.fittedOnPicks < 500 && (
+                <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 6 }}>
+                  ⚠ Only {res.human.fittedOnPicks.toLocaleString()} settled picks sit before this
+                  window, so the records barely move any leg — this run is close to plain “Hit a
+                  target”. Move “From” later to leave more history behind it.
+                </div>
+              )}
+              {res.human.inSample && (
+                <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 6 }}>
+                  ⚠ Fitted on every settled day, this window included — the records already know
+                  these results, so this run is a description, not evidence.
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+                {[['Marked down', res.human.distrusted, 'var(--neg)'], ['Marked up', res.human.trusted, 'var(--pos)']].map(([title, grp, col]) => (
+                  <div key={title}>
+                    <div className="muted2" style={{ fontSize: 10.5, marginBottom: 3 }}>{title}</div>
+                    {(grp.leagues || []).slice(0, 5).map(l => (
+                      <div key={l.k} style={{ fontSize: 11, display: 'flex', gap: 6 }}>
+                        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.k}</span>
+                        <span className="num muted2">n={l.n}</span>
+                        <span className="num" style={{ color: col, minWidth: 46, textAlign: 'right' }}>{sign(l.deltaPP)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 7, lineHeight: 1.55 }}>
+                Every adjustment is shrunk toward zero by how little evidence sits behind it and
+                capped at a few points, so a club seen twenty times cannot overturn the model.
+              </div>
+            </div>
+          )}
 
           {res.pendingInWindow > 0 && (
             <div style={{ fontSize: 11, color: 'var(--warn)', marginBottom: 8 }}>

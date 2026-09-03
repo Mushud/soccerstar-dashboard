@@ -572,9 +572,14 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
         </div>
 
         <div className="modal-foot">
-          {!result ? (
+          {/* Keyed on `view`, not `result`. A failed build still sets `result` (it carries the
+              candidate pool, which is the only way to see WHY nothing was buildable), and the
+              branch below dereferences view.legs — so keying on `result` crashed the whole modal
+              the moment a build came back ok:false, which is exactly what "choose markets &
+              thresholds" does when the rules are tight. */}
+          {!view ? (
             <button className="btn btn-primary btn-lg" onClick={build} disabled={building || picks.length < 2} style={{ flex: 1 }}>
-              {building ? <><span className="spin" /> Searching combinations…</> : `Build a ${target}x slip`}
+              {building ? <><span className="spin" /> Searching combinations…</> : result ? `Try again at ${target}x` : `Build a ${target}x slip`}
             </button>
           ) : (
             <>
