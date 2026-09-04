@@ -92,7 +92,12 @@ function SlipRow({ s }) {
 
       {open && (
         <div className="leg-list tight" style={{ borderTop: '1px solid var(--line-soft)', border: 'none', borderRadius: 0 }}>
-          {s.legs.map((l, i) => {
+          {/* By kickoff, not by booking order. A slip is read as a running order — what starts
+              first, what you are waiting on — and SportyBet's own leg order carries none of that.
+              Legs with no kickoff sink to the bottom rather than jumping to the front. */}
+          {[...s.legs]
+            .sort((a, b) => (a.kickoff ? new Date(a.kickoff) : Infinity) - (b.kickoff ? new Date(b.kickoff) : Infinity))
+            .map((l, i) => {
             const tone = l.won === true ? 'pos' : l.won === false ? 'neg' : null
             return (
               // Six fixed tracks, and the score cell always renders even when empty — a
@@ -105,6 +110,30 @@ function SlipRow({ s }) {
                   <span className="pick">
                     {l.market}: {l.selection}
                     {kickoff(l.kickoff) && <span className="muted2"> · {kickoff(l.kickoff)}</span>}
+                    {/* Whose choice this leg was. Only shown where the two actually differ —
+                        on an auto-slate leg the engine and the AI often pick different markets,
+                        and which one got booked is not otherwise recoverable from the slip. */}
+                    {l.aiChangedMarket && (
+                      <span className="tag tag-warn" style={{ marginLeft: 5, fontSize: 9 }}
+                        title={`Engine picked ${l.engineChoice.market}: ${l.engineChoice.selection} — the AI moved it to ${l.aiChoice.market}: ${l.aiChoice.selection}`}>
+                        AI moved
+                      </span>
+                    )}
+                    {l.ai?.verdict && (
+                      <span className="muted2" style={{ marginLeft: 5, fontSize: 10 }}
+                        title={[
+                          `AI verdict: ${l.ai.verdict}${l.ai.confidence ? ` (${l.ai.confidence} confidence)` : ''}`,
+                          l.ai.predictedScore ? `predicted ${l.ai.predictedScore}` : null,
+                          l.ai.modelAgreement ? `model agreement: ${l.ai.modelAgreement}` : null,
+                          l.ai.formEdge ? `form edge: ${l.ai.formEdge}` : null,
+                          l.ai.injuryImpact && l.ai.injuryImpact !== 'None' ? `injuries: ${l.ai.injuryImpact}` : null,
+                          l.ai.bestBet ? `\nbest bet: ${l.ai.bestBet}` : null,
+                          l.ai.riskFactor ? `\nrisk: ${l.ai.riskFactor}` : null,
+                          ...(l.ai.keyFactors || []).map(f => `\n• ${f}`),
+                        ].filter(Boolean).join(' · ')}>
+                        🤖 {l.ai.verdict}{l.ai.confidence ? ` · ${l.ai.confidence}` : ''}
+                      </span>
+                    )}
                   </span>
                 </div>
                 {/* Score. A settled leg shows its stored final; an unsettled one shows whatever
@@ -142,6 +171,71 @@ function SlipRow({ s }) {
               </div>
             )
           })}
+          {/* What the AI said, spelled out. The tooltip above is fine for a glance, but "the engine
+              wanted Over 1.5 and the AI booked a Double Chance instead" is the kind of thing you
+              want to be able to read back after the slip settles — it is the only record of why
+              the leg is what it is. Auto-slate slips always carry this; hand-built ones only do
+              where the fixture also appeared on a slate. */}
+          {s.legs.some(l => l.ai || l.aiChangedMarket) && (
+            <details style={{ padding: '8px 14px', borderTop: '1px solid var(--line-soft)' }}>
+              <summary className="muted2" style={{ fontSize: 11, cursor: 'pointer' }}>
+                🤖 AI analysis
+                {(() => {
+                  const moved = s.legs.filter(l => l.aiChangedMarket).length
+                  return moved ? ` — moved ${moved} of ${s.legs.length} legs to a different market` : ''
+                })()}
+              </summary>
+              <div style={{ marginTop: 7, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[...s.legs]
+                  .sort((a, b) => (a.kickoff ? new Date(a.kickoff) : Infinity) - (b.kickoff ? new Date(b.kickoff) : Infinity))
+                  .filter(l => l.ai || l.aiChangedMarket)
+                  .map((l, i) => (
+                    <div key={i} style={{ fontSize: 11, lineHeight: 1.55, borderLeft: '2px solid var(--line)', paddingLeft: 9 }}>
+                      <div style={{ fontWeight: 600 }}>{l.match}</div>
+                      {/* Three opinions, not two — and they are genuinely different steps.
+                          The engine scores every market on the fixture and picks one; the AI
+                          re-reads the fixture and may pick another; then the ticket builder picks
+                          a THIRD, because it is choosing the leg that best serves the slip's
+                          target under the Over 1.5 lean, not the leg that is best on its own.
+                          Showing only the first two next to a booked leg that matches neither is
+                          how you end up mistrusting all three. */}
+                      {l.engineChoice && (
+                        <div className="muted">
+                          model: <span style={{ color: 'var(--tx-2)' }}>{l.engineChoice.market}: {l.engineChoice.selection}</span>
+                          {' → '}
+                          AI: <span style={{ color: l.aiChangedMarket ? 'var(--warn)' : 'var(--tx-2)' }}>
+                            {l.aiChoice.market}: {l.aiChoice.selection}
+                          </span>
+                          {!l.aiChangedMarket && <span className="muted2"> (unchanged)</span>}
+                        </div>
+                      )}
+                      {l.aiChoice && (l.aiChoice.market !== l.market || l.aiChoice.selection !== l.selection) && (
+                        <div style={{ color: 'var(--info)' }}>
+                          booked: <b>{l.market}: {l.selection}</b>
+                          <span className="muted2"> — the slip builder chose this over the AI's, to fit the target price</span>
+                        </div>
+                      )}
+                      {l.ai?.verdict && (
+                        <div className="muted">
+                          verdict <b style={{ color: 'var(--tx-2)' }}>{l.ai.verdict}</b>
+                          {l.ai.confidence && ` (${l.ai.confidence})`}
+                          {l.ai.predictedScore && ` · score ${l.ai.predictedScore}`}
+                          {l.ai.modelAgreement && ` · agreement ${l.ai.modelAgreement}`}
+                        </div>
+                      )}
+                      {l.ai?.bestBet && <div className="muted2">best bet: {l.ai.bestBet}</div>}
+                      {l.ai?.riskFactor && <div style={{ color: 'var(--warn)' }}>⚠ {l.ai.riskFactor}</div>}
+                      {(l.ai?.keyFactors || []).length > 0 && (
+                        <ul style={{ margin: '3px 0 0', paddingLeft: 15 }}>
+                          {l.ai.keyFactors.map((f, j) => <li key={j} className="muted2">{f}</li>)}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </details>
+          )}
+
           <div className="toolbar" style={{ padding: '10px 14px', borderTop: '1px solid var(--line-soft)' }}>
             <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(s.code)}>Copy code</button>
             {s.shareUrl && <a className="btn btn-sm btn-info" href={s.shareUrl} target="_blank" rel="noreferrer">Open on SportyBet ↗</a>}
