@@ -653,6 +653,31 @@ export default function SlipSimulator() {
           {/* Said out loud wherever the slips overlap. Every rate above counts each slip as one
               observation, and overlapping slips cannot lose independently — so `n` is a count of
               tickets, not a count of evidence. */}
+          {/* The SportyBet filter deleting most of the card is not a filter, it is a wipeout — and
+              it looks exactly like the model picking badly. Loudest when the window predates the
+              day availability started being recorded, because then the filter is applying TODAY's
+              league coverage to a card from weeks earlier. */}
+          {sb && sb.mode !== 'off' && (sb.windowPredatesStamps || sb.droppedShare >= 0.5) && (
+            <div style={{
+              background: 'var(--neg-soft)', border: '1px solid var(--neg-dim)', color: 'var(--neg)',
+              borderRadius: 'var(--r-sm)', padding: '10px 13px', marginBottom: 10,
+              fontSize: 12, lineHeight: 1.6,
+            }}>
+              ⚠ <b>The SportyBet filter threw away {sb.picksDropped} of {sb.picksConsidered} picks
+              ({(sb.droppedShare * 100).toFixed(0)}%)</b>
+              {sb.windowPredatesStamps ? (
+                <> — and it had nothing real to go on. Availability was first recorded on{' '}
+                  <b>{sb.stampedFrom || 'a later date'}</b>, so for this window it fell back to the
+                  league coverage measured <i>today</i> and applied it backwards.</>
+              ) : (
+                <> for this window.</>
+              )}
+              {' '}The optimiser then built from what survived, so a poor result here is as likely
+              to be the filter as the model. Turn <b>SportyBet only</b> off to see the same days
+              without it.
+            </div>
+          )}
+
           {res.sampling?.note && (
             <div style={{ fontSize: 11.5, color: 'var(--warn)', marginBottom: 8, lineHeight: 1.55 }}>
               ⚠ {res.sampling.note}
