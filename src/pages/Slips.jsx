@@ -255,8 +255,19 @@ export default function Slips() {
   // Sorting on `liveLegs` alone is not enough: within the pending list the useful order is "what
   // is happening now, then what is about to". A slip booked yesterday whose matches start in an
   // hour matters more than one booked this morning for tomorrow night.
-  const firstKickoff = sl => {
-    const ks = (sl.legs || []).map(l => l.kickoff).filter(Boolean).map(d => new Date(d).getTime())
+  const kickoffs = sl => (sl.legs || []).map(l => l.kickoff).filter(Boolean).map(d => new Date(d).getTime())
+  const firstKickoff = sl => { const ks = kickoffs(sl); return ks.length ? Math.min(...ks) : Infinity }
+  const lastKickoff  = sl => { const ks = kickoffs(sl); return ks.length ? Math.max(...ks) : 0 }
+  /**
+   * The next leg still to start. Infinity once every leg has kicked off.
+   *
+   * Deliberately not the FIRST kickoff, which is what this used at first and got wrong: a slip
+   * whose opener began twenty minutes ago but has six more legs tonight was being classed as
+   * "stuck" alongside one whose matches all finished last week. What matters is whether anything
+   * is still to come.
+   */
+  const nextKickoff = sl => {
+    const ks = kickoffs(sl).filter(t => t >= Date.now())
     return ks.length ? Math.min(...ks) : Infinity
   }
   // Rank within the pending group: live now, then starting soonest, then stuck.
@@ -265,12 +276,10 @@ export default function Slips() {
   // is not upcoming, it is ungraded, and sorting purely by kickoff floated a slip from 08-28
   // above tonight's tickets. It still belongs on the page (a slip stuck at pending forever should
   // not look like success) but it belongs at the bottom of the group, not the top.
-  const now = Date.now()
   const rank = sl => {
-    if (sl.liveLegs > 0) return 0
-    const k = firstKickoff(sl)
-    if (k === Infinity) return 2
-    return k >= now ? 1 : 2
+    if (sl.liveLegs > 0) return 0                    // being played now
+    if (nextKickoff(sl) !== Infinity) return 1       // something still to come
+    return 2                                         // every leg started, still ungraded
   }
   const slips = (status ? allSlips.filter(sl => sl.status === status) : allSlips)
     .slice()
@@ -280,11 +289,20 @@ export default function Slips() {
       if (aP) {
         const ra = rank(a), rb = rank(b)
         if (ra !== rb) return ra - rb
-        if (ra === 1) return firstKickoff(a) - firstKickoff(b)   // soonest first
-        if (ra === 2) return firstKickoff(b) - firstKickoff(a)   // most recently stuck first
-        return (b.liveLegs || 0) - (a.liveLegs || 0)
+        // Live: most matches in play first, then whichever has the next leg starting soonest.
+        if (ra === 0) {
+          if ((b.liveLegs || 0) !== (a.liveLegs || 0)) return (b.liveLegs || 0) - (a.liveLegs || 0)
+          return nextKickoff(a) - nextKickoff(b)
+        }
+        if (ra === 1) return nextKickoff(a) - nextKickoff(b)     // starting soonest
+        return lastKickoff(b) - lastKickoff(a)                   // most recently stuck first
       }
-      // Settled slips are history — newest booked first, as before.
+      // Settled slips: by kickoff too, most recent first. Booking date was the old order and it
+      // is the wrong one for a record — a slip booked on Monday for Saturday's card sat above one
+      // booked Friday for Friday, so the list did not read as a timeline of what was played.
+      // Falls back to the booking date only when a slip carries no kickoff at all.
+      const ka = firstKickoff(a), kb = firstKickoff(b)
+      if (ka !== kb && ka !== Infinity && kb !== Infinity) return kb - ka
       return new Date(b.createdAt) - new Date(a.createdAt)
     })
 

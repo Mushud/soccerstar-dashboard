@@ -94,6 +94,95 @@ function Ticket({ slip, compact = false }) {
   )
 }
 
+/**
+ * One slate pick, with the AI's verdict and — when it changed the market — what it changed from.
+ *
+ * All of this was already being written to the slate by the AI pass and never read back: the
+ * verdict, the confidence, the key factors, the full write-up, and `originalMarket` /
+ * `originalSelection`, which are the only record that the engine had picked something else. A
+ * slate that says "10 AI-analysed" without showing any of it is asking to be trusted rather than
+ * checked.
+ */
+function PickRow({ p }) {
+  const [open, setOpen] = useState(false)
+  const changed = p.originalMarket &&
+    (p.originalMarket !== p.market || p.originalSelection !== p.selection)
+  const conf = String(p.claudeConf || '').toLowerCase()
+  const confColor = conf === 'high' ? 'var(--pos)' : conf === 'low' ? 'var(--neg)' : 'var(--warn)'
+  const factors = Array.isArray(p.keyFactors) ? p.keyFactors : []
+
+  return (
+    <div style={{ borderTop: '1px solid var(--line-soft)', padding: '7px 0' }}>
+      <button onClick={() => setOpen(v => !v)}
+        style={{ display: 'flex', gap: 9, alignItems: 'baseline', width: '100%', textAlign: 'left', flexWrap: 'wrap', padding: 0 }}>
+        <span className="muted2" style={{ fontSize: 10.5, minWidth: 38 }}>{clock(p.fixtureDate)}</span>
+        <span style={{ fontSize: 12, fontWeight: 600, flex: '1 1 200px', minWidth: 0 }}>{p.match}</span>
+        <span className="muted" style={{ fontSize: 11.5 }}>
+          {p.market}: <span style={{ color: 'var(--tx-2)', fontWeight: 600 }}>{p.selection}</span>
+        </span>
+        {changed && (
+          <span className="tag tag-warn" style={{ fontSize: 9.5 }}
+            title={`The engine picked ${p.originalMarket}: ${p.originalSelection}; the AI moved it`}>
+            was {p.originalSelection}
+          </span>
+        )}
+        <span className="num" style={{ fontSize: 11, color: 'var(--warn)', minWidth: 34, textAlign: 'right' }}>{p.odds ?? '—'}</span>
+        <span className="num" style={{ fontSize: 11, minWidth: 34, textAlign: 'right', color: (p.modelProbRaw ?? 0) >= 0.8 ? 'var(--pos)' : 'var(--warn)' }}>
+          {pct(p.modelProbRaw)}
+        </span>
+        {p.claudeConf && (
+          <span style={{ fontSize: 10.5, color: confColor, minWidth: 40, textAlign: 'right' }}>{p.claudeConf}</span>
+        )}
+        <span className="muted2" style={{ fontSize: 10 }}>{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div style={{ marginTop: 7, paddingLeft: 47, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {!p.hasClaudeAnalysis && (
+            <div className="muted2" style={{ fontSize: 11 }}>This pick was not AI-analysed.</div>
+          )}
+          {changed && (
+            <div style={{ fontSize: 11, color: 'var(--warn)' }}>
+              Engine picked <b>{p.originalMarket}: {p.originalSelection}</b> — AI moved it to{' '}
+              <b>{p.market}: {p.selection}</b>
+            </div>
+          )}
+          {(p.verdict || p.predictedScore || p.modelAgreement) && (
+            <div className="muted" style={{ fontSize: 11 }}>
+              {p.verdict && <>verdict <b style={{ color: 'var(--tx-2)' }}>{p.verdict}</b></>}
+              {p.predictedScore && <> · score <b style={{ color: 'var(--tx-2)' }}>{p.predictedScore}</b></>}
+              {p.modelAgreement && <> · agreement {p.modelAgreement}</>}
+              {p.formEdge && <> · form {p.formEdge}</>}
+              {p.injuryImpact && p.injuryImpact !== 'None' && <> · injuries {p.injuryImpact}</>}
+            </div>
+          )}
+          {p.reason && <div style={{ fontSize: 11.5, lineHeight: 1.55 }}>{p.reason}</div>}
+          {factors.length > 0 && (
+            <ul style={{ margin: 0, paddingLeft: 16, fontSize: 11, lineHeight: 1.55 }}>
+              {factors.map((f, j) => <li key={j} className="muted">{f}</li>)}
+            </ul>
+          )}
+          {p.riskFactor && (
+            <div style={{ fontSize: 11, color: 'var(--warn)', lineHeight: 1.55 }}>⚠ {p.riskFactor}</div>
+          )}
+          {p.bestBet && <div className="muted2" style={{ fontSize: 11, lineHeight: 1.55 }}>Best bet: {p.bestBet}</div>}
+          {p.newsAnalysisText && (
+            <div className="muted2" style={{ fontSize: 10.5, lineHeight: 1.5 }}>
+              News: {p.newsAnalysisText}
+            </div>
+          )}
+          {p.fullAnalysis && (
+            <details>
+              <summary className="muted2" style={{ fontSize: 10.5, cursor: 'pointer' }}>full analysis</summary>
+              <div className="muted" style={{ fontSize: 11, lineHeight: 1.6, marginTop: 4, whiteSpace: 'pre-wrap' }}>{p.fullAnalysis}</div>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Slate() {
   const [slate, setSlate]       = useState(null)
   const [schedule, setSchedule] = useState(null)
@@ -152,6 +241,8 @@ export default function Slate() {
   }
 
   const slips = slate?.autoSlips || []
+  const changedCount = (slate?.picks || []).filter(p =>
+    p.originalMarket && (p.originalMarket !== p.market || p.originalSelection !== p.selection)).length
 
   return (
     <AppShell>
@@ -248,32 +339,24 @@ export default function Slate() {
             )}
           </div>
 
-          {/* The picks themselves, compact. This is the AI-analysed ten the leg-count ticket is
-              drawn from, so it belongs next to the tickets rather than a page away. */}
+          {/* The picks themselves. This is the AI-analysed ten the leg-count ticket is drawn from,
+              so it belongs next to the tickets rather than a page away — and the AI's reasoning
+              belongs with the pick rather than being written to the database and never read. */}
           {!!slate.picks?.length && (
             <div className="card card-pad" style={{ marginBottom: 14 }}>
-              <div className="eyebrow" style={{ marginBottom: 7 }}>The {slate.picks.length} picks</div>
-              <div style={{ overflowX: 'auto' }}>
-                <table className="tbl" style={{ fontSize: 11.5, minWidth: 560 }}>
-                  <thead><tr>
-                    <th>Kickoff</th><th>Match</th><th>Selection</th>
-                    <th className="num">Odds</th><th className="num">Model</th><th>SportyBet</th>
-                  </tr></thead>
-                  <tbody>
-                    {slate.picks.map((p, i) => (
-                      <tr key={i}>
-                        <td className="muted2">{clock(p.fixtureDate)}</td>
-                        <td>{p.match}</td>
-                        <td className="muted">{p.market}: <span style={{ color: 'var(--tx-2)' }}>{p.selection}</span></td>
-                        <td className="num" style={{ color: 'var(--warn)' }}>{p.odds ?? '—'}</td>
-                        <td className="num" style={{ color: (p.modelProbRaw ?? 0) >= 0.8 ? 'var(--pos)' : 'var(--warn)' }}>
-                          {pct(p.modelProbRaw)}
-                        </td>
-                        <td className="muted2" style={{ fontSize: 10.5 }}>{p.sportybet || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="eyebrow" style={{ marginBottom: 7 }}>
+                The {slate.picks.length} picks
+                {changedCount > 0 && (
+                  <span className="muted2" style={{ textTransform: 'none', letterSpacing: 0, marginLeft: 8 }}>
+                    — the AI moved <b style={{ color: 'var(--warn)' }}>{changedCount}</b> of them to a different market
+                  </span>
+                )}
+              </div>
+              {slate.picks.map((p, i) => <PickRow key={i} p={p} />)}
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 8, lineHeight: 1.5 }}>
+                Click a pick to read what the AI said about it. “was …” marks a pick the AI moved
+                off the engine's own market — the market shown is the one the tickets were built
+                from.
               </div>
             </div>
           )}
