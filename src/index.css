@@ -815,3 +815,19 @@ input[type='range']:disabled { opacity: 0.45; cursor: not-allowed; }
 .slip-chip.lost { border-color: var(--neg-dim); background: var(--neg-soft); }
 .slip-chip.won:hover  { border-color: var(--pos); }
 .slip-chip.lost:hover { border-color: var(--neg); }
+
+/* A match in progress, on the booked-slips page. Deliberately small and quiet: it marks one leg
+   in a list, not a banner. prefers-reduced-motion stops the pulse rather than hiding the dot —
+   the colour still carries the meaning without the movement. */
+.live-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--neg); margin-right: 5px; vertical-align: middle;
+  animation: live-pulse 1.8s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .live-dot { animation: none; }
+}

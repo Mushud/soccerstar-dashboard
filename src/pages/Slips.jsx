@@ -78,6 +78,14 @@ function SlipRow({ s }) {
             </span>
           )
         })()}
+        {/* A slip with a match in progress is the one you want to open, so it says so without
+            being expanded. */}
+        {s.liveLegs > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--neg)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+            title={`${s.liveLegs} of this slip's matches ${s.liveLegs === 1 ? 'is' : 'are'} being played right now`}>
+            <span className="live-dot" />{s.liveLegs} live
+          </span>
+        )}
         <span className="muted2" style={{ fontSize: 11, marginLeft: 'auto' }}>booked {when(s.createdAt)}</span>
         <span className="muted2" style={{ fontSize: 10 }}>{open ? '▲' : '▼'}</span>
       </div>
@@ -99,8 +107,27 @@ function SlipRow({ s }) {
                     {kickoff(l.kickoff) && <span className="muted2"> · {kickoff(l.kickoff)}</span>}
                   </span>
                 </div>
-                <span className="num muted" style={{ fontSize: 11.5 }}>
-                  {l.actual?.goalsHome != null ? `${l.actual.goalsHome}–${l.actual.goalsAway}` : ''}
+                {/* Score. A settled leg shows its stored final; an unsettled one shows whatever
+                    the fixture is doing right now, which is the only thing worth looking at while
+                    a slip is running. `actual` is written at settlement, so before that it is
+                    empty and this cell used to sit blank through the entire match. */}
+                <span className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
+                  {l.actual?.goalsHome != null ? (
+                    <span className="muted">{l.actual.goalsHome}–{l.actual.goalsAway}</span>
+                  ) : l.live?.status === 'live' ? (
+                    <span style={{ color: 'var(--neg)', fontWeight: 800 }}
+                      title={`Live${l.live.elapsed != null ? ` — ${l.live.elapsed} minutes played` : ''}`}>
+                      <span className="live-dot" />
+                      {l.live.goalsHome ?? 0}–{l.live.goalsAway ?? 0}
+                      {l.live.elapsed != null && <span className="muted2" style={{ fontWeight: 600 }}> {l.live.elapsed}'</span>}
+                    </span>
+                  ) : l.live?.status === 'finished' && l.live.goalsHome != null ? (
+                    // Played but not yet graded — settlement runs on its own cycle, and "2–1,
+                    // waiting to be graded" is a different state from "not started".
+                    <span className="muted" title="Finished — not graded yet">
+                      {l.live.goalsHome}–{l.live.goalsAway}
+                    </span>
+                  ) : ''}
                 </span>
                 <span className="p" style={{ color: 'var(--tx-3)' }}>{pct(l.modelProb)}</span>
                 <span className="o">{odds(l.odds)}</span>
@@ -138,8 +165,12 @@ export default function Slips() {
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState(null)
 
-  const load = useCallback(async (src = source) => {
-    setLoading(true); setError(null)
+  // `quiet` skips the spinner. The live refresh below uses it: a list that flashes "Loading…"
+  // every minute is unreadable, and the whole point of the refresh is that you are sitting
+  // watching it.
+  const load = useCallback(async (src = source, { quiet = false } = {}) => {
+    if (!quiet) setLoading(true)
+    setError(null)
     try {
       const { data } = await api.get('/api/betbuilder/slips', {
         params: { limit: 100, ...(src ? { source: src } : {}) },
@@ -154,6 +185,19 @@ export default function Slips() {
   }, [source])
 
   useEffect(() => { load(source) }, [source, load])
+
+  // Poll while a match is in progress, and only then.
+  //
+  // The live scores come from the fixture sync, which updates every minute, so anything faster
+  // is asking the database for the same answer. Anything at all when nothing is live would be
+  // asking it for no reason — so the interval exists only while at least one leg is being
+  // played, and stops on its own when the last one finishes.
+  const anyLive = (data?.slips || []).some(s => s.liveLegs > 0)
+  useEffect(() => {
+    if (!anyLive) return
+    const t = setInterval(() => load(source, { quiet: true }), 60_000)
+    return () => clearInterval(t)
+  }, [anyLive, source, load])
 
   async function importCode() {
     const code = addCode.trim()

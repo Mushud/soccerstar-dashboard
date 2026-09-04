@@ -46,6 +46,15 @@ function Ticket({ slip, compact = false }) {
           color: slip.winProb >= 0.4 ? 'var(--pos)' : slip.winProb >= 0.15 ? 'var(--warn)' : 'var(--neg)',
         }}>{pct(slip.winProb)}</span>
       </div>
+      {/* On a fixed-count ticket the leg count is the constraint, so the weakest leg it had to
+          accept IS the quality reading — the number that says what the tenth leg cost you. */}
+      {slip.kind === 'legs' && slip.weakestLeg != null && (
+        <div className="muted2" style={{ fontSize: 10.5, marginTop: 3 }}>
+          weakest leg <b style={{ color: slip.weakestLeg >= 0.8 ? 'var(--pos)' : slip.weakestLeg >= 0.7 ? 'var(--warn)' : 'var(--neg)' }}>
+            {pct(slip.weakestLeg)}
+          </b>
+        </div>
+      )}
       {slip.shortOfRequested > 0 && (
         <div style={{ fontSize: 10.5, color: 'var(--warn)', marginTop: 3 }}>
           {/* Not a failure, but it changes both the price and the win chance. */}
