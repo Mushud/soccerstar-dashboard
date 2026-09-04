@@ -160,7 +160,10 @@ export default function Slips() {
   const [settling, setSettling] = useState(false)
   const [error, setError]     = useState(null)
   const [source, setSource]   = useState('')
-  const [status, setStatus]   = useState('')
+  // Pending by default. A booked slip is only actionable before it settles — the won and lost
+  // ones are a record, and opening the page on "All" buried today's live tickets under weeks of
+  // history. "All" is one click away.
+  const [status, setStatus]   = useState('pending')
   const [addCode, setAddCode]   = useState('')
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState(null)
@@ -247,7 +250,43 @@ export default function Slips() {
   // real question), but narrowing to "Won" and then reporting a 100% win rate would be nonsense.
   // So the tiles above keep describing the whole source-filtered set whatever is selected here.
   const counts = allSlips.reduce((a, sl) => { a[sl.status] = (a[sl.status] || 0) + 1; return a }, {})
-  const slips = status ? allSlips.filter(sl => sl.status === status) : allSlips
+  // Live slips first, then by kickoff, then newest booked.
+  //
+  // Sorting on `liveLegs` alone is not enough: within the pending list the useful order is "what
+  // is happening now, then what is about to". A slip booked yesterday whose matches start in an
+  // hour matters more than one booked this morning for tomorrow night.
+  const firstKickoff = sl => {
+    const ks = (sl.legs || []).map(l => l.kickoff).filter(Boolean).map(d => new Date(d).getTime())
+    return ks.length ? Math.min(...ks) : Infinity
+  }
+  // Rank within the pending group: live now, then starting soonest, then stuck.
+  //
+  // "Stuck" is the case worth separating out — a pending slip whose matches all finished days ago
+  // is not upcoming, it is ungraded, and sorting purely by kickoff floated a slip from 08-28
+  // above tonight's tickets. It still belongs on the page (a slip stuck at pending forever should
+  // not look like success) but it belongs at the bottom of the group, not the top.
+  const now = Date.now()
+  const rank = sl => {
+    if (sl.liveLegs > 0) return 0
+    const k = firstKickoff(sl)
+    if (k === Infinity) return 2
+    return k >= now ? 1 : 2
+  }
+  const slips = (status ? allSlips.filter(sl => sl.status === status) : allSlips)
+    .slice()
+    .sort((a, b) => {
+      const aP = a.status === 'pending', bP = b.status === 'pending'
+      if (aP !== bP) return aP ? -1 : 1
+      if (aP) {
+        const ra = rank(a), rb = rank(b)
+        if (ra !== rb) return ra - rb
+        if (ra === 1) return firstKickoff(a) - firstKickoff(b)   // soonest first
+        if (ra === 2) return firstKickoff(b) - firstKickoff(a)   // most recently stuck first
+        return (b.liveLegs || 0) - (a.liveLegs || 0)
+      }
+      // Settled slips are history — newest booked first, as before.
+      return new Date(b.createdAt) - new Date(a.createdAt)
+    })
 
   return (
     <AppShell
