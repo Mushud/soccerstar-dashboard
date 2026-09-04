@@ -57,8 +57,16 @@ function Ticket({ slip, compact = false }) {
       )}
       {slip.shortOfRequested > 0 && (
         <div style={{ fontSize: 10.5, color: 'var(--warn)', marginTop: 3 }}>
-          {/* Not a failure, but it changes both the price and the win chance. */}
-          {slip.shortOfRequested} short — that many of the slate were not on SportyBet's card.
+          {/* The old wording blamed SportyBet for all of it, which was simply wrong — on the card
+              that prompted this, two legs were below the ticket's own probability floor, two more
+              lost their slot to the market cap, and none of the four were a listing problem. */}
+          {slip.shortOfRequested} short of {slip.wantedLegs} — the rest were below the
+          probability floor, capped by market mix, or not on SportyBet's card.
+        </div>
+      )}
+      {slip.toppedUp && (
+        <div className="muted2" style={{ fontSize: 10.5, marginTop: 3 }}>
+          Filled from the wider pool — the slate alone could not supply {slip.wantedLegs} legs.
         </div>
       )}
       {slip.code ? (
