@@ -59,6 +59,12 @@ function slimPicks(picks, cap) {
     // Over 1.5 was previously only a candidate leg when it happened to be the fixture's
     // goalsOption, so on much of the card the most reliable market was not on offer at all.
     over15: p.over15,
+    // The 1X2 read, so the server can tell a favourite from an underdog. Per-team goals legs are
+    // refused on the wrong side (services/marketFamilies.js wrongSideTeamGoals): measured over
+    // ~24,000 settled legs, a favourite's Under 2.5 runs 68% against a claimed 77% while the
+    // underdog's runs 87%. Without this field Smart Pick cannot make that distinction and keeps
+    // picking the bad half.
+    blend: p.blend,
   }))
 }
 
