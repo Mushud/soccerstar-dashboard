@@ -259,18 +259,22 @@ export default function Slips() {
   // history. "All" is one click away.
   const [status, setStatus]   = useState('pending')
   const [addCode, setAddCode]   = useState('')
+  // How many to fetch. The hourly slate books five tickets a run, so the list grows by ~120 a
+  // day and any fixed number becomes a wall — "Show more" raises it rather than capping the
+  // record at whatever seemed generous when this was written.
+  const [limit, setLimit]         = useState(200)
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState(null)
 
   // `quiet` skips the spinner. The live refresh below uses it: a list that flashes "Loading…"
   // every minute is unreadable, and the whole point of the refresh is that you are sitting
   // watching it.
-  const load = useCallback(async (src = source, { quiet = false } = {}) => {
+  const load = useCallback(async (src = source, { quiet = false, take = limit } = {}) => {
     if (!quiet) setLoading(true)
     setError(null)
     try {
       const { data } = await api.get('/api/betbuilder/slips', {
-        params: { limit: 100, ...(src ? { source: src } : {}) },
+        params: { limit: take, ...(src ? { source: src } : {}) },
         timeout: 2 * 60 * 1000,
       })
       setData(data)
@@ -282,6 +286,12 @@ export default function Slips() {
   }, [source])
 
   useEffect(() => { load(source) }, [source, load])
+
+  function showMore() {
+    const next = limit + 300
+    setLimit(next)
+    load(source, { take: next })
+  }
 
   // Poll while a match is in progress, and only then.
   //
@@ -517,6 +527,14 @@ export default function Slips() {
         <button className="btn btn-sm" onClick={() => load(source)} disabled={loading}>
           {loading ? <span className="spin" /> : '↻'} Refresh
         </button>
+        {data?.total > 0 && (
+          <span className="muted2" style={{ fontSize: 11 }}>
+            showing {data.returned ?? allSlips.length} of {data.total}
+          </span>
+        )}
+        {data?.total > (data?.returned ?? 0) && (
+          <button className="btn btn-sm" onClick={showMore} disabled={loading}>Show more</button>
+        )}
       </div>
 
       {error && (
