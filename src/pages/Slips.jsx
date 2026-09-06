@@ -21,7 +21,7 @@ const STATUS = {
   void:    { tone: null,   label: 'Void' },
 }
 
-const SOURCE_LABEL = { 'smart-pick': 'Smart Pick', manual: 'Manual', imported: 'Imported' }
+const SOURCE_LABEL = { 'smart-pick': 'Smart Pick', 'auto-slate': 'Auto Slate', manual: 'Manual', imported: 'Imported' }
 
 const pct = v => (v == null ? '—' : `${(v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0)}%`)
 /** An imported slip can arrive with a leg SportyBet no longer prices, leaving no total. */
@@ -259,22 +259,26 @@ export default function Slips() {
   // history. "All" is one click away.
   const [status, setStatus]   = useState('pending')
   const [addCode, setAddCode]   = useState('')
-  // How many to fetch. The hourly slate books five tickets a run, so the list grows by ~120 a
-  // day and any fixed number becomes a wall — "Show more" raises it rather than capping the
-  // record at whatever seemed generous when this was written.
-  const [limit, setLimit]         = useState(200)
   const [importing, setImporting] = useState(false)
   const [importMsg, setImportMsg] = useState(null)
 
   // `quiet` skips the spinner. The live refresh below uses it: a list that flashes "Loading…"
   // every minute is unreadable, and the whole point of the refresh is that you are sitting
   // watching it.
-  const load = useCallback(async (src = source, { quiet = false, take = limit } = {}) => {
+  // Both filters are now sent to the server, and there is no row cap.
+  //
+  // This used to fetch a fixed 200 and filter by status in the browser, which was wrong twice
+  // over: the list was silently truncated once more than 200 slips existed (the hourly slate
+  // books ~120 codes a day, so that took under two days), and the headline tiles were computed
+  // from whatever had been fetched — so "won / lost / pending" described the page, not the
+  // record. The server now aggregates the tiles over the whole source-scoped collection, so
+  // narrowing by status no longer distorts them and there is nothing left to cap.
+  const load = useCallback(async (src = source, st = status, { quiet = false } = {}) => {
     if (!quiet) setLoading(true)
     setError(null)
     try {
       const { data } = await api.get('/api/betbuilder/slips', {
-        params: { limit: take, ...(src ? { source: src } : {}) },
+        params: { ...(src ? { source: src } : {}), ...(st ? { status: st } : {}) },
         timeout: 2 * 60 * 1000,
       })
       setData(data)
@@ -283,15 +287,9 @@ export default function Slips() {
     } finally {
       setLoading(false)
     }
-  }, [source])
+  }, [source, status])
 
-  useEffect(() => { load(source) }, [source, load])
-
-  function showMore() {
-    const next = limit + 300
-    setLimit(next)
-    load(source, { take: next })
-  }
+  useEffect(() => { load(source, status) }, [source, status, load])
 
   // Poll while a match is in progress, and only then.
   //
@@ -302,9 +300,9 @@ export default function Slips() {
   const anyLive = (data?.slips || []).some(s => s.liveLegs > 0)
   useEffect(() => {
     if (!anyLive) return
-    const t = setInterval(() => load(source, { quiet: true }), 60_000)
+    const t = setInterval(() => load(source, status, { quiet: true }), 60_000)
     return () => clearInterval(t)
-  }, [anyLive, source, load])
+  }, [anyLive, source, status, load])
 
   async function importCode() {
     const code = addCode.trim()
@@ -326,7 +324,7 @@ export default function Slips() {
         })
       }
       setAddCode('')
-      await load(source)
+      await load(source, status)
     } catch (err) {
       setImportMsg({ ok: false, text: err.response?.data?.error || err.message })
     } finally {
@@ -338,7 +336,7 @@ export default function Slips() {
     setSettling(true)
     try {
       await api.post('/api/betbuilder/slips/settle', { days: 90, force: true }, { timeout: 2 * 60 * 1000 })
-      await load(source)
+      await load(source, status)
     } catch (err) {
       setError(err.response?.data?.error || err.message)
     } finally {
@@ -349,11 +347,19 @@ export default function Slips() {
   const st = data?.stats
   const allSlips = data?.slips || []
 
-  // Status is a view filter, applied here rather than server-side on purpose: `source` changes
-  // which slips the headline stats are computed over (Smart Pick's win rate versus manual is a
-  // real question), but narrowing to "Won" and then reporting a 100% win rate would be nonsense.
-  // So the tiles above keep describing the whole source-filtered set whatever is selected here.
-  const counts = allSlips.reduce((a, sl) => { a[sl.status] = (a[sl.status] || 0) + 1; return a }, {})
+  // Status counts come from the server's collection-wide aggregate, not from the rows on screen.
+  // Counting the fetched array was only ever right while the page held every slip, and it stopped
+  // being right the moment the list was filtered or capped — the tab labels then disagreed with
+  // the tiles directly above them.
+  //
+  // The tiles themselves stay scoped to `source` only, deliberately: "how does Smart Pick compare
+  // to manual" is a real question, but narrowing to Won and then reporting a 100% win rate is not.
+  const counts = {
+    pending: st?.pending || 0,
+    won:     st?.won || 0,
+    lost:    st?.lost || 0,
+    void:    st?.void || 0,
+  }
   // Live slips first, then by kickoff, then newest booked.
   //
   // Sorting on `liveLegs` alone is not enough: within the pending list the useful order is "what
@@ -385,7 +391,8 @@ export default function Slips() {
     if (nextKickoff(sl) !== Infinity) return 1       // something still to come
     return 2                                         // every leg started, still ungraded
   }
-  const slips = (status ? allSlips.filter(sl => sl.status === status) : allSlips)
+  // Already status-filtered by the server; this only orders what came back.
+  const slips = allSlips
     .slice()
     .sort((a, b) => {
       const aP = a.status === 'pending', bP = b.status === 'pending'
@@ -504,7 +511,9 @@ export default function Slips() {
 
       <div className="toolbar" style={{ marginBottom: 14 }}>
         <div className="seg seg-accent">
-          {[['', 'All'], ['smart-pick', 'Smart Pick'], ['manual', 'Manual'], ['imported', 'Imported']].map(([k, l]) => (
+          {/* auto-slate is the scheduler's own output and the biggest source by volume; it was
+              missing here, and the route silently ignored it as a filter value too. */}
+          {[['', 'All'], ['auto-slate', 'Auto Slate'], ['smart-pick', 'Smart Pick'], ['manual', 'Manual'], ['imported', 'Imported']].map(([k, l]) => (
             <button key={k} className={source === k ? 'on' : ''} onClick={() => setSource(k)}>{l}</button>
           ))}
         </div>
@@ -512,7 +521,7 @@ export default function Slips() {
         {/* Status. Void is only offered when something is actually void, so the control does not
             carry a permanently empty option. */}
         <div className="seg seg-accent">
-          {[['', 'All', allSlips.length],
+          {[['', 'All', st?.total || 0],
             ['pending', 'Pending', counts.pending || 0],
             ['won', 'Won', counts.won || 0],
             ['lost', 'Lost', counts.lost || 0],
@@ -524,16 +533,14 @@ export default function Slips() {
           ))}
         </div>
 
-        <button className="btn btn-sm" onClick={() => load(source)} disabled={loading}>
+        <button className="btn btn-sm" onClick={() => load(source, status)} disabled={loading}>
           {loading ? <span className="spin" /> : '↻'} Refresh
         </button>
         {data?.total > 0 && (
           <span className="muted2" style={{ fontSize: 11 }}>
-            showing {data.returned ?? allSlips.length} of {data.total}
+            {data.returned} slip{data.returned === 1 ? '' : 's'}
+            {status ? ` · ${st?.total || 0} in total` : ''}
           </span>
-        )}
-        {data?.total > (data?.returned ?? 0) && (
-          <button className="btn btn-sm" onClick={showMore} disabled={loading}>Show more</button>
         )}
       </div>
 
@@ -550,12 +557,14 @@ export default function Slips() {
       {!loading && !slips.length && (
         <div className="card empty">
           <div className="empty-ico">🎟</div>
-          {allSlips.length ? (
+          {st?.total ? (
             <>
               <div className="empty-title">
                 No {STATUS[status]?.label.toLowerCase() || ''} slips{source ? ` from ${SOURCE_LABEL[source]}` : ''}
               </div>
-              <div className="empty-sub">{allSlips.length} slip{allSlips.length === 1 ? '' : 's'} match the other filters.</div>
+              {/* The list is filtered server-side now, so the fetched array is empty here and
+                  cannot be counted — the collection-wide total is the only honest number. */}
+              <div className="empty-sub">{st.total} slip{st.total === 1 ? '' : 's'} match the other filters.</div>
               <button className="btn btn-accent" style={{ marginTop: 16 }} onClick={() => setStatus('')}>Show all</button>
             </>
           ) : (
