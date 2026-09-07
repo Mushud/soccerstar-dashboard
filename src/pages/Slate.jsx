@@ -199,6 +199,10 @@ export default function Slate() {
   const [running, setRunning]   = useState(false)
   const [error, setError]       = useState(null)
   const [now, setNow]           = useState(() => Date.now())
+  // Which slate to show. The scheduler stores two side by side for the same day: the main card,
+  // and a 'focus' one restricted to a single league family (see services/autoSlate.js `label`).
+  // They are different bets built from different cards, so they get a switch rather than a merge.
+  const [view, setView]         = useState('main')
 
   // A countdown that never moves reads as "in 3 hours" an hour later.
   useEffect(() => {
@@ -209,21 +213,24 @@ export default function Slate() {
   const load = useCallback(async () => {
     setLoading(true)
     try {
+      const q = view === 'focus' ? '?label=focus' : ''
       const [{ data: cur }, { data: hist }] = await Promise.all([
-        api.get('/api/betbuilder/auto-slate'),
-        api.get('/api/betbuilder/auto-slate/history?limit=25'),
+        api.get(`/api/betbuilder/auto-slate${q}`),
+        api.get('/api/betbuilder/auto-slate/history?limit=40'),
       ])
       if (cur?.schedule) setSchedule(cur.schedule)
       else if (hist?.schedule) setSchedule(hist.schedule)
       setSlate(cur?.slate ? { ...cur.slate, stale: cur.stale } : null)
-      setHistory(hist?.slates || [])
+      // History is every stored slate; show only the ones belonging to the view, or the two
+      // would interleave and the run cadence would read as twice what it is.
+      setHistory((hist?.slates || []).filter(r => (r.label || 'main') === view))
       setError(null)
     } catch (e) {
       setError(e.response?.data?.error || e.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [view])
 
   useEffect(() => { load() }, [load])
 
@@ -249,6 +256,7 @@ export default function Slate() {
   }
 
   const slips = slate?.autoSlips || []
+  const isFocus = view === 'focus'
   const changedCount = (slate?.picks || []).filter(p =>
     p.originalMarket && (p.originalMarket !== p.market || p.originalSelection !== p.selection)).length
 
@@ -257,9 +265,22 @@ export default function Slate() {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
         <h1 style={{ fontSize: 19, margin: 0 }}>🗓 Slate</h1>
         <span className="muted2" style={{ fontSize: 11.5 }}>
-          What the scheduler built, the tickets it booked, and when it runs again.
+          {view === 'focus'
+            ? 'English non-league only — one league family, bet repeatedly, so the record can answer whether we are good at it.'
+            : 'What the scheduler built, the tickets it booked, and when it runs again.'}
         </span>
-        <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={runNow} disabled={running}>
+        <div style={{ display: 'flex', gap: 0, marginLeft: 'auto' }}>
+          {[['main', 'Main card'], ['focus', '⚽ Non-league']].map(([k, lbl]) => (
+            <button
+              key={k}
+              className={view === k ? 'btn btn-primary' : 'btn'}
+              style={{ borderRadius: k === 'main' ? '6px 0 0 6px' : '0 6px 6px 0' }}
+              onClick={() => setView(k)}
+              disabled={loading || running}
+            >{lbl}</button>
+          ))}
+        </div>
+        <button className="btn btn-primary" onClick={runNow} disabled={running}>
           {running ? <><span className="spin" /> Running…</> : '▶ Run now'}
         </button>
         <button className="btn" onClick={load} disabled={loading || running}>↻ Refresh</button>

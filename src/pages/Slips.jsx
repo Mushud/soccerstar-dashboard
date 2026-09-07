@@ -43,7 +43,11 @@ function SlipRow({ s }) {
   const [open, setOpen] = useState(false)
   const st = STATUS[s.status] || STATUS.pending
   return (
-    <div className="card" style={{ borderColor: st.tone ? `var(--${st.tone}-dim)` : 'var(--line)' }}>
+    <div
+      className={`card${s.slateLabel === 'focus' ? ' slip-focus' : ''}`}
+      style={{ borderColor: s.slateLabel === 'focus' ? 'var(--warn-dim)'
+        : st.tone ? `var(--${st.tone}-dim)` : 'var(--line)' }}
+    >
       <div
         onClick={() => setOpen(o => !o)}
         style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', cursor: 'pointer', flexWrap: 'wrap' }}
@@ -54,6 +58,13 @@ function SlipRow({ s }) {
 
         <span className="num" style={{ fontSize: 13, fontWeight: 800, color: 'var(--warn)' }}>{odds(s.totalOdds)}</span>
         <span className="muted" style={{ fontSize: 12 }}>{s.legs.length} legs</span>
+        {/* Colour alone is not a label — and it is invisible to anyone who cannot see it. */}
+        {s.slateLabel === 'focus' && (
+          <span className="tag tag-focus" style={{ fontSize: 9.5 }}
+            title="Built from the focus slate — English non-league only, one league family bet repeatedly so the record can answer whether we are good at it.">
+            NON-LEAGUE
+          </span>
+        )}
 
         {/* How far through the slip is — the useful number while it is still running. */}
         <span className="muted" style={{ fontSize: 12 }}>
@@ -142,7 +153,15 @@ function SlipRow({ s }) {
                     empty and this cell used to sit blank through the entire match. */}
                 <span className="num" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>
                   {l.actual?.goalsHome != null ? (
-                    <span className="muted">{l.actual.goalsHome}–{l.actual.goalsAway}</span>
+                    <span
+                      className="muted"
+                      title={l.earlySettled
+                        ? 'Settled from the live score — more goals cannot change this result. Re-checked against the final score when the match ends.'
+                        : undefined}
+                    >
+                      {l.actual.goalsHome}–{l.actual.goalsAway}
+                      {l.earlySettled && <span style={{ color: 'var(--warn)' }} title="Settled early from the live score"> ⚡</span>}
+                    </span>
                   ) : l.live?.status === 'live' ? (
                     <span style={{ color: 'var(--neg)', fontWeight: 800 }}
                       title={`Live${l.live.elapsed != null ? ` — ${l.live.elapsed} minutes played` : ''}`}>
