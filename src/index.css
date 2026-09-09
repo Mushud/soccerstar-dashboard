@@ -782,6 +782,24 @@ input[type='range']:disabled { opacity: 0.45; cursor: not-allowed; }
 .slip-focus .leg-list .leg:hover { background: color-mix(in srgb, var(--warn-soft) 45%, var(--surface-2)); }
 .slip-focus .leg-list .leg:hover::before { background: var(--warn); }
 
+/* ── The value ladder's tickets ───────────────────────────────────────────────
+   Blue, as the focus slate's are gold — a different bet deserves a different colour. These are
+   the only tickets built from measured +EV cells rather than from a price target, so they are
+   the ones whose record is worth reading separately. Same treatment as .slip-focus: a tinted
+   edge rather than a full repaint, so a list of both stays readable. */
+.slip-value {
+  background: linear-gradient(90deg, var(--accent-soft) 0%, transparent 55%);
+  border-left: 3px solid var(--accent);
+}
+.slip-value .code-box { border-color: var(--accent-dim); }
+.tag-value {
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  border: 1px solid var(--accent-dim);
+}
+.slip-value .leg-list .leg:hover { background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface-2)); }
+.slip-value .leg-list .leg:hover::before { background: var(--accent); }
+
 /* ── Tracking a row across the width ──────────────────────────────────────────
    A twenty-leg slip in `tight` mode is 5px of padding at 12px type, and the row had no hover
    state at all — so following one match from its name across to its odds and result meant

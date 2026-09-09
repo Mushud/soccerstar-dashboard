@@ -44,8 +44,9 @@ function SlipRow({ s }) {
   const st = STATUS[s.status] || STATUS.pending
   return (
     <div
-      className={`card${s.slateLabel === 'focus' ? ' slip-focus' : ''}`}
+      className={`card${s.slateLabel === 'focus' ? ' slip-focus' : s.ticketKind === 'results' ? ' slip-value' : ''}`}
       style={{ borderColor: s.slateLabel === 'focus' ? 'var(--warn-dim)'
+        : s.ticketKind === 'results' ? 'var(--accent-dim)'
         : st.tone ? `var(--${st.tone}-dim)` : 'var(--line)' }}
     >
       <div
@@ -63,6 +64,12 @@ function SlipRow({ s }) {
           <span className="tag tag-focus" style={{ fontSize: 9.5 }}
             title="Built from the focus slate — English non-league only, one league family bet repeatedly so the record can answer whether we are good at it.">
             NON-LEAGUE
+          </span>
+        )}
+        {s.slateLabel !== 'focus' && s.ticketKind === 'results' && (
+          <span className="tag tag-value" style={{ fontSize: 9.5 }}
+            title="Value ladder — built only from Double Chance X2 below 1.25 and 1X2 Home Win at 1.15-1.25, the two cells measured to make money as singles. Targets 1.3x / 1.5x / 1.7x.">
+            VALUE
           </span>
         )}
 
