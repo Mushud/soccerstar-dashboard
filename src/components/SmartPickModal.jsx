@@ -118,6 +118,15 @@ function BookingCode({ book }) {
 
 export default function SmartPickModal({ open, onClose, picks, onApply, onAnalyse }) {
   const [target, setTarget]   = useState(20)
+  // How the slip is sized. 'confidence' asks for a win probability and lets the leg count fall
+  // out of it; 'price' is the old target-odds search.
+  //
+  // Confidence is the default on measurement, not taste. Over 2026-08-01..09-10 with judgement
+  // on, a 60% floor landed 73.9% of 115 slips against a 67.3% claim — it BEAT its claim — with a
+  // worst losing run of 3. The 20x price target landed 7 of 118 with a 31-slip losing run, and
+  // the 2000x tickets that were actually being booked landed 0 of 113 while claiming 0.1%.
+  const [sizeBy, setSizeBy]   = useState('confidence')
+  const [floor, setFloor]     = useState(0.60)
   const [minLegs, setMinLegs] = useState(10)
   const [maxLegs, setMaxLegs] = useState(15)
   const [sbOnly, setSbOnly]   = useState(true)
@@ -204,7 +213,8 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
             minProb: Object.fromEntries(active.map(([k, v]) => [k, v.min])) }
         : null
       const { data } = await api.post('/api/betbuilder/target-slip', {
-        targetOdds: target, minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly,
+        ...(sizeBy === 'confidence' ? { minSlipProb: floor } : { targetOdds: target }),
+        minLegs, maxLegs, sportybetOnly: sbOnly, safeMarketsOnly: safeOnly,
         slips: slipCount, uniqueBy: 'team', minLegProb, marketRules, maxMarketShare: slipShare, candidates,
         mode, preferOver15: mode === 'human' ? preferOver15 : 0,
       }, { timeout: 3 * 60 * 1000 })
@@ -231,7 +241,7 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
     try {
       const { data } = await api.post('/api/betbuilder/target-slip/book', {
         legs,
-        targetOdds: target, minLegs, maxLegs,
+        targetOdds: sizeBy === 'confidence' ? null : target, minLegs, maxLegs,
         winProb: legs.reduce((a, l) => a * (l.prob ?? 1), 1),
         sportybetOnly: sbOnly,
       }, { timeout: 2 * 60 * 1000 })
@@ -319,7 +329,43 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
 
         <div className="modal-body">
 
-          {/* Target odds */}
+          {/* How to size the slip */}
+          <div>
+            <div className="chip-row" style={{ marginBottom: 10 }}>
+              <button
+                className={`chip${sizeBy === 'confidence' ? ' on' : ''}`}
+                onClick={() => setSizeBy('confidence')} disabled={building}
+                title="Ask for a win probability and take however many legs deliver it. Measured: a 60% floor landed 73.9% of 115 slips against a 67.3% claim, worst losing run 3.">
+                By confidence
+              </button>
+              <button
+                className={`chip${sizeBy === 'price' ? ' on' : ''}`}
+                onClick={() => setSizeBy('price')} disabled={building}
+                title="Reach for a price. Higher headline returns but they rest on a handful of results — the 20x target had a 31-slip losing run, and 2000x landed 0 of 113.">
+                By target odds
+              </button>
+            </div>
+          </div>
+
+          {sizeBy === 'confidence' ? (
+          <div>
+            <div className="slider-head">
+              <span className="label" style={{ marginBottom: 0 }}>Least confidence to accept</span>
+              <span className="slider-value" style={{ color: 'var(--ok, var(--warn))' }}>{(floor * 100).toFixed(0)}%</span>
+            </div>
+            <input
+              type="range" min={40} max={90} step={5}
+              value={Math.round(floor * 100)}
+              onChange={e => setFloor(Number(e.target.value) / 100)}
+              disabled={building}
+            />
+            <div className="slider-scale"><span>40%</span><span>60%</span><span>75%</span><span>90%</span></div>
+            <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+              Legs are added safest-first and stop at the last one that still clears this. The
+              number of legs is whatever the card supports on the day — usually 3 or 4.
+            </div>
+          </div>
+          ) : (
           <div>
             <div className="slider-head">
               <span className="label" style={{ marginBottom: 0 }}>Target odds</span>
@@ -337,7 +383,14 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                 <button key={v} className={`chip${target === v ? ' on' : ''}`} onClick={() => setTarget(v)} disabled={building}>{v}x</button>
               ))}
             </div>
+            {target >= 500 && (
+              <div className="muted" style={{ fontSize: 11, marginTop: 6, color: 'var(--warn)' }}>
+                Slips at this target claimed 0.1–0.6% and landed 0 of 113 in simulation. The price
+                is reached by taking legs the model has no conviction in.
+              </div>
+            )}
           </div>
+          )}
 
           {/* Legs */}
           <div>
