@@ -16,11 +16,15 @@ import api from '../api'
  */
 
 const MIN_ODDS = 1.5
-// 2000, not 500. The DP behind this represents odds as log buckets and tops out around 3.6e5x
-// (MAX_BUCKETS 3200 x STEP 0.004), so the old ceiling was a slider limit rather than an engine
-// one. Whether a card can REACH 2000x is a separate question — it usually cannot, and the build
-// says so with the ceiling it actually found.
-const MAX_ODDS = 2000
+// 10000, raised from 2000 on request 2026-09-14. The DP behind this represents odds as log
+// buckets and tops out around 3.6e5x (MAX_BUCKETS 3200 x STEP 0.004), so this is still a slider
+// limit rather than an engine one. Whether a card can REACH 10000x is a separate question — it
+// usually cannot, and the build says so with the ceiling it actually found.
+//
+// Be clear about what this end of the slider buys: the 2000x tickets measured 0 wins from 113
+// while claiming 0.1%, and 10000x is a longer price on the same card, so it is longer odds on a
+// strictly worse-than-claimed base. It is a lottery setting, not a calibration one.
+const MAX_ODDS = 10000
 const STEPS = 200
 
 // slider position (0..STEPS) ⟷ odds, on a log scale
@@ -72,11 +76,16 @@ const CANDIDATE_CAP = 400
 
 // Matches the optimiser's own DP ceiling (services/slipOptimiser.js MAX_DP_LEGS). The slider used
 // to stop at 25, which made the UI the tightest of four different leg limits — and the only one
-// visible. The booking guard sits above this at 50, so a slip built here is always bookable.
-const MAX_SLIP_LEGS = 40
+// visible.
+//
+// Raised 40 -> 50 on request 2026-09-14, together with MAX_DP_LEGS. This now sits EXACTLY on
+// SportyBet's own 50-selection ceiling instead of safely below it, so the old guarantee — "a slip
+// this builds is always bookable" — now holds with zero margin: a single 50-leg slip is accepted,
+// but merging two slips into one selection overshoots 50 and sportybetApi rejects the booking.
+const MAX_SLIP_LEGS = 50
 
 // SportyBet's own ceiling on selections per booking code (services/sportybetApi.js
-// MAX_BOOKING_LEGS). A single slip can never exceed it — the DP stops at 40 — but a selection
+// MAX_BOOKING_LEGS). A single slip can never exceed it — the DP stops at 50 — but a selection
 // merged from several slips easily can, and the server rejects the whole booking when it does.
 const MAX_BOOKING_LEGS = 50
 
@@ -377,9 +386,9 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
               onChange={e => setTarget(posToOdds(Number(e.target.value)))}
               disabled={building}
             />
-            <div className="slider-scale"><span>1.5x</span><span>15x</span><span>150x</span><span>2000x</span></div>
+            <div className="slider-scale"><span>1.5x</span><span>25x</span><span>500x</span><span>10000x</span></div>
             <div className="chip-row" style={{ marginTop: 8 }}>
-              {[5, 20, 50, 100, 500, 1000, 2000].map(v => (
+              {[5, 20, 50, 100, 500, 2000, 10000].map(v => (
                 <button key={v} className={`chip${target === v ? ' on' : ''}`} onClick={() => setTarget(v)} disabled={building}>{v}x</button>
               ))}
             </div>
