@@ -78,10 +78,13 @@ const CANDIDATE_CAP = 400
 // to stop at 25, which made the UI the tightest of four different leg limits — and the only one
 // visible.
 //
-// Raised 40 -> 50 on request 2026-09-14, together with MAX_DP_LEGS. This now sits EXACTLY on
-// SportyBet's own 50-selection ceiling instead of safely below it, so the old guarantee — "a slip
-// this builds is always bookable" — now holds with zero margin: a single 50-leg slip is accepted,
-// but merging two slips into one selection overshoots 50 and sportybetApi rejects the booking.
+// Raised 40 -> 50 on request 2026-09-14, together with MAX_DP_LEGS, to match SportyBet's own
+// per-slip ceiling (MAX_BOOKING_LEGS). A single slip the DP builds is still always bookable —
+// 50 is accepted, so the guarantee is unchanged, the slider simply stops understating it.
+//
+// Merging several slips into one selection can still exceed 50, but that is a property of
+// merging and always was: two slips overshot at the old 40-leg cap too. It is handled where it
+// happens — the Book button disables with a count of how many legs to untick.
 const MAX_SLIP_LEGS = 50
 
 // SportyBet's own ceiling on selections per booking code (services/sportybetApi.js
