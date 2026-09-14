@@ -383,7 +383,10 @@ export default function BacktestView() {
             <WeightPill label="Odds"    val={savedWeights.value.full?.odds}    color="var(--tx-2)" />
             {savedWeights.meta?.optimisedAt && (
               <span style={{ color: 'var(--tx-4)', marginLeft: 8 }}>
-                · last run {new Date(savedWeights.meta.optimisedAt).toLocaleDateString()} on {savedWeights.meta.samples} samples
+                · last run {new Date(savedWeights.meta.optimisedAt).toLocaleDateString()} on {savedWeights.meta.oddsSamples ?? savedWeights.meta.totalSamples ?? '?'} priced samples
+                {savedWeights.meta.baselineFullLoss != null && savedWeights.meta.optimisedFullLoss != null && (
+                  <> · log-loss {savedWeights.meta.baselineFullLoss.toFixed(4)} → {savedWeights.meta.optimisedFullLoss.toFixed(4)}</>
+                )}
               </span>
             )}
           </div>
