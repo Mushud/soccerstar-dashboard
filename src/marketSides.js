@@ -24,6 +24,15 @@ const GOAL_SELECTIONS = ['Over 1.5', 'Over 2.5', 'BTTS']
 
 export function selectionSide(market, selection) {
   const m = market || '', s = selection || ''
+  // "Away or Over 2.5" carries a side AND a goal line, so it has to be tested before the goals
+  // rule below. That rule matches the word "Over" anywhere and would colour the whole family
+  // teal, hiding the one thing a card cannot show otherwise: which team the leg is on. Coloured
+  // by the result half, because that is the half that varies across the card.
+  const combo = /^(Home|Away|Draw)\s+or\s+(?:Over|Under)\s*[\d.]/i.exec(s)
+  if (combo) {
+    const t = combo[1].toLowerCase()
+    return t === 'home' ? SIDE.HOME : t === 'away' ? SIDE.AWAY : SIDE.DRAW
+  }
   if (GOAL_SELECTIONS.includes(s) || /Over|Under|BTTS|Both Teams/i.test(`${m} ${s}`)) return SIDE.GOALS
   // Test the Double Chance codes before the plain words: "X2 (Away or Draw)" contains both
   // "Away" and "Draw", so a naive word match would classify half the card as draw bets.
