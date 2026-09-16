@@ -20,6 +20,7 @@ const NAV = [
       { to: '/betslip',     icon: '🧾', text: 'Bet Slip' },
       { to: '/slate',       icon: '🗓', text: 'Slate' },
       { to: '/slips',       icon: '🎟', text: 'Booked Slips' },
+      { to: '/rollover',    icon: '🔁', text: 'Rollover' },
     ],
   },
   {

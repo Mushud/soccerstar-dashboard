@@ -21,7 +21,7 @@ const STATUS = {
   void:    { tone: null,   label: 'Void' },
 }
 
-const SOURCE_LABEL = { 'smart-pick': 'Smart Pick', 'auto-slate': 'Auto Slate', manual: 'Manual', imported: 'Imported' }
+const SOURCE_LABEL = { 'smart-pick': 'Smart Pick', 'auto-slate': 'Auto Slate', manual: 'Manual', imported: 'Imported', rollover: 'Rollover' }
 
 const pct = v => (v == null ? '—' : `${(v * 100).toFixed(v < 0.1 && v > 0 ? 1 : 0)}%`)
 /** An imported slip can arrive with a leg SportyBet no longer prices, leaving no total. */
@@ -539,7 +539,7 @@ export default function Slips() {
         <div className="seg seg-accent">
           {/* auto-slate is the scheduler's own output and the biggest source by volume; it was
               missing here, and the route silently ignored it as a filter value too. */}
-          {[['', 'All'], ['auto-slate', 'Auto Slate'], ['smart-pick', 'Smart Pick'], ['manual', 'Manual'], ['imported', 'Imported']].map(([k, l]) => (
+          {[['', 'All'], ['auto-slate', 'Auto Slate'], ['smart-pick', 'Smart Pick'], ['rollover', 'Rollover'], ['manual', 'Manual'], ['imported', 'Imported']].map(([k, l]) => (
             <button key={k} className={source === k ? 'on' : ''} onClick={() => setSource(k)}>{l}</button>
           ))}
         </div>

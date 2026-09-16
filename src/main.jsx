@@ -9,6 +9,7 @@ import Slate from './pages/Slate'
 import Slips from './pages/Slips'
 import Tournaments from './pages/Tournaments'
 import Aliases from './pages/Aliases'
+import Rollover from './pages/Rollover'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Route path="/bet-builder" element={<BetBuilder />} />
       <Route path="/slate" element={<Slate />} />
       <Route path="/slips" element={<Slips />} />
+      <Route path="/rollover" element={<Rollover />} />
       <Route path="/tournaments" element={<Tournaments />} />
       <Route path="/aliases" element={<Aliases />} />
     </Routes>
