@@ -294,7 +294,7 @@ export default function Slate() {
               <div>
                 <div className="eyebrow">Next run</div>
                 <div style={{ fontSize: 17, fontWeight: 800 }}>{until(schedule.nextRunAt, now)}</div>
-                <div className="muted2" style={{ fontSize: 10.5 }}>{clock(schedule.nextRunAt)} · every {schedule.everyHours}h</div>
+                <div className="muted2" style={{ fontSize: 10.5 }}>{clock(schedule.nextRunAt)} · {schedule.daily ? `once a day at ${schedule.atUtc} UTC` : `every ${schedule.everyHours}h`}</div>
               </div>
               <div>
                 <div className="eyebrow">Fixture window</div>
