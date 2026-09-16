@@ -222,18 +222,70 @@ function Step({ step, total, live, defaultOpen }) {
   )
 }
 
+// ── Countdown ────────────────────────────────────────────────────────────────
+
+/** "3h 20m" / "45m" / "2d 4h" — a person's units, never a timestamp. */
+function human(ms) {
+  if (!(ms > 0)) return null
+  const m = Math.round(ms / 60000)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ${m % 60}m`
+  return `${Math.floor(h / 24)}d ${h % 24}h`
+}
+
+// The settlement pass runs at :15 past every second hour (services/scheduler.js), and that is
+// also when an unbuilt step is retried and a won step's successor is cut. So "next check" is a
+// real time we can show rather than a vague "soon".
+function nextTick(now) {
+  const d = new Date(now)
+  d.setUTCMinutes(15, 0, 0)
+  while (d <= now || d.getUTCHours() % 2 !== 0) d.setUTCMinutes(d.getUTCMinutes() + 60)
+  return d
+}
+
+/**
+ * What this step is waiting for, in one line.
+ *
+ * A step's life is: built -> first kickoff -> last kickoff -> graded. Each stage has a different
+ * honest answer, and "pending" alone tells you none of them.
+ */
+function waitingOn(step, now) {
+  if (!step) return null
+  if (step.status === 'building') return { label: 'building the ticket', tone: 'var(--accent-2)' }
+  if (step.status === 'unbuilt' || step.status === 'unbooked') {
+    return { label: `retrying in ${human(nextTick(now) - now) || 'a moment'}`, tone: 'var(--warn)' }
+  }
+  if (step.status !== 'pending') return null
+  const kos = (step.legs || []).map(l => l.kickoff && new Date(l.kickoff).getTime()).filter(Boolean)
+  if (!kos.length) return { label: 'waiting on results', tone: 'var(--info)' }
+  const first = Math.min(...kos), last = Math.max(...kos)
+  const t = now.getTime()
+  if (t < first) return { label: `kicks off in ${human(first - t)}`, tone: 'var(--info)', at: first }
+  // ~2 hours covers a match plus stoppage; after the last one it is just waiting for the grade.
+  // A multi-leg step says how many are still to come, because "in play" on a step with three
+  // legs left to kick off is not the same thing as one in its 80th minute.
+  if (t < last + 2 * 3600e3) {
+    const toCome = kos.filter(k => k > t).length
+    return { label: toCome > 0 ? `in play · ${toCome} still to kick off` : 'in play', tone: 'var(--pos)' }
+  }
+  return { label: `settles at the ${human(nextTick(now) - now)} check`, tone: 'var(--info)' }
+}
+
 // ── One chain ────────────────────────────────────────────────────────────────
 
-function Chain({ r, onChanged }) {
+function Chain({ r, onChanged, now, defaultOpen = false }) {
   const [busy, setBusy] = useState(null)
+  const [open, setOpen] = useState(defaultOpen)
   const [showAll, setShowAll] = useState(false)
   const cfg = r.config
   const won = r.steps.filter(s => s.status === 'won').length
   const live = [...r.steps].reverse().find(s => s.n === r.currentStep && s.status !== 'void')
   const ordered = [...r.steps].sort((a, b) => a.n - b.n || (a.status === 'void' ? -1 : 1))
-  // Past steps collapse away once there are a few — the live one is what you came to see.
   const shown = showAll || ordered.length <= 4 ? ordered : ordered.slice(-3)
   const hidden = ordered.length - shown.length
+  const wait = waitingOn(live, now)
+  const one = live?.legs?.length === 1 ? live.legs[0] : null
 
   const act = async (what) => {
     setBusy(what)
@@ -254,82 +306,126 @@ function Chain({ r, onChanged }) {
     : cfg.sizeBy === 'confidence' ? `each step claims ≥${pct(cfg.floor)}` : `${cfg.targetOdds}x a step`
 
   return (
-    <div className="card card-pad" style={{
+    <div className="card" style={{
+      padding: '12px 14px',
       borderColor: r.status === 'busted' ? 'var(--neg-dim)' : r.status === 'completed' ? 'var(--pos-dim)' : undefined,
     }}>
-      <div className="card-head" style={{ marginBottom: 10, gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-        <div style={{ minWidth: 0 }}>
-          <div className="card-title">
-            {r.name || `${shapeLine} × ${cfg.steps}`}
-            <span className={`pill ${PILL[r.status] || ''}`} style={{ marginLeft: 6 }}>{r.status}</span>
-          </div>
-          <div className="muted2" style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.5 }}>
-            {shapeLine} · {cfg.steps} steps · {cfg.windowHours}h window · {cfg.slate} card · {cfg.mode}
-            {cfg.aiCheck ? ' · AI check' : ''} · started {when(r.startedAt)}
-          </div>
-        </div>
-        <div className="toolbar" style={{ gap: 6 }}>
-          {r.status === 'active' && live && !['pending', 'building'].includes(live.status) && (
-            <button className="btn btn-sm btn-accent" disabled={!!busy} onClick={() => act('rebuild')}>{busy === 'rebuild' ? 'Building…' : 'Build now'}</button>
-          )}
-          {r.status === 'active' && <button className="btn btn-sm" disabled={!!busy} onClick={() => act('advance')}>{busy === 'advance' ? 'Checking…' : 'Check'}</button>}
-          {r.status === 'active' && <button className="btn btn-sm btn-neg" disabled={!!busy} onClick={() => { if (confirm('Stop this chain?')) act('stop') }}>Stop</button>}
-          {r.status !== 'active' && <button className="btn btn-sm btn-ghost" disabled={!!busy} onClick={remove}>Delete</button>}
-        </div>
+      {/* ── Summary: everything that matters while it runs, in four rows ── */}
+      <div className="ro-sum-head" onClick={() => setOpen(o => !o)}>
+        <span style={{ width: 8, height: 8, borderRadius: 4, background: dotFor(live), flexShrink: 0 }} />
+        <span className="ro-sum-name">{r.name || `${shapeLine} × ${cfg.steps}`}</span>
+        <span className={`pill ${PILL[r.status] || ''}`} style={{ flexShrink: 0 }}>{r.status}</span>
+        <span className="num ro-sum-count" style={{ flexShrink: 0 }}>{won}<span className="muted2">/{cfg.steps}</span></span>
+        <span className="muted2" style={{ fontSize: 11, flexShrink: 0 }}>{open ? '▾' : '▸'}</span>
       </div>
 
-      <div style={{ display: 'flex', gap: 3, marginBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 2, margin: '8px 0' }}>
         {Array.from({ length: cfg.steps }, (_, i) => {
           const s = [...r.steps].reverse().find(x => x.n === i + 1 && x.status !== 'void')
-          return <div key={i} title={`step ${i + 1}${s ? ` — ${s.status}` : ''}`} style={{ flex: 1, height: 6, borderRadius: 3, background: dotFor(s) }} />
+          return <div key={i} title={`step ${i + 1}${s ? ` — ${s.status}` : ''}`} style={{ flex: 1, height: 5, borderRadius: 3, background: dotFor(s) }} />
         })}
       </div>
 
-      <div className="stat-grid" style={{ marginBottom: 12 }}>
-        <div className="stat">
-          <div className="stat-label">Progress</div>
-          <div className="stat-value num">{won}<span className="muted2" style={{ fontSize: 14 }}>/{cfg.steps}</span></div>
-          <div className="stat-foot">steps landed</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">Bankroll</div>
-          <div className="stat-value num">{money(r.bankroll?.current)}</div>
-          <div className="stat-foot">from {money(r.bankroll?.initial)}</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">If it completes</div>
-          <div className="stat-value num" style={{ color: 'var(--pos)' }}>{money(r.bankroll?.target)}</div>
-          <div className="stat-foot">~{money(Math.pow(cfg.stepOdds || 1, cfg.steps))}x the first stake</div>
-        </div>
-        <div className="stat">
-          <div className="stat-label">Now</div>
-          <div className="stat-value" style={{ fontSize: 15 }}>{live ? `step ${live.n} ${STEP_WORD[live.status] || live.status}` : '—'}</div>
-          <div className="stat-foot">
-            {live?.live ? `${live.live.legsWon} won · ${live.live.legsPending} pending` : r.lastTickAt ? `checked ${when(r.lastTickAt)}` : ''}
+      {/* The live step, as one readable line — the bet, the code, and what it is waiting for. */}
+      {live && r.status === 'active' && (
+        <div className="ro-sum-live">
+          <div className="ro-sum-bet">
+            <b style={{ fontSize: 12.5 }}>Step {live.n}</b>
+            {one
+              ? <span className="muted"> · {one.match} · <b style={{ color: 'var(--tx-1)' }}>{one.selection}</b></span>
+              : live.legCount > 0 ? <span className="muted"> · {live.legCount} legs</span> : null}
+            {live.totalOdds > 0 && <span className="num" style={{ color: 'var(--warn)', fontWeight: 700 }}> {live.totalOdds}x</span>}
           </div>
+          {wait && (
+            <div className="ro-sum-wait" style={{ color: wait.tone }}>
+              {live.status === 'building' && <span className="ro-spin" />}
+              {wait.label}
+            </div>
+          )}
         </div>
+      )}
+
+      <div className="ro-sum-foot">
+        {live?.code && (
+          <>
+            <code style={{ fontWeight: 800, letterSpacing: '0.04em' }}>{live.code}</code>
+            <button className="btn btn-sm" onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(live.code) }}>Copy</button>
+            {live.shareUrl && <a className="btn btn-sm btn-info" href={live.shareUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>SportyBet ↗</a>}
+          </>
+        )}
+        <span className="num muted" style={{ marginLeft: 'auto', fontSize: 12 }}>
+          {money(r.bankroll?.current)}
+          {live?.potential ? <> → <b style={{ color: 'var(--pos)' }}>{money(live.potential)}</b></> : null}
+          <span className="muted2"> · target {money(r.bankroll?.target)}</span>
+        </span>
       </div>
 
-      {hidden > 0 && (
-        <button className="btn btn-sm btn-ghost" style={{ marginBottom: 6 }} onClick={() => setShowAll(true)}>
-          Show {hidden} earlier step{hidden === 1 ? '' : 's'}
-        </button>
+      {/* ── Detail, on demand ── */}
+      {open && (
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line-soft)' }}>
+          <div className="card-head" style={{ marginBottom: 10, gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+            <div className="muted2" style={{ fontSize: 11.5, lineHeight: 1.5, minWidth: 0 }}>
+              {shapeLine} · {cfg.steps} steps · {cfg.windowHours}h window · {cfg.slate} card · {cfg.mode}
+              {cfg.aiCheck ? ' · AI check' : ''} · started {when(r.startedAt)}
+            </div>
+            <div className="toolbar" style={{ gap: 6 }}>
+              {r.status === 'active' && live && !['pending', 'building'].includes(live.status) && (
+                <button className="btn btn-sm btn-accent" disabled={!!busy} onClick={() => act('rebuild')}>{busy === 'rebuild' ? 'Building…' : 'Build now'}</button>
+              )}
+              {r.status === 'active' && <button className="btn btn-sm" disabled={!!busy} onClick={() => act('advance')}>{busy === 'advance' ? 'Checking…' : 'Check'}</button>}
+              {r.status === 'active' && <button className="btn btn-sm btn-neg" disabled={!!busy} onClick={() => { if (confirm('Stop this chain?')) act('stop') }}>Stop</button>}
+              {r.status !== 'active' && <button className="btn btn-sm btn-ghost" disabled={!!busy} onClick={remove}>Delete</button>}
+            </div>
+          </div>
+
+          <div className="stat-grid" style={{ marginBottom: 12 }}>
+            <div className="stat">
+              <div className="stat-label">Progress</div>
+              <div className="stat-value num">{won}<span className="muted2" style={{ fontSize: 14 }}>/{cfg.steps}</span></div>
+              <div className="stat-foot">steps landed</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Bankroll</div>
+              <div className="stat-value num">{money(r.bankroll?.current)}</div>
+              <div className="stat-foot">from {money(r.bankroll?.initial)}</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">If it completes</div>
+              <div className="stat-value num" style={{ color: 'var(--pos)' }}>{money(r.bankroll?.target)}</div>
+              <div className="stat-foot">~{money(Math.pow(cfg.stepOdds || 1, cfg.steps))}x the first stake</div>
+            </div>
+            <div className="stat">
+              <div className="stat-label">Now</div>
+              <div className="stat-value" style={{ fontSize: 15 }}>{live ? `step ${live.n} ${STEP_WORD[live.status] || live.status}` : '—'}</div>
+              <div className="stat-foot">
+                {live?.live ? `${live.live.legsWon} won · ${live.live.legsPending} pending` : r.lastTickAt ? `checked ${when(r.lastTickAt)}` : ''}
+              </div>
+            </div>
+          </div>
+
+          {hidden > 0 && (
+            <button className="btn btn-sm btn-ghost" style={{ marginBottom: 6 }} onClick={() => setShowAll(true)}>
+              Show {hidden} earlier step{hidden === 1 ? '' : 's'}
+            </button>
+          )}
+          <div style={{ display: 'grid', gap: 6 }}>
+            {shown.map((s, i) => (
+              <Step
+                key={`${s.n}-${s.status}-${i}`}
+                step={s}
+                total={cfg.steps}
+                live={s === live ? live.live : null}
+                defaultOpen={s === live && r.status === 'active'}
+              />
+            ))}
+          </div>
+          {r.lastError && <div className="muted2" style={{ fontSize: 11.5, marginTop: 8 }}>last error: {r.lastError}</div>}
+        </div>
       )}
-      <div style={{ display: 'grid', gap: 6 }}>
-        {shown.map((s, i) => (
-          <Step
-            key={`${s.n}-${s.status}-${i}`}
-            step={s}
-            total={cfg.steps}
-            live={s === live ? live.live : null}
-            defaultOpen={s === live && r.status === 'active'}
-          />
-        ))}
-      </div>
-      {r.lastError && <div className="muted2" style={{ fontSize: 11.5, marginTop: 8 }}>last error: {r.lastError}</div>}
     </div>
   )
 }
+
 
 // ── Page ─────────────────────────────────────────────────────────────────────
 
@@ -361,6 +457,9 @@ export default function Rollover() {
 
   const [ins, setIns] = useState(null)
   const [insLoading, setInsLoading] = useState(false)
+  // Countdowns move on their own clock, 30s, so they stay live between the 60s data polls.
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(t) }, [])
 
   const load = useCallback(async () => {
     try {
@@ -553,7 +652,9 @@ export default function Rollover() {
           {active.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div className="label" style={{ marginBottom: 8 }}>Running</div>
-              <div style={{ display: 'grid', gap: 12 }}>{active.map(r => <Chain key={r._id} r={r} onChanged={load} />)}</div>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {active.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} defaultOpen={active.length === 1 && r.steps.length <= 2} />)}
+              </div>
             </div>
           )}
 
@@ -562,7 +663,7 @@ export default function Rollover() {
           {done.length > 0 && (
             <div>
               <div className="label" style={{ marginBottom: 8 }}>Finished</div>
-              <div style={{ display: 'grid', gap: 12 }}>{done.map(r => <Chain key={r._id} r={r} onChanged={load} />)}</div>
+              <div style={{ display: 'grid', gap: 10 }}>{done.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} />)}</div>
             </div>
           )}
 
@@ -579,12 +680,30 @@ export default function Rollover() {
         .ro-leg-bet, .ro-leg-odds, .ro-leg-ko { flex-shrink: 0; }
         .ro-leg-ko { font-size: 11px; }
         .ro-step-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
+
+        .ro-sum-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+        .ro-sum-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 650; }
+        .ro-sum-count { font-size: 13px; font-weight: 800; }
+        .ro-sum-live { display: flex; align-items: baseline; gap: 10px; }
+        .ro-sum-bet { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+        .ro-sum-wait { flex-shrink: 0; font-size: 12px; font-weight: 650; display: flex; align-items: center; gap: 5px; }
+        .ro-sum-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 12.5px; }
+        /* A build is the one state where something is happening that you cannot see. */
+        .ro-spin { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--accent-dim); border-top-color: var(--accent-2); animation: ro-sp 0.8s linear infinite; }
+        @keyframes ro-sp { to { transform: rotate(360deg); } }
         .ro-step-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
         .ro-step-stake { font-size: 11.5px; flex-shrink: 0; }
 
         @media (max-width: 820px) { .ro-top { grid-template-columns: 1fr; } }
 
         @media (max-width: 599px) {
+          /* The live step stacks: the bet on one line, what it is waiting for underneath, so
+             neither gets truncated to nothing by the other. */
+          .ro-sum-live { display: block; }
+          .ro-sum-bet { white-space: normal; overflow: visible; }
+          .ro-sum-wait { margin-top: 3px; }
+          .ro-sum-foot code { font-size: 12.5px; }
+
           /* A leg is three things — which match, which bet, what price. On a phone they stack
              instead of competing for one line, and the match name stops being truncated to
              nothing by the bet text beside it. */
