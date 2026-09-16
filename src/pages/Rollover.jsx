@@ -427,6 +427,7 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
             <div className="muted2" style={{ fontSize: 11.5, lineHeight: 1.5, minWidth: 0 }}>
               {shapeLine} · {cfg.steps} steps · {cfg.windowHours}h window · {cfg.slate} card · {cfg.mode}
               {cfg.aiCheck ? ' · AI check' : ''} · started {when(r.startedAt)}
+              {cfg.oddsCapped ? <span style={{ color: 'var(--warn)' }}> · window capped from {cfg.oddsCapped}x</span> : null}
             </div>
             <div className="toolbar" style={{ gap: 6 }}>
               {r.status === 'active' && live && !['pending', 'building'].includes(live.status) && (
