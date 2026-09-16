@@ -222,6 +222,58 @@ function Step({ step, total, live, defaultOpen }) {
   )
 }
 
+// ── A number field you can actually edit ─────────────────────────────────────
+
+/**
+ * A controlled numeric input that keeps the TEXT you are typing, not the number it parses to.
+ *
+ * The obvious spelling — `value={n} onChange={e => set(parseFloat(e.target.value) || 1)}` —
+ * makes the field uneditable in a way that is easy to miss when you only ever nudge the
+ * spinner. Clearing it to type a new number produces `''`, which parses to NaN, which `|| 1`
+ * turns into 1, which React writes straight back into the box. You cannot select-all and retype:
+ * the field fights you on every keystroke and lands on 1.
+ *
+ * So the text is local state and the parsed number only travels upward when it is actually a
+ * number in range. An empty or half-typed box ("1.", "0.0") leaves the last good value in place
+ * rather than inventing one. Blur is where it settles up: restore the last good value if what is
+ * there is not a number, clamp it if it is out of range, and normalise what is displayed.
+ */
+function NumField({ value, onChange, min, max, step = 1, integer = false, ...rest }) {
+  const [text, setText] = useState(() => String(value))
+  const [editing, setEditing] = useState(false)
+  // A change from outside (switching shape resets the defaults) only lands while you are not
+  // typing — otherwise it would overwrite the box mid-edit.
+  useEffect(() => { if (!editing) setText(String(value)) }, [value, editing])
+
+  const parse = raw => (integer ? parseInt(raw, 10) : parseFloat(raw))
+  const clamp = n => Math.min(max, Math.max(min, n))
+
+  return (
+    <input
+      {...rest}
+      className="field num"
+      type="number"
+      inputMode={integer ? 'numeric' : 'decimal'}
+      step={step} min={min} max={max}
+      value={text}
+      onFocus={() => setEditing(true)}
+      onChange={e => {
+        setText(e.target.value)
+        const n = parse(e.target.value)
+        if (Number.isFinite(n) && n >= min && n <= max) onChange(n)
+      }}
+      onBlur={e => {
+        setEditing(false)
+        const n = parse(e.target.value)
+        if (!Number.isFinite(n)) { setText(String(value)); return }
+        const c = clamp(n)
+        onChange(c)
+        setText(String(c))
+      }}
+    />
+  )
+}
+
 // ── Countdown ────────────────────────────────────────────────────────────────
 
 /** "3h 20m" / "45m" / "2d 4h" — a person's units, never a timestamp. */
@@ -545,10 +597,10 @@ export default function Rollover() {
           {shape === 'straight' ? (
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               <label className="label">Price from
-                <input className="field num" type="number" step="0.05" min="1.02" max="4" value={oddsMin} onChange={e => setOddsMin(parseFloat(e.target.value) || 1.05)} />
+                <NumField value={oddsMin} onChange={setOddsMin} min={1.02} max={4} step={0.05} />
               </label>
               <label className="label">…to
-                <input className="field num" type="number" step="0.05" min="1.03" max="5" value={oddsMax} onChange={e => setOddsMax(parseFloat(e.target.value) || 1.45)} />
+                <NumField value={oddsMax} onChange={setOddsMax} min={1.03} max={5} step={0.05} />
               </label>
             </div>
           ) : (
@@ -563,7 +615,7 @@ export default function Rollover() {
                 </label>
               ) : (
                 <label className="label">Odds / step
-                  <input className="field num" type="number" step="0.05" min="1.05" max="10" value={targetOdds} onChange={e => setTargetOdds(parseFloat(e.target.value) || 1.5)} />
+                  <NumField value={targetOdds} onChange={setTargetOdds} min={1.05} max={10} step={0.05} />
                 </label>
               )}
             </>
@@ -571,10 +623,10 @@ export default function Rollover() {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <label className="label">Steps
-              <input className="field num" type="number" min="1" max="50" value={steps} onChange={e => setSteps(parseInt(e.target.value, 10) || 1)} />
+              <NumField value={steps} onChange={setSteps} min={1} max={50} step={1} integer />
             </label>
             <label className="label">Stake
-              <input className="field num" type="number" min="0.01" step="1" value={stake} onChange={e => setStake(parseFloat(e.target.value) || 1)} />
+              <NumField value={stake} onChange={setStake} min={0.01} max={1e9} step={1} />
             </label>
           </div>
           <div className="muted" style={{ fontSize: 12 }}>
