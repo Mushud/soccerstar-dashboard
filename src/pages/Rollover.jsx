@@ -355,7 +355,8 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
 
   const shapeLine = cfg.shape === 'straight'
     ? `one straight win ${cfg.oddsMin}–${cfg.oddsMax}x`
-    : cfg.sizeBy === 'confidence' ? `each step claims ≥${pct(cfg.floor)}` : `${cfg.targetOdds}x a step`
+    : cfg.sizeBy === 'confidence' ? `each step claims ≥${pct(cfg.floor)}`
+    : `${cfg.targetOdds}x a step (${(cfg.targetOdds * (1 - (cfg.tolerance ?? 0))).toFixed(2)}–${(cfg.targetOdds * (1 + (cfg.tolerance ?? 0))).toFixed(2)}x)`
 
   return (
     <div className="card" style={{
@@ -395,6 +396,13 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
             </div>
           )}
         </div>
+      )}
+
+      {/* A step that could not be built has a reason, and it is always actionable — too narrow a
+          window, too high a floor, too few legs allowed. Burying it in the detail panel meant the
+          card said "retrying" and nothing else, which is the least useful half of the answer. */}
+      {live && ['unbuilt', 'unbooked'].includes(live.status) && live.note && (
+        <div className="muted2" style={{ fontSize: 11.5, lineHeight: 1.5, marginTop: 4 }}>{live.note}</div>
       )}
 
       <div className="ro-sum-foot">
@@ -542,14 +550,14 @@ export default function Rollover() {
       try {
         const params = shape === 'straight'
           ? { shape, oddsMin, oddsMax, steps }
-          : { shape, steps, tolerance: 0.2, ...(sizeBy === 'target' ? { targetOdds } : { floor }) }
+          : { shape, steps, tolerance, ...(sizeBy === 'target' ? { targetOdds } : { floor }) }
         const { data } = await api.get('/api/rollover/insights', { params })
         setIns(data)
       } catch { /* the panel just stays as it was */ }
       finally { setInsLoading(false) }
     }, 300)
     return () => clearTimeout(t)
-  }, [shape, oddsMin, oddsMax, floor, targetOdds, sizeBy, steps])
+  }, [shape, oddsMin, oddsMax, floor, targetOdds, sizeBy, steps, tolerance])
 
   const create = async () => {
     setCreating(true)
@@ -574,6 +582,20 @@ export default function Rollover() {
   const done = merged.filter(r => r.status !== 'active')
   const stepOdds = shape === 'straight' ? (oddsMin + oddsMax) / 2 : sizeBy === 'target' ? targetOdds : 1 / (floor * 0.952)
   const payout = Math.pow(stepOdds, steps)
+
+  // ── Can these settings even reach the price being asked for? ──
+  //
+  // A leg claiming `minLegProb` is priced around 1/minLegProb, so `maxLegs` of them multiply to
+  // at most (1/minLegProb)^maxLegs. Ask for more than that and no card can ever supply it — the
+  // build fails every retry, for a reason that is arithmetic rather than bad luck. Measured on a
+  // real chain: 80% floor, 2 legs, 24h window asked for 1.5x, and the best the card could reach
+  // was 1.25x because the floor left three fixtures standing.
+  //
+  // Deliberately a warning and not a block: the ceiling assumes every leg sits exactly on the
+  // floor, so reaching it is possible on a strong card and the user may know that.
+  const reach = shape === 'cover' && sizeBy === 'target' ? Math.pow(1 / minLegProb, maxLegs) : null
+  const tooFar = reach != null && targetOdds > reach * 0.95
+  const thinWindow = windowHours <= 24
 
   // `.ro-top` is laid out in the stylesheet at the bottom rather than inline: an inline
   // grid-template-columns beats a media query, so the phone breakpoint would never fire.
@@ -614,9 +636,24 @@ export default function Rollover() {
                   <input type="range" min="0.6" max="0.95" step="0.01" value={floor} onChange={e => setFloor(parseFloat(e.target.value))} />
                 </label>
               ) : (
+                // The band is stated as the two prices it will actually accept, not as "±15%".
+                // A step is built by reaching for a price out of whatever the card offers and
+                // will almost never land exactly on the number asked for — so the useful thing
+                // to show is the band, and the useful thing to control is how wide it is.
+                <>
                 <label className="label">Odds / step
                   <NumField value={targetOdds} onChange={setTargetOdds} min={1.05} max={10} step={0.05} />
                 </label>
+                <label className="label">
+                  Take anything from <b className="num" style={{ color: 'var(--tx-1)' }}>{(targetOdds * (1 - tolerance)).toFixed(2)}x</b>
+                  {' to '}<b className="num" style={{ color: 'var(--tx-1)' }}>{(targetOdds * (1 + tolerance)).toFixed(2)}x</b>
+                  <input type="range" min="0.02" max="0.4" step="0.01" value={tolerance} onChange={e => setTolerance(parseFloat(e.target.value))} />
+                  <span className="muted2" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                    Wider finds a step on more days; narrower keeps the payout closer to what you asked for.
+                    A tight band on a thin card is the usual reason a step comes back unbuilt.
+                  </span>
+                </label>
+                </>
               )}
             </>
           )}
@@ -632,6 +669,22 @@ export default function Rollover() {
           <div className="muted" style={{ fontSize: 12 }}>
             {stake} → <b className="num" style={{ color: 'var(--pos)' }}>{money(stake * payout)}</b> if all {steps} land (~{money(payout)}x)
           </div>
+
+          {tooFar && (
+            <div className="card" style={{ padding: '8px 10px', borderColor: 'var(--warn-dim)', background: 'var(--warn-soft)' }}>
+              <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--warn)' }}>
+                <b>{maxLegs} leg{maxLegs === 1 ? '' : 's'} at ≥{pct(minLegProb)} reach about {reach.toFixed(2)}x at best</b> — short of the {targetOdds}x
+                you are asking for, and only if every leg sits exactly on the floor. Allow more legs, or lower the leg floor,
+                or ask for a shorter step.
+              </div>
+            </div>
+          )}
+          {!tooFar && thinWindow && (
+            <div className="muted2" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+              A {windowHours}h window is thin — the card carries roughly a quarter of the fixtures it does at 72h, so a step
+              may take a few retries to find. Widen it under “How each step is built” if steps come back unbuilt.
+            </div>
+          )}
 
           <details>
             <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>How each step is built</summary>
