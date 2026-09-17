@@ -810,6 +810,11 @@ export default function Rollover() {
            starts truncating to nothing. One open card takes the whole row. */
         .ro-chains { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
         .ro-chain-open { grid-column: 1 / -1; }
+        /* Three across is the ceiling. Left to auto-fill a 1920px screen takes a fourth column at
+           ~400px each, which is under the width the summary line needs and starts truncating the
+           bet again — the exact thing the 340px minimum exists to prevent. Below ~1650px this
+           rule is a no-op, because auto-fill resolves to three there anyway. */
+        @media (min-width: 1400px) { .ro-chains { grid-template-columns: repeat(3, 1fr); } }
 
         .ro-sum-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
         .ro-sum-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 650; }
