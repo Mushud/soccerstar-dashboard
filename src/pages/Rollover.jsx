@@ -142,7 +142,14 @@ function Leg({ l, live }) {
       <span className="ro-leg-match">{l.match}<span className="muted2"> · {l.league}</span></span>
       <span className="ro-leg-bet muted">{l.market}: <b style={{ color: 'var(--tx-1)' }}>{l.selection}</b></span>
       <span className="num ro-leg-odds">@{l.odds}</span>
-      {live?.sbScore && <span className="num muted2">{live.sbScore}</span>}
+      {/* Live first, settled score second — while a match is on, the score as it stands is the
+          only thing that can say anything about a straight win, which never settles early. */}
+      {live?.state === 'live' && live.score && (
+        <span className="num" style={{ color: 'var(--pos)', fontWeight: 700 }}>
+          {live.score}{live.elapsed != null ? <span className="muted2" style={{ fontWeight: 400 }}> {live.elapsed}'</span> : null}
+        </span>
+      )}
+      {live?.state !== 'live' && (live?.sbScore || live?.score) && <span className="num muted2">{live.sbScore || live.score}</span>}
       <span className="muted2 ro-leg-ko">{kickoff(l.kickoff)}</span>
     </div>
   )
@@ -302,7 +309,7 @@ function nextTick(now) {
  * A step's life is: built -> first kickoff -> last kickoff -> graded. Each stage has a different
  * honest answer, and "pending" alone tells you none of them.
  */
-function waitingOn(step, now) {
+function waitingOn(step, now, live = null) {
   if (!step) return null
   if (step.status === 'building') return { label: 'building the ticket', tone: 'var(--accent-2)' }
   if (step.status === 'unbuilt' || step.status === 'unbooked') {
@@ -319,7 +326,16 @@ function waitingOn(step, now) {
   // legs left to kick off is not the same thing as one in its 80th minute.
   if (t < last + 2 * 3600e3) {
     const toCome = kos.filter(k => k > t).length
-    return { label: toCome > 0 ? `in play · ${toCome} still to kick off` : 'in play', tone: 'var(--pos)' }
+    // The score of whatever is actually on, so the card answers "how is it going" and not just
+    // "it has started".
+    const onNow = (live?.legs || []).filter(l => l.state === 'live' && l.score)
+    const score = onNow.length === 1
+      ? `${onNow[0].score}${onNow[0].elapsed != null ? ` ${onNow[0].elapsed}'` : ''}`
+      : onNow.length > 1 ? onNow.map(l => l.score).join(' / ') : null
+    return {
+      label: `in play${score ? ` · ${score}` : ''}${toCome > 0 ? ` · ${toCome} still to kick off` : ''}`,
+      tone: 'var(--pos)',
+    }
   }
   return { label: `settles at the ${human(nextTick(now) - now)} check`, tone: 'var(--info)' }
 }
@@ -336,7 +352,7 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
   const ordered = [...r.steps].sort((a, b) => a.n - b.n || (a.status === 'void' ? -1 : 1))
   const shown = showAll || ordered.length <= 4 ? ordered : ordered.slice(-3)
   const hidden = ordered.length - shown.length
-  const wait = waitingOn(live, now)
+  const wait = waitingOn(live, now, live?.live)
   const one = live?.legs?.length === 1 ? live.legs[0] : null
 
   const act = async (what) => {
@@ -359,7 +375,10 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
     : `${cfg.targetOdds}x a step (${(cfg.targetOdds * (1 - (cfg.tolerance ?? 0))).toFixed(2)}–${(cfg.targetOdds * (1 + (cfg.tolerance ?? 0))).toFixed(2)}x)`
 
   return (
-    <div className="card" style={{
+    // `ro-chain-open` makes an expanded card span the full grid row. A card that is showing its
+    // stat tiles, every step and the AI notes needs the width; squeezed into a 340px column it is
+    // a worse read than the list it replaced. Collapsed cards tile, the open one takes the row.
+    <div className={`card ro-chain${open ? ' ro-chain-open' : ''}`} style={{
       padding: '12px 14px',
       borderColor: r.status === 'busted' ? 'var(--neg-dim)' : r.status === 'completed' ? 'var(--pos-dim)' : undefined,
     }}>
@@ -758,7 +777,7 @@ export default function Rollover() {
           {active.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div className="label" style={{ marginBottom: 8 }}>Running</div>
-              <div style={{ display: 'grid', gap: 10 }}>
+              <div className="ro-chains">
                 {active.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} defaultOpen={active.length === 1 && r.steps.length <= 2} />)}
               </div>
             </div>
@@ -769,7 +788,7 @@ export default function Rollover() {
           {done.length > 0 && (
             <div>
               <div className="label" style={{ marginBottom: 8 }}>Finished</div>
-              <div style={{ display: 'grid', gap: 10 }}>{done.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} />)}</div>
+              <div className="ro-chains">{done.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} />)}</div>
             </div>
           )}
 
@@ -787,6 +806,11 @@ export default function Rollover() {
         .ro-leg-ko { font-size: 11px; }
         .ro-step-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
 
+        /* Cards tile to whatever fits; 340px is the width the summary needs before the bet line
+           starts truncating to nothing. One open card takes the whole row. */
+        .ro-chains { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
+        .ro-chain-open { grid-column: 1 / -1; }
+
         .ro-sum-head { display: flex; align-items: center; gap: 8px; cursor: pointer; }
         .ro-sum-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 650; }
         .ro-sum-count { font-size: 13px; font-weight: 800; }
@@ -801,6 +825,10 @@ export default function Rollover() {
         .ro-step-stake { font-size: 11.5px; flex-shrink: 0; }
 
         @media (max-width: 820px) { .ro-top { grid-template-columns: 1fr; } }
+
+        /* Below the tiling width there is only ever one column, so the span is a no-op and the
+           cards read as the list they were. */
+        @media (max-width: 719px) { .ro-chains { grid-template-columns: 1fr; } }
 
         @media (max-width: 599px) {
           /* The live step stacks: the bet on one line, what it is waiting for underneath, so
