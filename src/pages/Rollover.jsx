@@ -326,14 +326,21 @@ function waitingOn(step, now, live = null) {
   // legs left to kick off is not the same thing as one in its 80th minute.
   if (t < last + 2 * 3600e3) {
     const toCome = kos.filter(k => k > t).length
+    // Legs already banked. On a multi-leg step "in play" alone hides the thing you most want to
+    // know — how much of the step is already safe.
+    const done = (live?.legs || []).filter(l => l.won === true).length
+    const left = (live?.legs || []).filter(l => l.won == null).length
     // The score of whatever is actually on, so the card answers "how is it going" and not just
     // "it has started".
     const onNow = (live?.legs || []).filter(l => l.state === 'live' && l.score)
     const score = onNow.length === 1
       ? `${onNow[0].score}${onNow[0].elapsed != null ? ` ${onNow[0].elapsed}'` : ''}`
       : onNow.length > 1 ? onNow.map(l => l.score).join(' / ') : null
+    const won = done > 0 ? `${done} won` : null
+    const play = left > 0 && (done > 0 || left > 1) ? `${left} to play` : null
     return {
-      label: `in play${score ? ` · ${score}` : ''}${toCome > 0 ? ` · ${toCome} still to kick off` : ''}`,
+      label: [`in play${score ? ` · ${score}` : ''}`, won, play,
+              toCome > 0 && !play ? `${toCome} still to kick off` : null].filter(Boolean).join(' · '),
       tone: 'var(--pos)',
     }
   }
