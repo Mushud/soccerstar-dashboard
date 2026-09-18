@@ -1059,10 +1059,16 @@ export default function Rollover() {
         .ro-table-wrap { overflow-x: auto; border: 1px solid var(--bd); border-radius: 10px; background: var(--bg-1); }
         .ro-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 720px; }
         .ro-table th { text-align: left; font-weight: 600; font-size: 10.5px; letter-spacing: .04em;
-          text-transform: uppercase; color: var(--tx-4); padding: 9px 10px; border-bottom: 1px solid var(--bd); white-space: nowrap; }
+          text-transform: uppercase; color: var(--tx-4); padding: 9px 10px; white-space: nowrap;
+          border-bottom: 1px solid var(--bd); border-right: 1px solid var(--bd); background: var(--bg-2); }
         .ro-table th.num, .ro-table td.num { text-align: right; }
-        .ro-table td { padding: 9px 10px; border-bottom: 1px solid var(--bd); vertical-align: top; }
+        .ro-table td { padding: 9px 10px; vertical-align: top;
+          border-bottom: 1px solid var(--bd); border-right: 1px solid var(--bd); }
+        /* No rule down the outer edge — the wrapper's own border already draws it. */
+        .ro-table th:last-child, .ro-table td:last-child { border-right: 0; }
         .ro-table tbody tr:last-child td { border-bottom: 0; }
+        /* The expanded card is one panel, not a row of cells, so it keeps no grid lines. */
+        .ro-row-detail > td { border-right: 0; }
         .ro-row { cursor: pointer; }
         .ro-row:hover { background: var(--bg-2); }
         .ro-row.on { background: var(--bg-2); }
