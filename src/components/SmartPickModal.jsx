@@ -97,59 +97,188 @@ const MAX_BOOKING_LEGS = 50
  * be live at once — one shared code meant generating a second silently replaced the first on
  * screen while both were still bookable.
  */
-/**
- * C(n, k) — how many separate lines a system ticket splits the stake across.
- */
+/** C(n, k) — how many separate lines a system ticket splits the stake across. */
 const systemLines = (n, k) => { let r = 1; for (let i = 1; i <= k; i++) r = r * (n - k + i) / i; return Math.round(r) }
 
-/** The band the record says breaks tickets — see WEAK_BAND in the Cover control below. */
+/** P(at least `need` of these land), legs treated as independent — same basis as "all land". */
+function atLeastProb(probs, need) {
+  let dp = [1]
+  for (const q of probs) {
+    const p = Math.min(1, Math.max(0, Number(q) || 0))
+    const next = new Array(dp.length + 1).fill(0)
+    for (let j = 0; j < dp.length; j++) { next[j] += dp[j] * (1 - p); next[j + 1] += dp[j] * p }
+    dp = next
+  }
+  let acc = 0
+  for (let j = need; j < dp.length; j++) acc += dp[j]
+  return acc
+}
+
+/**
+ * What one unit staked returns if EVERY leg lands, on a k-of-n system.
+ *
+ * Not totalOdds. Each of the C(n,k) lines is a different k-leg subset paying a different price,
+ * the stake is split evenly across them, so the sweep pays the AVERAGE line — the elementary
+ * symmetric polynomial e_k(odds) over C(n,k). On a 38-leg slip at 5,702x, a drop-3 sweep pays
+ * 2,904x, and on short slips it is the number that shows what the cover actually costs.
+ */
+function sweepReturn(odds, k) {
+  let dp = new Array(k + 1).fill(0); dp[0] = 1
+  for (const x of odds) for (let j = Math.min(k, dp.length - 1); j >= 1; j--) dp[j] += dp[j - 1] * x
+  return dp[k] / systemLines(odds.length, k)
+}
+
+/** The band the record says breaks tickets. */
 const WEAK = 0.60
+/** Past this many lines a system stops being a bet anyone places — the stake is dust per line. */
+const MAX_LINES = 60
+
+/**
+ * ── Shapes ────────────────────────────────────────────────────────────────────
+ * Measured over all 41 settled Smart Pick slips (2026-09-18) by cutting each one to its N
+ * most confident legs and covering it drop-D. `pays` is how often the ticket returned anything;
+ * `ret` is the average return per unit staked, which is the number that decides.
+ *
+ *    legs  cover  lines  pays   return        legs  cover  lines  pays   return
+ *      3     -0      1    76%   1.19x           6     -1      6    70%   0.90x
+ *      3     -1      3    88%   1.08x           6     -2     15    88%   0.90x
+ *      3     -2      3    95%   1.00x           8     -2     28    85%   0.89x
+ *      4     -0      1    56%   1.04x          10     -1     10    37%   0.82x
+ *      4     -1      4    85%   1.01x          10     -3    120    89%   0.92x
+ *      4     -3      4    98%   0.98x
+ *
+ * Two things fall out of that table and both are load-bearing:
+ *
+ *   NOTHING from five legs up returns a profit, at any cover depth. Cover moves a ticket along
+ *   its row — more often, smaller — at roughly constant money. It cannot rescue the row. The row
+ *   is chosen by leg count alone, so leg count is the only decision that matters.
+ *
+ *   Pairing a weak leg with its own Double Chance in the same slip does NOT help, and was
+ *   measured before being rejected: safest 8, drop-2 went 85% plain and 82% paired, for 35 lines
+ *   instead of 28. A slip counts LOSSES, and adding a leg can only add one — Union Brescia
+ *   finished 2-2, the Home Win lost, and carrying 1X alongside it does not un-lose it. (56% of
+ *   losing 1X2 legs did lose to a draw, so the instinct is right about the football; the fix is
+ *   to SWAP the leg, not to add to it — and by the time you have cut to the safest six there is
+ *   0.1 such leg left per slip, so the cut has already done it for you.)
+ */
+const SHAPES = [
+  { key: 'safest',   label: 'Safest',   legs: 3, drop: 1, pays: 88, ret: 1.08,
+    why: 'Three most confident legs, covered so one may lose. Pays 88% of the time and still returns 1.08x — the only shape in the record that is both reliable and profitable.' },
+  { key: 'steady',   label: 'Steady',   legs: 4, drop: 1, pays: 85, ret: 1.01,
+    why: 'Four legs, one may lose. Pays 85% at break-even money — a bigger ticket for the same reliability.' },
+  { key: 'sure',     label: 'Near-sure', legs: 4, drop: 3, pays: 98, ret: 0.98,
+    why: 'Four legs, any one of them is enough. Pays 98% of the time but returns slightly less than it costs — for a chain you must not break, not for making money.' },
+  { key: 'reach',    label: 'Reach',    legs: 6, drop: 2, pays: 88, ret: 0.90,
+    why: 'Six legs, two may lose. Same 88% as Safest but returns 0.90x — you are paying 18% for the bigger headline price.' },
+  { key: 'long',     label: 'Long shot', legs: 0, drop: 0, pays: 0, ret: 0,
+    why: 'No cut and no cover — whatever the target price needs. This is what booked 38-leg tickets claiming 0.00%. Kept because it is what you asked for before; it has never won.' },
+]
 
 /**
  * ── Cover ─────────────────────────────────────────────────────────────────────
  * Book the legs as a system instead of an accumulator: pay out when at least (n - drop) of
  * them land, rather than dying on the first that does not.
  *
- * Why it is here, and why it defaults on when a weak leg is present. Over the 41 settled Smart
- * Pick slips, and on BW6SR9 in particular (25 legs, 5,473x, returned nothing):
+ * Measured over the 41 settled Smart Pick slips: safest 6 legs as an accumulator paid on 27% of
+ * slips at a 0.89x average; the same six covered drop-1 paid on 71% at the same 0.89x. The
+ * system adds no money — the stake splits across C(n,k) lines — it trades win size for win
+ * frequency. Right for a chain step or a weak leg worth carrying, worthless for a lottery ticket.
  *
- *   the four losing legs ranked 8, 19, 20 and 21 of 22 by the model's own confidence
- *   its three weakest legs — 56%, 54%, 53% — all lost
- *   but 13 of the 17 sub-70% legs LANDED, so a blunt floor throws away winners
- *   safest 6, accumulator ......... 27% of slips paid, 0.89x average
- *   safest 6, drop-1 system ....... 71% of slips paid, 0.89x average
- *
- * Identical average. The system does not add money; it trades the size of the win for the
- * frequency of it. That is the wrong trade for a lottery ticket and the right one for a weak
- * leg you would rather carry than cut — which is the case this control exists for.
- *
- * The stake splits across every line, so a drop-1 on 10 legs is 10 bets at a tenth each: a
- * clean sweep pays slightly LESS than the accumulator. The line count is shown for that reason.
+ * "Worthless" is not a figure of speech, and it is why every option here now shows its own claim.
+ * EU9JY9 was 38 legs at 5,702x with every leg 71%+: acca claimed 0.00%, drop-3 claimed 1.35% and
+ * split the stake 8,436 ways. The control used to show only the line count, so a cover that
+ * changed nothing looked like it was doing something. Cover cannot fix a long ticket. Only
+ * fewer legs fix a long ticket.
  */
-function Cover({ legs, drop, onChange }) {
+/**
+ * ── CoverLegs ─────────────────────────────────────────────────────────────────
+ * The "add it to the slip" control. A cover leg is a second selection on a match already on the
+ * ticket that cannot lose if the leg there wins — a home win IS "home or draw" — so SportyBet
+ * books both in one code and the price multiplies for nothing. Measured on the live card: six
+ * favourites at 7.53x became 66.73x, a free x8.86.
+ *
+ * Two buttons because they are different questions. "Weak legs" covers the picks under 65%, which
+ * is where the Double Chance is worth most (1.22-1.30 against 1.06-1.11 on a solid leg) and where
+ * the goal-based companions are deliberately skipped — they all die on the same 0-0. "Everything"
+ * takes every companion the slip has earned.
+ */
+function CoverLegs({ legs, added, busy, onAdd, onClear }) {
+  if (!legs?.length) return null
+  const weak = legs.filter(l => (l.prob ?? 1) < 0.65 && !l.freeLeg).length
+  const gain = (added || []).reduce((a, l) => a * (l.odds || 1), 1)
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', fontSize: 10.5, marginTop: 7 }}>
+      <button className="btn btn-pos" style={{ padding: '3px 9px', fontSize: 10.5 }}
+        disabled={!!busy || !weak} onClick={() => onAdd(true)}
+        title={weak
+          ? `Add the Double Chance for the ${weak} leg(s) the model rates under 65%. Same match, and it cannot lose if the leg already on the slip wins.`
+          : 'No leg on this ticket is rated under 65%'}>
+        {busy === 'weak' ? <span className="spin" /> : `+ Cover weak legs${weak ? ` (${weak})` : ''}`}
+      </button>
+      <button className="btn" style={{ padding: '3px 9px', fontSize: 10.5 }}
+        disabled={!!busy} onClick={() => onAdd(false)}
+        title="Add every companion this slip has earned — Double Chance, team Over 0.5, Over 0.5 and Result-or-Total, wherever SportyBet prices them.">
+        {busy === 'all' ? <span className="spin" /> : '+ Cover everything'}
+      </button>
+      {added?.length > 0 && (
+        <>
+          <span style={{ color: 'var(--pos)' }}>+{added.length} free · price x{gain.toFixed(2)}</span>
+          <button className="btn" style={{ padding: '2px 7px', fontSize: 10 }} onClick={onClear}>Undo</button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function Cover({ legs, odds, drop, onChange }) {
   const n = legs.length
   if (n < 3) return null
+  const probs = legs.map(l => l.prob ?? l.modelProb ?? null)
+  const known = probs.every(p => Number.isFinite(p) && p > 0)
   const weak = legs.filter(l => (l.prob ?? 1) < WEAK).length
-  const max = Math.min(3, n - 2)
-  const opts = [0, ...Array.from({ length: max }, (_, i) => i + 1)]
+  const prices = legs.map(l => Number(l.odds) || 1)
+
+  const opts = [0]
+  for (let d = 1; d <= Math.min(3, n - 2); d++) {
+    if (systemLines(n, d) > MAX_LINES) break
+    opts.push(d)
+  }
+  const capped = Math.min(3, n - 2) > opts.length - 1
+  const claim = d => (known ? atLeastProb(probs, n - d) : null)
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', fontSize: 10.5 }}>
       <span className="muted2">Cover</span>
       {opts.map(d => {
         const on = d === drop
+        const c = claim(d)
         return (
           <button key={d} className={on ? 'btn btn-info' : 'btn'} style={{ padding: '2px 7px', fontSize: 10.5 }}
             onClick={() => onChange(d)}
             title={d === 0
-              ? 'Accumulator — every leg must land'
-              : `System ${n - d}/${n} — pays when at least ${n - d} legs land. The stake splits across ${systemLines(n, n - d)} lines, so a clean sweep pays ${systemLines(n, n - d)}x less than the accumulator.`}>
-            {d === 0 ? 'Acca' : `−${d}`}
+              ? `Accumulator — every leg must land. Claims ${c != null ? (c * 100).toFixed(1) + '%' : '—'}.`
+              : `System ${n - d}/${n} — pays when at least ${n - d} legs land. Claims ${c != null ? (c * 100).toFixed(1) + '%' : '—'}. The stake splits across ${systemLines(n, d)} lines, so if every leg lands you get ${sweepReturn(prices, n - d).toFixed(2)}x instead of ${prices.reduce((a, b) => a * b, 1).toFixed(2)}x.`}>
+            {d === 0 ? 'Acca' : `\u2212${d}`}
+            {c != null && <span style={{ opacity: 0.7, marginLeft: 4 }}>{(c * 100).toFixed(c >= 0.1 ? 0 : 1)}%</span>}
           </button>
         )
       })}
       {drop > 0 && (
         <span className="muted2">
-          {n - drop}/{n} · {systemLines(n, n - drop)} lines · stake ÷ {systemLines(n, n - drop)}
+          {n - drop}/{n} · {systemLines(n, drop)} lines · sweep pays {sweepReturn(prices, n - drop).toFixed(2)}x
+        </span>
+      )}
+      {/* The honest warning. A long ticket cannot be rescued by covering it, and the claims on the
+          buttons above say so — but only if you read them, so say it outright. */}
+      {known && claim(opts[opts.length - 1]) < 0.15 && (
+        <span style={{ color: 'var(--neg)' }}
+          title="Every cover this ticket can take still leaves it a long shot. The legs are fine; there are too many of them. Lower the target price and rebuild — the same legs cut to the safest 5 or 6 claim 35-45%.">
+          ⚠ {n} legs — no cover reaches 15%; cut the target, not the risk
+        </span>
+      )}
+      {capped && (
+        <span className="muted2" title={`Deeper cover on ${n} legs needs more than ${MAX_LINES} lines — the stake per line stops being a real bet.`}>
+          (deeper cover &gt; {MAX_LINES} lines)
         </span>
       )}
       {weak > 0 && drop === 0 && (
@@ -179,6 +308,22 @@ function BookingCode({ book }) {
           {book.deadline && ` · expires ${new Date(book.deadline).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
         </span>
       </div>
+      {book.freeLegs?.length > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--pos)', lineHeight: 1.55 }}>
+          <b>+{book.freeLegs.length} free leg{book.freeLegs.length > 1 ? 's' : ''}</b> — a second selection on
+          a match already on the slip that cannot lose if that leg wins, so the price goes up and the
+          chance of landing does not move.
+          <div className="muted2" style={{ marginTop: 3 }}>
+            {book.freeLegs.map((f, i) => (
+              <div key={i}>+{f.odds} · {f.leg} <span style={{ opacity: 0.7 }}>(free with {f.from})</span></div>
+            ))}
+          </div>
+          <div className="muted2" style={{ marginTop: 3 }}>
+            A leg the model rates under 65% takes only its Double Chance — goal-based companions all
+            die on the same 0-0, which is what took two legs off BW6SR9.
+          </div>
+        </div>
+      )}
       {book.system && (
         <div style={{ fontSize: 11, color: 'var(--info)', lineHeight: 1.5 }}>
           Booked as a <b>system {book.system.minWinners}/{book.system.legs}</b> — {book.system.lines} lines,
@@ -213,8 +358,11 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // the 2000x tickets that were actually being booked landed 0 of 113 while claiming 0.1%.
   const [sizeBy, setSizeBy]   = useState('confidence')
   const [floor, setFloor]     = useState(0.60)
-  const [minLegs, setMinLegs] = useState(10)
-  const [maxLegs, setMaxLegs] = useState(15)
+  // Seeded from the default shape ('safest' = 3 legs), not from a 10-15 leg range. The chip row
+  // says "Safest" on open, so the controls have to already BE that — and on the record a 10-leg
+  // ticket returns 0.82x against a 3-leg one's 1.19x, so this is the better default regardless.
+  const [minLegs, setMinLegs] = useState(3)
+  const [maxLegs, setMaxLegs] = useState(3)
   const [sbOnly, setSbOnly]   = useState(true)
   const [analyse, setAnalyse] = useState(true)
   // Restrict the legs to the shared safe-market allow-list. On by default, and the reason the
@@ -271,6 +419,40 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // How many legs each ticket may lose and still pay — keyed the same way as `books` (slip index,
   // or 'selection'). Unset means "decide from the legs": see coverFor below.
   const [drops, setDrops] = useState({})
+  // Which measured shape the build is aiming at. Sets the leg count and the default cover in
+  // one move, because the record says those two are the whole decision.
+  const [shape, setShape] = useState('safest')
+  // Free legs the user has pulled in by hand, keyed like `books` (slip index, or 'selection').
+  const [covers, setCovers] = useState({})
+  const [covering, setCovering] = useState(null)
+
+  /**
+   * Add the cover legs this ticket has earned. `onlyWeak` asks for just the shaky picks — a leg
+   * the model rates under 65% gets its Double Chance, which is a second selection on the SAME
+   * match that cannot lose if the leg already there wins. It lifts the price and leaves the
+   * chance of landing alone, so there is nothing to weigh up: the answer is always yes.
+   */
+  async function addCover(key, legs, onlyWeak) {
+    if (!legs?.length) return
+    setCovering(key); setError(null)
+    try {
+      const { data } = await api.post('/api/betbuilder/target-slip/free-legs',
+        { legs, onlyWeak }, { timeout: 90 * 1000 })
+      if (!data.added?.length) {
+        setError(data.reason || 'SportyBet is not pricing a cover for these legs right now.')
+      } else {
+        setCovers(c => {
+          const have = new Set((c[key] || []).map(l => `${l.fixtureId}|${l.market}|${l.selection}`))
+          const fresh = data.added.filter(l => !have.has(`${l.fixtureId}|${l.market}|${l.selection}`))
+          return { ...c, [key]: [...(c[key] || []), ...fresh] }
+        })
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || err.message || 'Could not price the cover legs.')
+    } finally {
+      setCovering(null)
+    }
+  }
 
   // ── Mode ──
   // 'human' ranks legs on the judgement layer the Slip Simulator measures rather than on the
@@ -338,6 +520,9 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   async function getCode(key, legs) {
     if (!legs?.length) return
     setBooking(true); setBookingKey(key); setError(null)
+    // Anything pulled in by hand goes with it. The server runs the same pass and de-duplicates,
+    // so sending them cannot double them up.
+    legs = [...legs, ...(covers[key] || [])]
     const drop = coverFor(key, legs)
     try {
       const { data } = await api.post('/api/betbuilder/target-slip/book', {
@@ -366,6 +551,10 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   function coverFor(key, legs) {
     if (drops[key] != null) return drops[key]
     if (!legs || legs.length < 3) return 0
+    // The chosen shape decides, as long as the ticket is the length that shape was measured at.
+    const sh = SHAPES.find(x => x.key === shape)
+    if (sh?.legs && legs.length <= sh.legs + 1) return Math.min(sh.drop, legs.length - 2)
+    // Otherwise fall back to protecting a weak leg, and nothing more.
     return legs.some(l => (l.prob ?? 1) < WEAK) ? 1 : 0
   }
 
@@ -442,6 +631,48 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
         </div>
 
         <div className="modal-body">
+
+          {/* ── Shape ──
+              The first decision, and on the record the only one that changes the outcome. Each
+              button carries what it did over the 41 settled slips, so the trade is on screen
+              rather than in a comment. */}
+          <div style={{ marginBottom: 12 }}>
+            <div className="label" style={{ marginBottom: 6 }}>Shape — how many legs, and how much cover</div>
+            <div className="chip-row" style={{ flexWrap: 'wrap', gap: 6 }}>
+              {SHAPES.map(sh => (
+                <button key={sh.key} className={`chip${shape === sh.key ? ' on' : ''}`}
+                  disabled={building} title={sh.why}
+                  onClick={() => {
+                    setShape(sh.key)
+                    if (sh.legs) {
+                      setSizeBy('confidence')
+                      setMinLegs(sh.legs); setMaxLegs(sh.legs)
+                      // The cover applies to whatever gets booked, so clear any per-slip override.
+                      setDrops({})
+                    }
+                  }}>
+                  {sh.label}
+                  {sh.legs > 0 && (
+                    <span style={{ opacity: 0.65, marginLeft: 5, fontSize: 10 }}>
+                      {sh.legs}{sh.drop ? `\u2212${sh.drop}` : ''} · {sh.pays}% · {sh.ret}x
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {shape !== 'long' && (
+              <div className="muted2" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
+                {SHAPES.find(x => x.key === shape)?.why}
+              </div>
+            )}
+            {shape === 'long' && (
+              <div style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.5, color: 'var(--warn)' }}>
+                Nothing from five legs up returned a profit at any cover depth — 8 legs paid 0.89x,
+                10 legs 0.87x, and the 38-leg tickets claimed 0.00%. Cover cannot fix this; only
+                fewer legs can.
+              </div>
+            )}
+          </div>
 
           {/* How to size the slip */}
           <div>
@@ -801,7 +1032,12 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                     </div>
 
                     <div style={{ marginBottom: 7 }}>
-                      <Cover legs={legs} drop={coverFor(i, legs)} onChange={d => setDrops(p => ({ ...p, [i]: d }))} />
+                      <Cover legs={[...legs, ...(covers[i] || [])]} odds={sl.totalOdds}
+                        drop={coverFor(i, [...legs, ...(covers[i] || [])])}
+                        onChange={d => setDrops(p => ({ ...p, [i]: d }))} />
+                      <CoverLegs legs={legs} added={covers[i]} busy={covering === i ? 'weak' : null}
+                        onAdd={w => addCover(i, legs, w)}
+                        onClear={() => setCovers(c => ({ ...c, [i]: [] }))} />
                     </div>
 
                     <div className="leg-list">
@@ -834,6 +1070,25 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                         )
                       })}
                     </div>
+
+                    {covers[i]?.length > 0 && (
+                      <div className="leg-list" style={{ marginTop: 6, opacity: 0.9 }}>
+                        {covers[i].map((l, j) => (
+                          <div className="leg" key={`cov-${j}`} style={{ borderLeft: '2px solid var(--pos)' }}>
+                            <span style={{ width: 14 }} />
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.match}</div>
+                              <div className="pick">
+                                {l.market}: {l.selection}
+                                <span className="tag tag-pos" style={{ marginLeft: 5 }} title={`Cannot lose if ${l.freeFor} wins`}>free</span>
+                              </div>
+                            </div>
+                            <span className="p">—</span>
+                            <span className="o">{l.odds}x</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                     {bk?.code && <BookingCode book={bk} />}
                   </div>
@@ -877,7 +1132,12 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                       </button>
                     </div>
                     <div style={{ marginTop: 7 }}>
-                      <Cover legs={sel} drop={coverFor('selection', sel)} onChange={d => setDrops(p => ({ ...p, selection: d }))} />
+                      <Cover legs={[...sel, ...(covers.selection || [])]} odds={selOdds}
+                        drop={coverFor('selection', [...sel, ...(covers.selection || [])])}
+                        onChange={d => setDrops(p => ({ ...p, selection: d }))} />
+                      <CoverLegs legs={sel} added={covers.selection} busy={covering === 'selection' ? 'weak' : null}
+                        onAdd={w => addCover('selection', sel, w)}
+                        onClear={() => setCovers(c => ({ ...c, selection: [] }))} />
                     </div>
                     <div className="muted2" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
                       Drawn from {new Set(sel.map(l => l.fixtureId)).size} matches.
