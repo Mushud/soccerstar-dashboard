@@ -296,10 +296,19 @@ function human(ms) {
 // The settlement pass runs at :15 past every second hour (services/scheduler.js), and that is
 // also when an unbuilt step is retried and a won step's successor is cut. So "next check" is a
 // real time we can show rather than a vague "soon".
+/**
+ * When the chain is next looked at. services/scheduler.js runs tickRollovers every ten minutes,
+ * so this is the next ten-minute boundary and never more than ten minutes away.
+ *
+ * This used to compute the next EVEN HOUR at :15 — the two-hourly settlement cron — and so told
+ * people an unbuilt step would be "retrying in 1h 23m" when the real retry was minutes off. The
+ * rollover has had its own ten-minute tick since it was built; the countdown was reading the
+ * wrong cron.
+ */
 function nextTick(now) {
   const d = new Date(now)
-  d.setUTCMinutes(15, 0, 0)
-  while (d <= now || d.getUTCHours() % 2 !== 0) d.setUTCMinutes(d.getUTCMinutes() + 60)
+  d.setUTCSeconds(0, 0)
+  d.setUTCMinutes(Math.floor(d.getUTCMinutes() / 10) * 10 + 10)
   return d
 }
 
@@ -552,7 +561,10 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
               {cfg.oddsCapped ? <span style={{ color: 'var(--warn)' }}> · window capped from {cfg.oddsCapped}x</span> : null}
             </div>
             <div className="toolbar" style={{ gap: 6 }}>
-              {r.status === 'active' && live && !['pending', 'building'].includes(live.status) && (
+              {/* Offered whenever nothing is actually in play — including when there is no step
+                  yet at all, which is the state a revived chain sits in and the one where waiting
+                  for a tick is most annoying. */}
+              {r.status === 'active' && (!live || !['pending', 'building'].includes(live.status)) && (
                 <button className="btn btn-sm btn-accent" disabled={!!busy} onClick={() => act('rebuild')}>{busy === 'rebuild' ? 'Building…' : 'Build now'}</button>
               )}
               {r.status === 'active' && <button className="btn btn-sm" disabled={!!busy} onClick={() => act('advance')}>{busy === 'advance' ? 'Checking…' : 'Check'}</button>}
