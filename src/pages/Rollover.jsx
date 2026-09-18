@@ -351,6 +351,11 @@ function waitingOn(step, now, live = null) {
 
 function Chain({ r, onChanged, now, defaultOpen = false }) {
   const [busy, setBusy] = useState(null)
+  // Subscribing a phone to a chain that is already running. Separate from the create form on
+  // purpose: chains outlive the session that made them, and people share one chain across phones.
+  const [showPhone, setShowPhone] = useState(false)
+  const [phone, setPhone] = useState(() => { try { return localStorage.getItem('reckon.phone') || '' } catch { return '' } })
+  const [phoneMsg, setPhoneMsg] = useState(null)
   const [open, setOpen] = useState(defaultOpen)
   const [showAll, setShowAll] = useState(false)
   const cfg = r.config
@@ -460,10 +465,69 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
                 <button className="btn btn-sm btn-accent" disabled={!!busy} onClick={() => act('rebuild')}>{busy === 'rebuild' ? 'Building…' : 'Build now'}</button>
               )}
               {r.status === 'active' && <button className="btn btn-sm" disabled={!!busy} onClick={() => act('advance')}>{busy === 'advance' ? 'Checking…' : 'Check'}</button>}
+              {r.status === 'active' && (
+                <button className="btn btn-sm" disabled={!!busy} onClick={() => { setShowPhone(v => !v); setPhoneMsg(null) }}
+                  title={r.notify?.phones?.length
+                    ? `${r.notify.phones.length} phone(s) following this chain`
+                    : 'Get a text when a step is cut, when one lands, and when the chain ends'}>
+                  {r.notify?.phones?.length ? `\u2709 ${r.notify.phones.length}` : '\u2709 Alerts'}
+                </button>
+              )}
               {r.status === 'active' && <button className="btn btn-sm btn-neg" disabled={!!busy} onClick={() => { if (confirm('Stop this chain?')) act('stop') }}>Stop</button>}
               {r.status !== 'active' && <button className="btn btn-sm btn-ghost" disabled={!!busy} onClick={remove}>Delete</button>}
             </div>
           </div>
+
+          {showPhone && (
+            <div style={{ border: '1px solid var(--bd)', borderRadius: 8, padding: '9px 10px', marginBottom: 10, display: 'grid', gap: 7 }}>
+              <div style={{ fontSize: 11.5 }}>
+                <b>Text alerts</b>
+                {r.notify?.phones?.length > 0 && (
+                  <span className="muted2"> · {r.notify.phones.length} number{r.notify.phones.length > 1 ? 's' : ''} following</span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <input className="field" value={phone} inputMode="tel" placeholder="0241234567"
+                  onChange={e => { setPhone(e.target.value); setPhoneMsg(null) }}
+                  style={{ flex: 1, minWidth: 130 }} />
+                <button className="btn btn-sm btn-pos" disabled={busy === 'notify' || !phone}
+                  onClick={async () => {
+                    setBusy('notify'); setPhoneMsg(null)
+                    try {
+                      try { localStorage.setItem('reckon.phone', phone) } catch { /* private window */ }
+                      const { data } = await api.post(`/api/rollover/${r._id}/notify`, { phone, on: true })
+                      setPhoneMsg({ ok: true, text: data.confirmationSent === false
+                        ? `Added, but the confirmation text failed: ${data.confirmationError || 'unknown'}`
+                        : 'Added — a confirmation text is on its way.' })
+                      await onChanged()
+                    } catch (e) {
+                      setPhoneMsg({ ok: false, text: e.response?.data?.error || e.message })
+                    } finally { setBusy(null) }
+                  }}>
+                  {busy === 'notify' ? <span className="spin" /> : 'Add'}
+                </button>
+                {r.notify?.phones?.length > 0 && (
+                  <button className="btn btn-sm btn-ghost" disabled={busy === 'notify' || !phone}
+                    title="Stop texting this number about this chain"
+                    onClick={async () => {
+                      setBusy('notify'); setPhoneMsg(null)
+                      try {
+                        await api.post(`/api/rollover/${r._id}/notify`, { phone, on: false })
+                        setPhoneMsg({ ok: true, text: 'Removed.' })
+                        await onChanged()
+                      } catch (e) {
+                        setPhoneMsg({ ok: false, text: e.response?.data?.error || e.message })
+                      } finally { setBusy(null) }
+                    }}>Remove</button>
+                )}
+              </div>
+              {phoneMsg && <div style={{ fontSize: 10.5, color: phoneMsg.ok ? 'var(--pos)' : 'var(--neg)' }}>{phoneMsg.text}</div>}
+              <div className="muted2" style={{ fontSize: 10.5, lineHeight: 1.5 }}>
+                Booking code and SportyBet link when a step is cut · a note when one lands ·
+                a nudge when a step is one leg from home · the result when the chain ends.
+              </div>
+            </div>
+          )}
 
           <div className="stat-grid" style={{ marginBottom: 12 }}>
             <div className="stat">
@@ -525,6 +589,12 @@ export default function Rollover() {
   const [formTouched, setFormTouched] = useState(false)
 
   const [name, setName] = useState('')
+  // Text alerts. A chain runs for days and cuts steps at 02:31 — the screen is the wrong place
+  // to find that out, so a number given here follows the chain from step 1.
+  const [phone, setPhone] = useState(() => { try { return localStorage.getItem('reckon.phone') || '' } catch { return '' } })
+  const [notifyOn, setNotifyOn] = useState(true)
+  const [testing, setTesting] = useState(false)
+  const [testMsg, setTestMsg] = useState(null)
   const [shape, setShape] = useState('straight')
   const [oddsMin, setOddsMin] = useState(1.15)
   const [oddsMax, setOddsMax] = useState(1.45)
@@ -589,8 +659,12 @@ export default function Rollover() {
   const create = async () => {
     setCreating(true)
     try {
+      // Remembered per browser only, so the next chain does not need it typed again. The number
+      // that matters lives on the chain, server-side.
+      try { if (phone) localStorage.setItem('reckon.phone', phone) } catch { /* private window */ }
       await api.post('/api/rollover', {
         name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck,
+        phone: notifyOn && phone ? phone : null,
         ...(shape === 'straight' ? { oddsMin, oddsMax } : { sizeBy, floor, targetOdds, tolerance, minLegProb, maxLegs }),
       })
       setName('')
@@ -632,6 +706,46 @@ export default function Rollover() {
         <div className="card-title" style={{ marginBottom: 10 }}>New chain</div>
         <div style={{ display: 'grid', gap: 10 }}>
           <label className="label">Name <input className="field" value={name} onChange={e => setName(e.target.value)} placeholder="optional" /></label>
+
+          {/* ── Text alerts ──
+              Every message costs a credit, so the templates are written to fit 160 characters and
+              the noisy one (a step being cut) carries the booking code and the SportyBet link —
+              which is the message that actually saves opening the app. */}
+          <div style={{ border: '1px solid var(--bd)', borderRadius: 8, padding: '9px 10px', display: 'grid', gap: 7 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, cursor: 'pointer' }}>
+              <input type="checkbox" checked={notifyOn} onChange={e => setNotifyOn(e.target.checked)} />
+              <b>Text me about this chain</b>
+            </label>
+            {notifyOn && (
+              <>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <input className="field" value={phone} onChange={e => { setPhone(e.target.value); setTestMsg(null) }}
+                    placeholder="0241234567" inputMode="tel" style={{ flex: 1, minWidth: 140 }} />
+                  <button className="btn" style={{ padding: '4px 10px', fontSize: 11 }}
+                    disabled={testing || !phone}
+                    onClick={async () => {
+                      setTesting(true); setTestMsg(null)
+                      try {
+                        await api.post('/api/rollover/notify/test', { phone })
+                        setTestMsg({ ok: true, text: 'Sent — check your phone.' })
+                      } catch (e) {
+                        setTestMsg({ ok: false, text: e.response?.data?.error || e.message })
+                      } finally { setTesting(false) }
+                    }}>
+                    {testing ? <span className="spin" /> : 'Test'}
+                  </button>
+                </div>
+                {testMsg && (
+                  <div style={{ fontSize: 10.5, color: testMsg.ok ? 'var(--pos)' : 'var(--neg)' }}>{testMsg.text}</div>
+                )}
+                <div className="muted2" style={{ fontSize: 10.5, lineHeight: 1.5 }}>
+                  You get the booking code and SportyBet link each time a step is cut, a note when
+                  one lands, a nudge when a step is one leg from home, and the result when the
+                  chain ends. Ghana numbers can be typed as 0241234567.
+                </div>
+              </>
+            )}
+          </div>
 
           <div className="seg">
             <button className={shape === 'straight' ? 'on' : ''} onClick={() => setShape('straight')}>One straight win</button>
