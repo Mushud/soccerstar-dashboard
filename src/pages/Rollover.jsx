@@ -309,6 +309,13 @@ function nextTick(now) {
  * A step's life is: built -> first kickoff -> last kickoff -> graded. Each stage has a different
  * honest answer, and "pending" alone tells you none of them.
  */
+/** 233548215801 -> 0548 215 801, so a subscriber can recognise their own number at a glance. */
+function prettyPhone(e164) {
+  const d = String(e164 || '')
+  const local = d.startsWith('233') && d.length === 12 ? `0${d.slice(3)}` : d
+  return local.length === 10 ? `${local.slice(0, 4)} ${local.slice(4, 7)} ${local.slice(7)}` : local
+}
+
 function waitingOn(step, now, live = null) {
   if (!step) return null
   if (step.status === 'building') return { label: 'building the ticket', tone: 'var(--accent-2)' }
@@ -374,6 +381,7 @@ function ChainTable({ chains, onChanged, now }) {
             <th>Waiting on</th>
             <th className="num">Bankroll</th>
             <th className="num">Target</th>
+            <th>Alerts</th>
             <th />
           </tr>
         </thead>
@@ -393,7 +401,6 @@ function ChainTable({ chains, onChanged, now }) {
                   <td>
                     <span className="ro-dot" style={{ background: tone }} />
                     <b>{r.name || `${cfg.shape === 'straight' ? 'Straight' : 'Cover'} × ${cfg.steps}`}</b>
-                    {r.notify?.phones?.length > 0 && <span className="muted2" title={`${r.notify.phones.length} phone(s) alerted`}> ✉</span>}
                     <div className="muted2 ro-sub">{r.status} · stake {cfg.stake}</div>
                   </td>
                   <td className="num"><b>{won}</b><span className="muted2">/{cfg.steps}</span></td>
@@ -408,12 +415,18 @@ function ChainTable({ chains, onChanged, now }) {
                     {wait?.label || '—'}
                   </td>
                   <td className="num">{r.bankroll?.current != null ? Number(r.bankroll.current).toFixed(2) : '—'}</td>
-                  <td className="num muted2">{r.bankroll?.target != null ? Math.round(r.bankroll.target).toLocaleString() : '—'}</td>
+                  <td>
+                    {r.notify?.phones?.length > 0
+                      ? <span className="ro-pill on" title={r.notify.phones.map(prettyPhone).join(', ')}>
+                          SMS on · {r.notify.phones.length}
+                        </span>
+                      : <span className="ro-pill off">SMS off</span>}
+                  </td>
                   <td className="num muted2">{open ? '▾' : '▸'}</td>
                 </tr>
                 {open && (
                   <tr className="ro-row-detail">
-                    <td colSpan={8}>
+                    <td colSpan={9}>
                       <Chain r={r} onChanged={onChanged} now={now} defaultOpen />
                     </td>
                   </tr>
@@ -544,11 +557,14 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
               )}
               {r.status === 'active' && <button className="btn btn-sm" disabled={!!busy} onClick={() => act('advance')}>{busy === 'advance' ? 'Checking…' : 'Check'}</button>}
               {r.status === 'active' && (
-                <button className="btn btn-sm" disabled={!!busy} onClick={() => { setShowPhone(v => !v); setPhoneMsg(null) }}
+                <button className={`btn btn-sm${r.notify?.phones?.length ? ' btn-pos' : ''}`}
+                  disabled={!!busy} onClick={() => { setShowPhone(v => !v); setPhoneMsg(null) }}
                   title={r.notify?.phones?.length
-                    ? `${r.notify.phones.length} phone(s) following this chain`
+                    ? `Texting ${r.notify.phones.map(prettyPhone).join(', ')}`
                     : 'Get a text when a step is cut, when one lands, and when the chain ends'}>
-                  {r.notify?.phones?.length ? `\u2709 ${r.notify.phones.length}` : '\u2709 Alerts'}
+                  {r.notify?.phones?.length
+                    ? `\u2709 SMS on \u00b7 ${r.notify.phones.length}`
+                    : '\u2709 Get SMS alerts'}
                 </button>
               )}
               {r.status === 'active' && <button className="btn btn-sm btn-neg" disabled={!!busy} onClick={() => { if (confirm('Stop this chain?')) act('stop') }}>Stop</button>}
@@ -560,10 +576,35 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
             <div style={{ border: '1px solid var(--bd)', borderRadius: 8, padding: '9px 10px', marginBottom: 10, display: 'grid', gap: 7 }}>
               <div style={{ fontSize: 11.5 }}>
                 <b>Text alerts</b>
-                {r.notify?.phones?.length > 0 && (
-                  <span className="muted2"> · {r.notify.phones.length} number{r.notify.phones.length > 1 ? 's' : ''} following</span>
-                )}
+                <span className="muted2">
+                  {' · '}
+                  {r.notify?.phones?.length
+                    ? `${r.notify.phones.length} number${r.notify.phones.length > 1 ? 's' : ''} following this chain`
+                    : 'nobody is being texted about this chain yet'}
+                </span>
               </div>
+              {/* The numbers themselves. Without this the only way to tell whose phone is on a
+                  chain was to read the database — and a typo'd number looks identical to none. */}
+              {r.notify?.phones?.length > 0 && (
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {r.notify.phones.map(pn => (
+                    <span key={pn} className="ro-pill on" style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      {prettyPhone(pn)}
+                      <button className="ro-x" title="Stop texting this number" disabled={busy === 'notify'}
+                        onClick={async () => {
+                          setBusy('notify'); setPhoneMsg(null)
+                          try {
+                            await api.post(`/api/rollover/${r._id}/notify`, { phone: pn, on: false })
+                            setPhoneMsg({ ok: true, text: `${prettyPhone(pn)} removed.` })
+                            await onChanged()
+                          } catch (e) {
+                            setPhoneMsg({ ok: false, text: e.response?.data?.error || e.message })
+                          } finally { setBusy(null) }
+                        }}>×</button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <input className="field" value={phone} inputMode="tel" placeholder="0241234567"
                   onChange={e => { setPhone(e.target.value); setPhoneMsg(null) }}
@@ -584,20 +625,7 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
                   }}>
                   {busy === 'notify' ? <span className="spin" /> : 'Add'}
                 </button>
-                {r.notify?.phones?.length > 0 && (
-                  <button className="btn btn-sm btn-ghost" disabled={busy === 'notify' || !phone}
-                    title="Stop texting this number about this chain"
-                    onClick={async () => {
-                      setBusy('notify'); setPhoneMsg(null)
-                      try {
-                        await api.post(`/api/rollover/${r._id}/notify`, { phone, on: false })
-                        setPhoneMsg({ ok: true, text: 'Removed.' })
-                        await onChanged()
-                      } catch (e) {
-                        setPhoneMsg({ ok: false, text: e.response?.data?.error || e.message })
-                      } finally { setBusy(null) }
-                    }}>Remove</button>
-                )}
+
               </div>
               {phoneMsg && <div style={{ fontSize: 10.5, color: phoneMsg.ok ? 'var(--pos)' : 'var(--neg)' }}>{phoneMsg.text}</div>}
               <div className="muted2" style={{ fontSize: 10.5, lineHeight: 1.5 }}>
@@ -1042,6 +1070,13 @@ export default function Rollover() {
         .ro-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
         .ro-row-detail > td { padding: 0 8px 10px; background: var(--bg-2); }
         .seg-sm button { padding: 3px 10px; font-size: 11px; }
+        .ro-pill { display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+          border: 1px solid var(--bd); white-space: nowrap; }
+        .ro-pill.on  { color: var(--pos); border-color: var(--pos-dim); background: color-mix(in srgb, var(--pos) 8%, transparent); }
+        .ro-pill.off { color: var(--tx-4); }
+        .ro-x { background: none; border: 0; color: inherit; opacity: .6; cursor: pointer;
+          font-size: 13px; line-height: 1; padding: 0 1px; }
+        .ro-x:hover { opacity: 1; color: var(--neg); }
         @media (max-width: 719px) {
           .ro-table { min-width: 520px; font-size: 12px; }
           .ro-table th:nth-child(7), .ro-table td:nth-child(7) { display: none; }  /* Target */
