@@ -311,18 +311,18 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // How many slips to build. Each uses fixtures the previous ones did not, so three slips are
   // three separate bets — booking three cuts of one pool means one result takes every ticket.
   const [slipCount, setSlipCount] = useState(1)
-  // ── Default 70%, not "any" ────────────────────────────────────────────────────────────────
+  // ── No floor by default ───────────────────────────────────────────────────────────────────
   //
-  // This defaulted to no floor, and the cost is visible in a single slip. BW6SR9: 25 legs, 18 won,
-  // FOUR lost — and all four claimed under 70%. Three of them were the model's own 22nd, 23rd and
-  // 24th most confident legs out of 25. The model said they were its weakest picks and they went
-  // on the slip anyway, because reaching 5,473x needed them.
+  // This was set to 0.7 and reverted, because a default floor and a price target are the same
+  // control pulling opposite ways. A 70% leg is a SHORT leg — 1.2-1.3 — so the floor does not
+  // make a 1575x ticket safer, it makes it unreachable: the build comes back "the best this card
+  // can reach is 74.98x", and the only way out is to lower the floor anyway.
   //
-  // The same slip cut to its safest eight legs: every settled leg won, at 5.78x.
-  //
-  // 70 rather than 75 because it is the floor that removes exactly the legs that broke it without
-  // starting to cut winners — the weakest leg in that all-winning eight claimed 70%.
-  const [minLegProb, setMinLegProb] = useState(0.7)
+  // The evidence for a floor is real and unchanged: BW6SR9 lost four legs and every one of them
+  // claimed under 70%; cut to the legs that clear it, the same slip is seven legs and all seven
+  // won. But that is an argument for asking for LESS PRICE, not for capping the legs while still
+  // demanding 1575x. The floor belongs to the user, next to the target they chose it for.
+  const [minLegProb, setMinLegProb] = useState(0)
   // Ceiling on how many legs of one market family a slip may carry. Not only taste: same-family
   // legs fail together, so eleven per-team Unders is one bet on "goals are scarce today" wearing
   // eleven names, and winProb — a plain product — assumes an independence it does not have.
