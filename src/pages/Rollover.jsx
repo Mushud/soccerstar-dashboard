@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import AppShell from '../components/AppShell'
 import api from '../api'
 
@@ -349,6 +349,84 @@ function waitingOn(step, now, live = null) {
 
 // ── One chain ────────────────────────────────────────────────────────────────
 
+/**
+ * ── ChainTable ────────────────────────────────────────────────────────────────
+ * The same chains as one scannable grid rather than a wall of cards.
+ *
+ * Cards show one chain well and several badly: with four running you scroll past three to check
+ * the fourth, and the numbers that matter — where each is up to, what it is waiting on, what it
+ * is worth — never line up next to each other. A table puts them in columns you can read down.
+ *
+ * A row expands into the full card, so nothing here replaces the detail; it just stops the detail
+ * being the only view.
+ */
+function ChainTable({ chains, onChanged, now }) {
+  const [openId, setOpenId] = useState(null)
+  return (
+    <div className="ro-table-wrap">
+      <table className="ro-table">
+        <thead>
+          <tr>
+            <th>Chain</th>
+            <th className="num">Step</th>
+            <th>In play</th>
+            <th className="num">Odds</th>
+            <th>Waiting on</th>
+            <th className="num">Bankroll</th>
+            <th className="num">Target</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {chains.map(r => {
+            const cfg = r.config
+            const won = r.steps.filter(s => s.status === 'won').length
+            const live = [...r.steps].reverse().find(s => s.n === r.currentStep && s.status !== 'void')
+            const wait = waitingOn(live, now, live?.live)
+            const open = openId === r._id
+            const tone = r.status === 'completed' ? 'var(--pos)'
+              : r.status === 'busted' ? 'var(--neg)'
+              : r.status === 'stopped' ? 'var(--tx-4)' : 'var(--warn)'
+            return (
+              <Fragment key={r._id}>
+                <tr className={`ro-row${open ? ' on' : ''}`} onClick={() => setOpenId(open ? null : r._id)}>
+                  <td>
+                    <span className="ro-dot" style={{ background: tone }} />
+                    <b>{r.name || `${cfg.shape === 'straight' ? 'Straight' : 'Cover'} × ${cfg.steps}`}</b>
+                    {r.notify?.phones?.length > 0 && <span className="muted2" title={`${r.notify.phones.length} phone(s) alerted`}> ✉</span>}
+                    <div className="muted2 ro-sub">{r.status} · stake {cfg.stake}</div>
+                  </td>
+                  <td className="num"><b>{won}</b><span className="muted2">/{cfg.steps}</span></td>
+                  <td>
+                    {live?.code
+                      ? <><code className="mono">{live.code}</code><div className="muted2 ro-sub">{live.legCount || live.legs?.length || 0} leg(s)</div></>
+                      : <span className="muted2">{live?.status || '—'}</span>}
+                  </td>
+                  <td className="num">{live?.totalOdds ? `${live.totalOdds}x` : '—'}</td>
+                  <td style={{ color: wait?.tone }}>
+                    {live?.status === 'building' && <span className="ro-spin" />}
+                    {wait?.label || '—'}
+                  </td>
+                  <td className="num">{r.bankroll?.current != null ? Number(r.bankroll.current).toFixed(2) : '—'}</td>
+                  <td className="num muted2">{r.bankroll?.target != null ? Math.round(r.bankroll.target).toLocaleString() : '—'}</td>
+                  <td className="num muted2">{open ? '▾' : '▸'}</td>
+                </tr>
+                {open && (
+                  <tr className="ro-row-detail">
+                    <td colSpan={8}>
+                      <Chain r={r} onChanged={onChanged} now={now} defaultOpen />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
 function Chain({ r, onChanged, now, defaultOpen = false }) {
   const [busy, setBusy] = useState(null)
   // Subscribing a phone to a chain that is already running. Separate from the create form on
@@ -634,6 +712,10 @@ export default function Rollover() {
   useEffect(() => { load() }, [load])
 
   const merged = useMemo(() => list.map(r => detail[r._id] || r), [list, detail])
+  // Table by default — with more than one chain running, columns beat a wall of cards. The cards
+  // are still a click away and are what a row expands into.
+  const [view, setView] = useState(() => { try { return localStorage.getItem('reckon.roView') || 'table' } catch { return 'table' } })
+  const setViewSticky = v => { setView(v); try { localStorage.setItem('reckon.roView', v) } catch { /* private window */ } }
   const building = merged.some(r => r.steps?.some(s => s.status === 'building'))
   // Poll hard while a step is being cut, gently otherwise.
   useEffect(() => {
@@ -897,10 +979,20 @@ export default function Rollover() {
         <>
           {active.length > 0 && (
             <div style={{ marginBottom: 20 }}>
-              <div className="label" style={{ marginBottom: 8 }}>Running</div>
-              <div className="ro-chains">
-                {active.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} defaultOpen={active.length === 1 && r.steps.length <= 2} />)}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div className="label" style={{ margin: 0 }}>Running</div>
+                <div className="seg seg-sm" style={{ marginLeft: 'auto' }}>
+                  <button className={view === 'table' ? 'on' : ''} onClick={() => setViewSticky('table')}>Table</button>
+                  <button className={view === 'cards' ? 'on' : ''} onClick={() => setViewSticky('cards')}>Cards</button>
+                </div>
               </div>
+              {view === 'table'
+                ? <ChainTable chains={active} onChanged={load} now={now} />
+                : (
+                  <div className="ro-chains">
+                    {active.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} defaultOpen={active.length === 1 && r.steps.length <= 2} />)}
+                  </div>
+                )}
             </div>
           )}
 
@@ -909,7 +1001,9 @@ export default function Rollover() {
           {done.length > 0 && (
             <div>
               <div className="label" style={{ marginBottom: 8 }}>Finished</div>
-              <div className="ro-chains">{done.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} />)}</div>
+              {view === 'table'
+                ? <ChainTable chains={done} onChanged={load} now={now} />
+                : <div className="ro-chains">{done.map(r => <Chain key={r._id} r={r} onChanged={load} now={now} />)}</div>}
             </div>
           )}
 
@@ -930,6 +1024,29 @@ export default function Rollover() {
         /* Cards tile to whatever fits; 340px is the width the summary needs before the bet line
            starts truncating to nothing. One open card takes the whole row. */
         .ro-chains { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; align-items: start; }
+
+        /* ── Table view ──
+           Horizontal scroll rather than wrapping, because a squeezed column turns "waiting on"
+           into two useless lines. On a phone the low-value columns drop out instead. */
+        .ro-table-wrap { overflow-x: auto; border: 1px solid var(--bd); border-radius: 10px; background: var(--bg-1); }
+        .ro-table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 720px; }
+        .ro-table th { text-align: left; font-weight: 600; font-size: 10.5px; letter-spacing: .04em;
+          text-transform: uppercase; color: var(--tx-4); padding: 9px 10px; border-bottom: 1px solid var(--bd); white-space: nowrap; }
+        .ro-table th.num, .ro-table td.num { text-align: right; }
+        .ro-table td { padding: 9px 10px; border-bottom: 1px solid var(--bd); vertical-align: top; }
+        .ro-table tbody tr:last-child td { border-bottom: 0; }
+        .ro-row { cursor: pointer; }
+        .ro-row:hover { background: var(--bg-2); }
+        .ro-row.on { background: var(--bg-2); }
+        .ro-sub { font-size: 10.5px; margin-top: 2px; }
+        .ro-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+        .ro-row-detail > td { padding: 0 8px 10px; background: var(--bg-2); }
+        .seg-sm button { padding: 3px 10px; font-size: 11px; }
+        @media (max-width: 719px) {
+          .ro-table { min-width: 520px; font-size: 12px; }
+          .ro-table th:nth-child(7), .ro-table td:nth-child(7) { display: none; }  /* Target */
+          .ro-table th:nth-child(4), .ro-table td:nth-child(4) { display: none; }  /* Odds */
+        }
         .ro-chain-open { grid-column: 1 / -1; }
         /* Three across is the ceiling. Left to auto-fill a 1920px screen takes a fourth column at
            ~400px each, which is under the width the summary line needs and starts truncating the
