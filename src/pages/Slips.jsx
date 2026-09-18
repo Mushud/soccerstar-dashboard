@@ -59,6 +59,14 @@ function SlipRow({ s }) {
 
         <span className="num" style={{ fontSize: 13, fontWeight: 800, color: 'var(--warn)' }}>{odds(s.totalOdds)}</span>
         <span className="muted" style={{ fontSize: 12 }}>{s.legs.length} legs</span>
+        {/* A system ticket is graded on N of M, not all of them — say so, or a "won" row with a
+            visibly lost leg reads as a settlement bug. */}
+        {s.system?.minWinners > 0 && s.system.minWinners < s.legs.length && (
+          <span className="tag tag-info" style={{ fontSize: 10.5 }}
+            title={`System bet — pays when at least ${s.system.minWinners} of the ${s.legs.length} legs land, so it survives ${s.legs.length - s.system.minWinners} loss(es). The stake is split across every line.`}>
+            system {s.system.minWinners}/{s.legs.length}
+          </span>
+        )}
         {/* Colour alone is not a label — and it is invisible to anyone who cannot see it. */}
         {s.slateLabel === 'focus' && (
           <span className="tag tag-focus" style={{ fontSize: 9.5 }}
@@ -80,11 +88,19 @@ function SlipRow({ s }) {
           {s.legsPending > 0 && <span className="muted2"> {s.legsPending} to play</span>}
         </span>
 
-        {s.winProb != null && (
-          <span className="muted2" style={{ fontSize: 11.5 }} title="What the model said the chance of all legs landing was, at build time">
-            claimed {pct(s.winProb)}
-          </span>
-        )}
+        {s.winProb != null && (() => {
+          // On a system, `winProb` is the chance of reaching minWinners — not of every leg
+          // landing. Labelling both the same way made a covered ticket look wildly optimistic.
+          const sys = s.system?.minWinners > 0 && s.system.minWinners < s.legs.length
+          return (
+            <span className="muted2" style={{ fontSize: 11.5 }}
+              title={sys
+                ? `What the model said the chance of at least ${s.system.minWinners} of the ${s.legs.length} legs landing was, at build time${s.system.allLandProb != null ? ` — as a straight accumulator the same legs claimed ${pct(s.system.allLandProb)}` : ''}.`
+                : 'What the model said the chance of all legs landing was, at build time'}>
+              claimed {pct(s.winProb)}{sys && ` for ${s.system.minWinners}+`}
+            </span>
+          )
+        })()}
         {(() => {
           const ks = s.legs.map(l => l.kickoff).filter(Boolean).map(d => new Date(d)).sort((a, b) => a - b)
           if (!ks.length) return null

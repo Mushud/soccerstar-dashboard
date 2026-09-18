@@ -467,11 +467,18 @@ export default function Dashboard() {
                           ? <span className={`pill pill-${sl.status === 'won' ? 'pos' : 'neg'}`}>
                               {sl.status === 'won' ? '✓ Won' : '✗ Lost'}
                             </span>
-                          : sl.legsLost > 0
-                            ? <span className="pill pill-neg">{sl.legsLost} down</span>
-                            : sl.legsWon > 0
-                              ? <span className="pill pill-pos">{sl.legsWon} up</span>
-                              : <span className="pill">{SLIP_SOURCE[sl.source] || sl.source}</span>}
+                          : sl.system?.minWinners > 0 && sl.system.minWinners < sl.legs.length
+                            // A system has slack: a lost leg is only bad news once the slack is
+                            // gone, so "2 down" would read as a dying ticket when it is fine.
+                            ? <span className={`pill ${sl.legsLost > sl.legs.length - sl.system.minWinners - 1 ? 'pill-warn' : 'pill-pos'}`}
+                                title={`Needs ${sl.system.minWinners} of ${sl.legs.length} — ${sl.legsWon} landed, can still lose ${Math.max(0, sl.legs.length - sl.system.minWinners - sl.legsLost)} more.`}>
+                                {sl.legsWon}/{sl.system.minWinners} · {Math.max(0, sl.legs.length - sl.system.minWinners - sl.legsLost)} spare
+                              </span>
+                            : sl.legsLost > 0
+                              ? <span className="pill pill-neg">{sl.legsLost} down</span>
+                              : sl.legsWon > 0
+                                ? <span className="pill pill-pos">{sl.legsWon} up</span>
+                                : <span className="pill">{SLIP_SOURCE[sl.source] || sl.source}</span>}
                         <span className="odds">{sl.totalOdds > 0 ? `${sl.totalOdds}x` : '—'}</span>
                       </div>
                       <div className="meta">

@@ -97,6 +97,71 @@ const MAX_BOOKING_LEGS = 50
  * be live at once — one shared code meant generating a second silently replaced the first on
  * screen while both were still bookable.
  */
+/**
+ * C(n, k) — how many separate lines a system ticket splits the stake across.
+ */
+const systemLines = (n, k) => { let r = 1; for (let i = 1; i <= k; i++) r = r * (n - k + i) / i; return Math.round(r) }
+
+/** The band the record says breaks tickets — see WEAK_BAND in the Cover control below. */
+const WEAK = 0.60
+
+/**
+ * ── Cover ─────────────────────────────────────────────────────────────────────
+ * Book the legs as a system instead of an accumulator: pay out when at least (n - drop) of
+ * them land, rather than dying on the first that does not.
+ *
+ * Why it is here, and why it defaults on when a weak leg is present. Over the 41 settled Smart
+ * Pick slips, and on BW6SR9 in particular (25 legs, 5,473x, returned nothing):
+ *
+ *   the four losing legs ranked 8, 19, 20 and 21 of 22 by the model's own confidence
+ *   its three weakest legs — 56%, 54%, 53% — all lost
+ *   but 13 of the 17 sub-70% legs LANDED, so a blunt floor throws away winners
+ *   safest 6, accumulator ......... 27% of slips paid, 0.89x average
+ *   safest 6, drop-1 system ....... 71% of slips paid, 0.89x average
+ *
+ * Identical average. The system does not add money; it trades the size of the win for the
+ * frequency of it. That is the wrong trade for a lottery ticket and the right one for a weak
+ * leg you would rather carry than cut — which is the case this control exists for.
+ *
+ * The stake splits across every line, so a drop-1 on 10 legs is 10 bets at a tenth each: a
+ * clean sweep pays slightly LESS than the accumulator. The line count is shown for that reason.
+ */
+function Cover({ legs, drop, onChange }) {
+  const n = legs.length
+  if (n < 3) return null
+  const weak = legs.filter(l => (l.prob ?? 1) < WEAK).length
+  const max = Math.min(3, n - 2)
+  const opts = [0, ...Array.from({ length: max }, (_, i) => i + 1)]
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', fontSize: 10.5 }}>
+      <span className="muted2">Cover</span>
+      {opts.map(d => {
+        const on = d === drop
+        return (
+          <button key={d} className={on ? 'btn btn-info' : 'btn'} style={{ padding: '2px 7px', fontSize: 10.5 }}
+            onClick={() => onChange(d)}
+            title={d === 0
+              ? 'Accumulator — every leg must land'
+              : `System ${n - d}/${n} — pays when at least ${n - d} legs land. The stake splits across ${systemLines(n, n - d)} lines, so a clean sweep pays ${systemLines(n, n - d)}x less than the accumulator.`}>
+            {d === 0 ? 'Acca' : `−${d}`}
+          </button>
+        )
+      })}
+      {drop > 0 && (
+        <span className="muted2">
+          {n - drop}/{n} · {systemLines(n, n - drop)} lines · stake ÷ {systemLines(n, n - drop)}
+        </span>
+      )}
+      {weak > 0 && drop === 0 && (
+        <span style={{ color: 'var(--warn)' }}
+          title={`Legs claiming under ${(WEAK * 100).toFixed(0)}% are where the settled record loses tickets. Covering drop-1 keeps them without letting one of them kill the slip.`}>
+          ⚠ {weak} leg{weak > 1 ? 's' : ''} under {(WEAK * 100).toFixed(0)}%
+        </span>
+      )}
+    </div>
+  )
+}
+
 function BookingCode({ book }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 9, paddingTop: 9, borderTop: '1px solid var(--bd)' }}>
@@ -114,6 +179,15 @@ function BookingCode({ book }) {
           {book.deadline && ` · expires ${new Date(book.deadline).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
         </span>
       </div>
+      {book.system && (
+        <div style={{ fontSize: 11, color: 'var(--info)', lineHeight: 1.5 }}>
+          Booked as a <b>system {book.system.minWinners}/{book.system.legs}</b> — {book.system.lines} lines,
+          pays when at least {book.system.minWinners} legs land.
+          {' '}The code opens as an accumulator: on SportyBet, switch the slip to
+          {' '}<b>System {book.system.minWinners}/{book.system.legs}</b> before staking.
+          {' '}This app grades it as the system.
+        </div>
+      )}
       {book.rejected > 0 && (
         <div style={{ fontSize: 11, color: 'var(--warn)' }}>
           SportyBet dropped {book.rejected} leg — check the slip before staking.
@@ -149,7 +223,18 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // How many slips to build. Each uses fixtures the previous ones did not, so three slips are
   // three separate bets — booking three cuts of one pool means one result takes every ticket.
   const [slipCount, setSlipCount] = useState(1)
-  const [minLegProb, setMinLegProb] = useState(0)
+  // ── Default 70%, not "any" ────────────────────────────────────────────────────────────────
+  //
+  // This defaulted to no floor, and the cost is visible in a single slip. BW6SR9: 25 legs, 18 won,
+  // FOUR lost — and all four claimed under 70%. Three of them were the model's own 22nd, 23rd and
+  // 24th most confident legs out of 25. The model said they were its weakest picks and they went
+  // on the slip anyway, because reaching 5,473x needed them.
+  //
+  // The same slip cut to its safest eight legs: every settled leg won, at 5.78x.
+  //
+  // 70 rather than 75 because it is the floor that removes exactly the legs that broke it without
+  // starting to cut winners — the weakest leg in that all-winning eight claimed 70%.
+  const [minLegProb, setMinLegProb] = useState(0.7)
   // Ceiling on how many legs of one market family a slip may carry. Not only taste: same-family
   // legs fail together, so eleven per-team Unders is one bet on "goals are scarce today" wearing
   // eleven names, and winProb — a plain product — assumes an independence it does not have.
@@ -183,6 +268,9 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   // both were live on SportyBet.
   const [books, setBooks]       = useState({})
   const [bookingKey, setBookingKey] = useState(null)
+  // How many legs each ticket may lose and still pay — keyed the same way as `books` (slip index,
+  // or 'selection'). Unset means "decide from the legs": see coverFor below.
+  const [drops, setDrops] = useState({})
 
   // ── Mode ──
   // 'human' ranks legs on the judgement layer the Slip Simulator measures rather than on the
@@ -250,12 +338,15 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   async function getCode(key, legs) {
     if (!legs?.length) return
     setBooking(true); setBookingKey(key); setError(null)
+    const drop = coverFor(key, legs)
     try {
       const { data } = await api.post('/api/betbuilder/target-slip/book', {
         legs,
         targetOdds: sizeBy === 'confidence' ? null : target, minLegs, maxLegs,
         winProb: legs.reduce((a, l) => a * (l.prob ?? 1), 1),
         sportybetOnly: sbOnly,
+        // null keeps it an accumulator; anything else books a system that survives `drop` losses.
+        minWinners: drop > 0 ? legs.length - drop : null,
       }, { timeout: 2 * 60 * 1000 })
       setBooks(b => ({ ...b, [key]: data }))
     } catch (err) {
@@ -266,6 +357,17 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
   }
 
   const legKey = l => `${l.fixtureId}|${l.market}|${l.selection}`
+
+  /**
+   * How many losses this ticket should absorb. An explicit choice wins; otherwise the default is
+   * drop-1 when the ticket carries a leg in the band that breaks tickets, and a plain accumulator
+   * when it does not. Nothing is covered below 3 legs — drop-1 on a double is two singles.
+   */
+  function coverFor(key, legs) {
+    if (drops[key] != null) return drops[key]
+    if (!legs || legs.length < 3) return 0
+    return legs.some(l => (l.prob ?? 1) < WEAK) ? 1 : 0
+  }
 
   /**
    * Tick or untick a leg.
@@ -698,6 +800,10 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                       </button>
                     </div>
 
+                    <div style={{ marginBottom: 7 }}>
+                      <Cover legs={legs} drop={coverFor(i, legs)} onChange={d => setDrops(p => ({ ...p, [i]: d }))} />
+                    </div>
+
                     <div className="leg-list">
                       {legs.map((l, j) => {
                         const on = picked.has(legKey(l))
@@ -769,6 +875,9 @@ export default function SmartPickModal({ open, onClose, picks, onApply, onAnalys
                           : 'One booking code for the legs you have ticked'}>
                         {booking && bookingKey === 'selection' ? <><span className="spin" /> Booking…</> : '🎰 Code for selection'}
                       </button>
+                    </div>
+                    <div style={{ marginTop: 7 }}>
+                      <Cover legs={sel} drop={coverFor('selection', sel)} onChange={d => setDrops(p => ({ ...p, selection: d }))} />
                     </div>
                     <div className="muted2" style={{ fontSize: 10.5, marginTop: 6, lineHeight: 1.5 }}>
                       Drawn from {new Set(sel.map(l => l.fixtureId)).size} matches.
