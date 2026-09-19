@@ -753,6 +753,9 @@ export default function Rollover() {
   const [testing, setTesting] = useState(false)
   const [testMsg, setTestMsg] = useState(null)
   const [shape, setShape] = useState('straight')
+  // How many straight wins one step combines. Three short ones beat one long one: at ~1.9x a
+  // step, three wins at 1.20–1.30 land 63% on the record against 53% for a single 1.80–2.30 leg.
+  const [straightLegs, setStraightLegs] = useState(1)
   const [oddsMin, setOddsMin] = useState(1.15)
   const [oddsMax, setOddsMax] = useState(1.45)
   const [floor, setFloor] = useState(0.85)
@@ -807,7 +810,7 @@ export default function Rollover() {
       setInsLoading(true)
       try {
         const params = shape === 'straight'
-          ? { shape, oddsMin, oddsMax, steps }
+          ? { shape, oddsMin, oddsMax, steps, straightLegs }
           : { shape, steps, tolerance, ...(sizeBy === 'target' ? { targetOdds } : { floor }) }
         const { data } = await api.get('/api/rollover/insights', { params })
         setIns(data)
@@ -815,7 +818,7 @@ export default function Rollover() {
       finally { setInsLoading(false) }
     }, 300)
     return () => clearTimeout(t)
-  }, [shape, oddsMin, oddsMax, floor, targetOdds, sizeBy, steps, tolerance])
+  }, [shape, oddsMin, oddsMax, straightLegs, floor, targetOdds, sizeBy, steps, tolerance])
 
   const create = async () => {
     setCreating(true)
@@ -826,7 +829,7 @@ export default function Rollover() {
       await api.post('/api/rollover', {
         name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck,
         phone: notifyOn && phone ? phone : null,
-        ...(shape === 'straight' ? { oddsMin, oddsMax } : { sizeBy, floor, targetOdds, tolerance, minLegProb, maxLegs }),
+        ...(shape === 'straight' ? { oddsMin, oddsMax, straightLegs } : { sizeBy, floor, targetOdds, tolerance, minLegProb, maxLegs }),
       })
       setName('')
       setShowForm(false); setFormTouched(true)
@@ -919,14 +922,29 @@ export default function Rollover() {
           </div>
 
           {shape === 'straight' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              <label className="label">Price from
-                <NumField value={oddsMin} onChange={setOddsMin} min={1.02} max={4} step={0.05} />
-              </label>
-              <label className="label">…to
-                <NumField value={oddsMax} onChange={setOddsMax} min={1.03} max={5} step={0.05} />
-              </label>
-            </div>
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <label className="label">Price from
+                  <NumField value={oddsMin} onChange={setOddsMin} min={1.02} max={4} step={0.05} />
+                </label>
+                <label className="label">…to
+                  <NumField value={oddsMax} onChange={setOddsMax} min={1.03} max={5} step={0.05} />
+                </label>
+              </div>
+              <label className="label">Wins per step</label>
+              <div className="seg">
+                {[1, 2, 3].map(n => (
+                  <button key={n} className={straightLegs === n ? 'on' : ''} onClick={() => setStraightLegs(n)}>
+                    {n === 1 ? 'One win' : `${n} wins`}
+                  </button>
+                ))}
+              </div>
+              <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                {straightLegs === 1
+                  ? 'One fixture per step — nothing correlated, and the step ends when that match does.'
+                  : `${straightLegs} short wins, each held under 1.30. More price without a longer leg: at about 1.9x a step, three wins at 1.20–1.30 landed 63% on the record, two at 1.30–1.50 landed 57%, a single 1.80–2.30 leg landed 53%, and six small cover legs landed 42%.`}
+              </div>
+            </>
           ) : (
             <>
               <div className="seg">
