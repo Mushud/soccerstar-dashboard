@@ -573,6 +573,22 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
               {r.status === 'active' && (!live || !['pending', 'building'].includes(live.status)) && (
                 <button className="btn btn-sm btn-accent" disabled={!!busy} onClick={() => act('rebuild')}>{busy === 'rebuild' ? 'Building…' : 'Build now'}</button>
               )}
+              {r.status === 'active' && live?.status === 'pending' && (
+                <button className="btn btn-sm btn-warn" disabled={!!busy}
+                  title="You took a cash-out on SportyBet. Record what you got and the chain carries on from there."
+                  onClick={async () => {
+                    const raw = prompt(`Cashed out step ${live.n}. How much did you get?`, String(live.stake ?? ''))
+                    if (raw == null) return
+                    const amount = Number(String(raw).replace(/[^\d.]/g, ''))
+                    if (!Number.isFinite(amount)) { alert('That is not a number'); return }
+                    setBusy('cash')
+                    try { await api.post(`/api/rollover/${r._id}/cash-out`, { amount }); await onChanged() }
+                    catch (e) { alert(e.response?.data?.error || e.message) }
+                    finally { setBusy(null) }
+                  }}>
+                  {busy === 'cash' ? 'Saving…' : '₵ Cashed out'}
+                </button>
+              )}
               {r.status === 'active' && <button className="btn btn-sm" disabled={!!busy} onClick={() => act('advance')}>{busy === 'advance' ? 'Checking…' : 'Check'}</button>}
               {r.status === 'active' && (
                 <button className={`btn btn-sm${r.notify?.phones?.length ? ' btn-pos' : ''}`}
