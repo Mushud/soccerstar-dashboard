@@ -586,6 +586,13 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
                 </button>
               )}
               {r.status === 'active' && <button className="btn btn-sm btn-neg" disabled={!!busy} onClick={() => { if (confirm('Stop this chain?')) act('stop') }}>Stop</button>}
+              {r.status !== 'active' && (
+                <button className="btn btn-sm btn-accent" disabled={!!busy}
+                  title="Run it again from step 1 with the same settings and the original stake. The finished run is kept."
+                  onClick={() => { if (confirm(`Restart "${r.name || 'this chain'}" from step 1 with ${r.config.stake}?`)) act('restart') }}>
+                  {busy === 'restart' ? 'Restarting…' : '↻ Restart'}
+                </button>
+              )}
               {r.status !== 'active' && <button className="btn btn-sm btn-ghost" disabled={!!busy} onClick={remove}>Delete</button>}
             </div>
           </div>
