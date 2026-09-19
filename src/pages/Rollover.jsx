@@ -458,10 +458,16 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
   const [phoneMsg, setPhoneMsg] = useState(null)
   const [open, setOpen] = useState(defaultOpen)
   const [showAll, setShowAll] = useState(false)
+  // Voided attempts are kept on the chain for the record but hidden by default: a step that was
+  // rebuilt three times shows four entries, only one of which was ever a real bet, and the noise
+  // buries the step actually in play.
+  const [showVoid, setShowVoid] = useState(false)
   const cfg = r.config
   const won = r.steps.filter(s => s.status === 'won').length
   const live = [...r.steps].reverse().find(s => s.n === r.currentStep && s.status !== 'void')
-  const ordered = [...r.steps].sort((a, b) => a.n - b.n || (a.status === 'void' ? -1 : 1))
+  const all = [...r.steps].sort((a, b) => a.n - b.n || (a.status === 'void' ? -1 : 1))
+  const voided = all.filter(s => s.status === 'void').length
+  const ordered = showVoid ? all : all.filter(s => s.status !== 'void')
   const shown = showAll || ordered.length <= 4 ? ordered : ordered.slice(-3)
   const hidden = ordered.length - shown.length
   const wait = waitingOn(live, now, live?.live)
@@ -672,10 +678,20 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
             </div>
           </div>
 
-          {hidden > 0 && (
-            <button className="btn btn-sm btn-ghost" style={{ marginBottom: 6 }} onClick={() => setShowAll(true)}>
-              Show {hidden} earlier step{hidden === 1 ? '' : 's'}
-            </button>
+          {(hidden > 0 || voided > 0) && (
+            <div className="toolbar" style={{ gap: 6, marginBottom: 6 }}>
+              {hidden > 0 && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setShowAll(true)}>
+                  Show {hidden} earlier step{hidden === 1 ? '' : 's'}
+                </button>
+              )}
+              {voided > 0 && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setShowVoid(v => !v)}
+                  title="Tickets that were cut but never counted — rebuilt, or not staked. Kept for the record.">
+                  {showVoid ? 'Hide' : 'Show'} {voided} voided
+                </button>
+              )}
+            </div>
           )}
           <div style={{ display: 'grid', gap: 6 }}>
             {shown.map((s, i) => (
