@@ -795,7 +795,9 @@ export default function Rollover() {
   const [steps, setSteps] = useState(3)
   const [stake, setStake] = useState(10)
   const [windowHours, setWindowHours] = useState(72)
-  const [minLegProb, setMinLegProb] = useState(0.75)
+  // 0 = pure prediction. The model's claim is honest in every band (2,591 settled legs), and the
+  // optimiser already weighs every leg by it — a floor can only lower the ticket's real chance.
+  const [minLegProb, setMinLegProb] = useState(0)
   const [maxLegs, setMaxLegs] = useState(4)
   const [mode, setMode] = useState('human')
   const [slate, setSlate] = useState('main')
@@ -889,7 +891,7 @@ export default function Rollover() {
   //
   // Deliberately a warning and not a block: the ceiling assumes every leg sits exactly on the
   // floor, so reaching it is possible on a strong card and the user may know that.
-  const reach = shape === 'cover' && sizeBy === 'target' ? Math.pow(1 / minLegProb, maxLegs) : null
+  const reach = shape === 'cover' && sizeBy === 'target' && minLegProb > 0 ? Math.pow(1 / minLegProb, maxLegs) : null
   const tooFar = reach != null && targetOdds > reach * 0.95
   const thinWindow = windowHours <= 24
 
@@ -1045,9 +1047,14 @@ export default function Rollover() {
               </label>
               {shape === 'cover' && (
                 <>
-                  <label className="label">Leg floor — {pct(minLegProb)}
-                    <input type="range" min="0.5" max="0.92" step="0.01" value={minLegProb} onChange={e => setMinLegProb(parseFloat(e.target.value))} />
+                  <label className="label">Leg floor — {minLegProb > 0 ? pct(minLegProb) : 'none (pure prediction)'}
+                    <input type="range" min="0" max="0.92" step="0.01" value={minLegProb} onChange={e => setMinLegProb(parseFloat(e.target.value))} />
                   </label>
+                  <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5, marginTop: -4 }}>
+                    {minLegProb > 0
+                      ? `Legs the model puts under ${pct(minLegProb)} are removed before the ticket is cut. The claim is honest in every band on the record, so this mostly shrinks the card.`
+                      : 'Every leg is weighed by its own probability and the optimiser picks the combination most likely to land at your price. Price ceilings still apply.'}
+                  </div>
                   <label className="label">Max legs per step — {maxLegs}
                     <input type="range" min="1" max="8" value={maxLegs} onChange={e => setMaxLegs(parseInt(e.target.value, 10))} />
                   </label>
