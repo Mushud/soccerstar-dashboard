@@ -161,7 +161,14 @@ function Leg({ l, live }) {
           {live.score}{live.elapsed != null ? <span className="muted2" style={{ fontWeight: 400 }}> {live.elapsed}'</span> : null}
         </span>
       )}
-      {live?.state !== 'live' && (live?.sbScore || live?.score) && <span className="num muted2">{live.sbScore || live.score}</span>}
+      {/* Settled: the final score, coloured by what it did to the leg. On a losing step this is
+          the whole story, so it is not a muted footnote. */}
+      {live?.state !== 'live' && (live?.sbScore || live?.score) && (
+        <span className="num" style={{
+          fontWeight: won === false ? 800 : 600,
+          color: won === true ? 'var(--pos)' : won === false ? 'var(--neg)' : 'var(--tx-3)',
+        }}>{String(live.sbScore || live.score).replace(':', '-')}</span>
+      )}
       <span className="muted2 ro-leg-ko">{kickoff(l.kickoff)}</span>
     </div>
   )
@@ -211,6 +218,14 @@ function Step({ step, total, live, defaultOpen }) {
               {step.shareUrl && <a className="btn btn-sm btn-info" href={step.shareUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>SportyBet ↗</a>}
               {step.winProb != null && <span className="muted2" style={{ fontSize: 11 }}>claims {pct(step.winProb)}</span>}
               {step.deadline && <span className="muted2" style={{ fontSize: 11 }}>valid to {when(step.deadline)}</span>}
+            </div>
+          )}
+          {step.status === 'lost' && live?.legs?.some(x => x.won === false) && (
+            <div style={{ fontSize: 11.5, marginBottom: 6, color: 'var(--neg)' }}>
+              Lost on {live.legs.filter(x => x.won === false).map(x => `${x.match} ${String(x.sbScore || x.score || '').replace(':', '-')} (${x.selection})`).join(' · ')}
+              {live.legs.some(x => x.won === true) && (
+                <span className="muted2"> — the other {live.legs.filter(x => x.won === true).length} landed.</span>
+              )}
             </div>
           )}
           {step.legs?.length > 0 && (
@@ -753,11 +768,18 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
                 key={`${s.n}-${s.status}-${i}`}
                 step={s}
                 total={cfg.steps}
-                live={s === live ? live.live : null}
+                live={s.live || (s === live ? live.live : null)}
                 defaultOpen={s === live && r.status === 'active'}
               />
             ))}
           </div>
+          {(r.bankroll?.banked > 0 || cfg.bankPct > 0) && (
+            <div className="muted2" style={{ fontSize: 11.5, marginTop: 8 }}>
+              {r.bankroll?.banked > 0
+                ? <><b style={{ color: 'var(--pos)' }}>{money(r.bankroll.banked)} banked</b> — off the table and yours whatever happens next{cfg.bankPct > 0 ? `; ${Math.round(cfg.bankPct * 100)}% of each win stops rolling.` : '.'}</>
+                : <>Banking {Math.round(cfg.bankPct * 100)}% of each win's profit.</>}
+            </div>
+          )}
           {r.lastError && <div className="muted2" style={{ fontSize: 11.5, marginTop: 8 }}>last error: {r.lastError}</div>}
         </div>
       )}
@@ -799,6 +821,9 @@ export default function Rollover() {
   // optimiser already weighs every leg by it — a floor can only lower the ticket's real chance.
   const [minLegProb, setMinLegProb] = useState(0)
   const [maxLegs, setMaxLegs] = useState(4)
+  // Fraction of each win's profit taken off the table. Every rollover step that has ever lost
+  // here lost on exactly one leg — this decides how much you keep when that happens.
+  const [bankPct, setBankPct] = useState(0.3)
   const [mode, setMode] = useState('human')
   const [slate, setSlate] = useState('main')
   const [aiCheck, setAiCheck] = useState(true)
@@ -810,6 +835,15 @@ export default function Rollover() {
   // Countdowns move on their own clock, 30s, so they stay live between the 60s data polls.
   const [now, setNow] = useState(() => new Date())
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30_000); return () => clearInterval(t) }, [])
+
+  // Escape closes the builder, and the page behind must not scroll under it.
+  useEffect(() => {
+    if (!showForm) return
+    const onKey = e => { if (e.key === 'Escape') setShowForm(false) }
+    window.addEventListener('keydown', onKey)
+    document.body.style.overflow = 'hidden'
+    return () => { window.removeEventListener('keydown', onKey); document.body.style.overflow = '' }
+  }, [showForm])
 
   const load = useCallback(async () => {
     try {
@@ -860,7 +894,7 @@ export default function Rollover() {
       // that matters lives on the chain, server-side.
       try { if (phone) localStorage.setItem('reckon.phone', phone) } catch { /* private window */ }
       await api.post('/api/rollover', {
-        name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck,
+        name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck, bankPct,
         phone: notifyOn && phone ? phone : null,
         ...(shape === 'straight' ? { oddsMin, oddsMax, straightLegs } : { sizeBy, floor, targetOdds, tolerance, minLegProb, maxLegs }),
       })
@@ -899,8 +933,7 @@ export default function Rollover() {
   // grid-template-columns beats a media query, so the phone breakpoint would never fire.
   const form = (
     <div className="ro-top">
-      <div className="card card-pad">
-        <div className="card-title" style={{ marginBottom: 10 }}>New chain</div>
+      <div>
         <div style={{ display: 'grid', gap: 10 }}>
           <label className="label">Name <input className="field" value={name} onChange={e => setName(e.target.value)} placeholder="optional" /></label>
 
@@ -1045,6 +1078,14 @@ export default function Rollover() {
               <label className="label">Kickoff window — {windowHours}h (nearest first)
                 <input type="range" min="12" max="168" step="12" value={windowHours} onChange={e => setWindowHours(parseInt(e.target.value, 10))} />
               </label>
+              <label className="label">Bank each win — {bankPct > 0 ? `${Math.round(bankPct * 100)}% of the profit` : 'nothing, let it all ride'}
+                <input type="range" min="0" max="0.7" step="0.05" value={bankPct} onChange={e => setBankPct(parseFloat(e.target.value))} />
+              </label>
+              <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5, marginTop: -4 }}>
+                {bankPct > 0
+                  ? `Each time a step lands, ${Math.round(bankPct * 100)}% of what it made stops rolling and is yours. The rest stakes the next step. Every rollover step that has ever lost here lost on exactly one leg — this is what you keep when that happens.`
+                  : 'Everything rides. A chain that busts at step 8 leaves nothing.'}
+              </div>
               {shape === 'cover' && (
                 <>
                   <label className="label">Leg floor — {minLegProb > 0 ? pct(minLegProb) : 'none (pure prediction)'}
@@ -1131,7 +1172,6 @@ export default function Rollover() {
             </div>
           )}
 
-          {showForm && <div style={{ marginBottom: 20 }}>{form}</div>}
 
           {done.length > 0 && (
             <div>
@@ -1147,6 +1187,23 @@ export default function Rollover() {
           )}
         </>
       )}
+      {/* ── The builder, as a modal ───────────────────────────────────────────────────────
+          It used to open inline between the active chains and the finished ones, which pushed
+          the chains you were watching down the page and left the form competing with them for
+          attention. Building a chain is a decision with its own screen; the same scrim, escape
+          key and scroll lock as Smart Pick, so it behaves the way the rest of the app does. */}
+      {showForm && (
+        <div className="modal-scrim" onMouseDown={e => { if (e.target === e.currentTarget) setShowForm(false) }}>
+          <div className="modal modal-wide" role="dialog" aria-modal="true" aria-label="New rollover chain">
+            <div className="modal-head">
+              <span className="modal-title">New chain</span>
+              <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowForm(false)}>Close</button>
+            </div>
+            <div className="modal-body">{form}</div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         .ro-top { display: grid; grid-template-columns: minmax(270px, 360px) 1fr; gap: 14px; align-items: start; }
         .ro-leg { display: flex; gap: 8px; font-size: 12px; align-items: baseline; }
