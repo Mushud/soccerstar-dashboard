@@ -817,8 +817,8 @@ export default function Rollover() {
   const [steps, setSteps] = useState(3)
   const [stake, setStake] = useState(10)
   const [windowHours, setWindowHours] = useState(72)
-  // 0 = pure prediction. The model's claim is honest in every band (2,591 settled legs), and the
-  // optimiser already weighs every leg by it — a floor can only lower the ticket's real chance.
+  // 0 — no floor. The claim is the least trustworthy number on a leg; the price ceilings, the
+  // history veto and the AI passes do the judging, and they can see the match.
   const [minLegProb, setMinLegProb] = useState(0)
   const [maxLegs, setMaxLegs] = useState(4)
   // Fraction of each win's profit taken off the table. Every rollover step that has ever lost
@@ -1093,8 +1093,8 @@ export default function Rollover() {
                   </label>
                   <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5, marginTop: -4 }}>
                     {minLegProb > 0
-                      ? `Legs the model puts under ${pct(minLegProb)} are removed before the ticket is cut. The claim is honest in every band on the record, so this mostly shrinks the card.`
-                      : 'Every leg is weighed by its own probability and the optimiser picks the combination most likely to land at your price. Price ceilings still apply.'}
+                      ? `Legs the model puts under ${pct(minLegProb)} are removed before the ticket is cut — on the number alone, before anything looks at the match.`
+                      : 'No floor. The price ceilings, the goals-history veto and the AI passes do the judging, and unlike a claim they can see the fixture.'}
                   </div>
                   <label className="label">Max legs per step — {maxLegs}
                     <input type="range" min="1" max="8" value={maxLegs} onChange={e => setMaxLegs(parseInt(e.target.value, 10))} />
