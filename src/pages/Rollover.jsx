@@ -43,6 +43,18 @@ const PILL = {
 }
 const DOT = { won: 'var(--pos)', lost: 'var(--neg)', pending: 'var(--info)', building: 'var(--accent-2)' }
 const dotFor = s => (s ? DOT[s.status] || 'var(--warn)' : 'var(--line)')
+// Claude's paragraph on a leg, folded to one line until asked for.
+function AnalysisText({ text }) {
+  const [open, setOpen] = useState(false)
+  if (!text) return null
+  return (
+    <div className="muted2" style={{ marginLeft: 18, marginTop: 2 }}>
+      <span style={{ cursor: 'pointer', textDecoration: 'underline dotted' }} onClick={e => { e.stopPropagation(); setOpen(o => !o) }}>{open ? 'hide analysis' : 'read the analysis'}</span>
+      {open && <div className="muted" style={{ marginTop: 3, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{text}</div>}
+    </div>
+  )
+}
+
 const STEP_WORD = { building: 'building…', unbuilt: 'no ticket yet', unbooked: 'not booked', pending: 'running', won: 'won', lost: 'lost', void: 'void' }
 
 // ── Projection ───────────────────────────────────────────────────────────────
@@ -184,8 +196,12 @@ function Step({ step, total, live, defaultOpen }) {
       {open && (
         <div style={{ marginTop: 8 }}>
           {step.status === 'building' && (
-            <div className="muted" style={{ fontSize: 12 }}>
-              Cutting a ticket from the card, checking it with Claude, then booking it. Usually under two minutes.
+            <div className="muted" style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+              <span className="ro-spin" aria-hidden>◐</span>
+              <span>
+                <b style={{ color: 'var(--accent-2)' }}>Working…</b> {step.progress || 'Reading the card, screening it with Claude, cutting the ticket, then a deep check and booking. A few minutes.'}
+                <span className="muted2" style={{ display: 'block', fontSize: 10.5, marginTop: 2 }}>Updates every few seconds. Nothing is booked until this row shows a code.</span>
+              </span>
             </div>
           )}
           {step.code && (
@@ -210,9 +226,24 @@ function Step({ step, total, live, defaultOpen }) {
                 Claude checked {step.ai.checked} leg{step.ai.checked === 1 ? '' : 's'} over {step.ai.rounds} round{step.ai.rounds === 1 ? '' : 's'}
                 {step.ai.rejected?.length ? ` · refused ${step.ai.rejected.length}` : ''}
               </div>
+              {step.ai.screened > 0 && (
+                <div className="muted2" style={{ fontSize: 10.5, marginBottom: 3 }}>
+                  Claude screened {step.ai.screened} fixture{step.ai.screened === 1 ? '' : 's'} first and kept {step.ai.kept}
+                  {step.ai.screenedOut?.length ? ` — set aside: ${step.ai.screenedOut.slice(0, 6).map(o => `${o.match} (${o.why})`).join('; ')}${step.ai.screenedOut.length > 6 ? ` +${step.ai.screenedOut.length - 6} more` : ''}` : ''}
+                </div>
+              )}
               {(step.ai.notes || []).map((x, i) => (
-                <div key={`n${i}`} className="muted2" style={{ fontSize: 11 }}>
-                  <span style={{ color: 'var(--pos)' }}>✓</span> {x.match} — {x.confidence} confidence, {x.agreement} agreement{x.verdict ? `, calls ${x.verdict}` : ''}
+                <div key={`n${i}`} style={{ fontSize: 11, marginTop: 4 }}>
+                  <div className="muted2">
+                    <span style={{ color: 'var(--pos)' }}>✓</span> <b>{x.match}</b> — {x.confidence} confidence, {x.agreement} agreement{x.verdict ? `, calls ${x.verdict}` : ''}{x.predictedScore ? ` (${x.predictedScore})` : ''}{x.model ? <span style={{ opacity: 0.6 }}> · {String(x.model).replace('claude-', '')}</span> : null}
+                  </div>
+                  {x.reasons?.length > 0 && (
+                    <ul style={{ margin: '2px 0 0 18px', padding: 0, lineHeight: 1.45 }}>
+                      {x.reasons.map((r, j) => <li key={j} className="muted">{r}</li>)}
+                    </ul>
+                  )}
+                  {x.analysis && <AnalysisText text={x.analysis} />}
+                  {x.caution && <div className="muted2" style={{ marginLeft: 18, fontStyle: 'italic' }}>{x.caution}</div>}
                 </div>
               ))}
               {(step.ai.rejected || []).map((x, i) => (
