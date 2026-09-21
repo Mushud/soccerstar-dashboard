@@ -144,8 +144,14 @@ function Projection({ ins, loading }) {
 
 // ── One step ─────────────────────────────────────────────────────────────────
 
-function Leg({ l, live }) {
+function Leg({ l, live, onOverride }) {
   const won = live?.won
+  const [busy, setBusy] = useState(false)
+  const set = async (v) => {
+    if (!onOverride) return
+    setBusy(true)
+    try { await onOverride(v) } finally { setBusy(false) }
+  }
   return (
     <div className="ro-leg">
       <span className="ro-leg-mark" style={{ color: won === true ? 'var(--pos)' : won === false ? 'var(--neg)' : 'var(--tx-4)' }}>
@@ -170,11 +176,24 @@ function Leg({ l, live }) {
         }}>{String(live.sbScore || live.score).replace(':', '-')}</span>
       )}
       <span className="muted2 ro-leg-ko">{kickoff(l.kickoff)}</span>
+      {/* Correct it by hand when SportyBet and the app disagree — a 1UP or Early Goals payout,
+          a voided match, a fixture matched to the wrong game. */}
+      {onOverride && (
+        <span className="ro-leg-fix" onClick={e => e.stopPropagation()}>
+          {busy ? <span className="muted2">…</span> : (
+            <>
+              {won !== true && <button className="btn btn-xs" title="SportyBet paid this" onClick={() => set(true)}>✓</button>}
+              {won !== false && <button className="btn btn-xs" title="Mark lost" onClick={() => set(false)}>✗</button>}
+              {won != null && <button className="btn btn-xs" title="Hand back to automatic settlement" onClick={() => set(null)}>↺</button>}
+            </>
+          )}
+        </span>
+      )}
     </div>
   )
 }
 
-function Step({ step, total, live, defaultOpen }) {
+function Step({ step, total, live, defaultOpen, onOverride }) {
   const [open, setOpen] = useState(defaultOpen)
   useEffect(() => { setOpen(defaultOpen) }, [defaultOpen])
   const one = step.legs?.length === 1 ? step.legs[0] : null
@@ -217,6 +236,7 @@ function Step({ step, total, live, defaultOpen }) {
               <button className="btn btn-sm" onClick={e => { e.stopPropagation(); navigator.clipboard?.writeText(step.code) }}>Copy</button>
               {step.shareUrl && <a className="btn btn-sm btn-info" href={step.shareUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>SportyBet ↗</a>}
               {step.winProb != null && <span className="muted2" style={{ fontSize: 11 }}>claims {pct(step.winProb)}</span>}
+              {step.builtAt && <span className="muted2" style={{ fontSize: 11 }}>booked {when(step.builtAt)}</span>}
               {step.deadline && <span className="muted2" style={{ fontSize: 11 }}>valid to {when(step.deadline)}</span>}
             </div>
           )}
@@ -230,9 +250,14 @@ function Step({ step, total, live, defaultOpen }) {
           )}
           {step.legs?.length > 0 && (
             <div style={{ display: 'grid', gap: 3 }}>
-              {step.legs.map((l, i) => (
-                <Leg key={i} l={l} live={live?.legs?.find(x => x.match === l.match && x.market === l.market && x.selection === l.selection)} />
-              ))}
+              {step.legs.map((l, i) => {
+                const lv = live?.legs?.find(x => x.match === l.match && x.market === l.market && x.selection === l.selection)
+                // The index the SERVER will use is the leg's position on the ticket, which is the
+                // order `live.legs` came back in — not this display order.
+                const idx = live?.legs?.indexOf(lv) ?? -1
+                return <Leg key={i} l={l} live={lv}
+                  onOverride={onOverride && idx >= 0 ? (won => onOverride(step.n, idx, won)) : null} />
+              })}
             </div>
           )}
           {step.ai && (step.ai.rejected?.length > 0 || step.ai.notes?.length > 0) && (
@@ -525,6 +550,17 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
     catch (e) { alert(e.response?.data?.error || e.message) }
     finally { setBusy(null) }
   }
+  // Correct a leg by hand — PATCH /api/rollover/:id/leg. The server re-settles the ticket and
+  // moves the chain to wherever that leaves it, reviving a busted one if the step is no longer lost.
+  const overrideLeg = async (step, leg, won) => {
+    try { await api.patch(`/api/rollover/${r._id}/leg`, { step, leg, won }); await onChanged() }
+    catch (e) { alert(e.response?.data?.error || e.message) }
+  }
+  // Change a setting on a running chain — PATCH /api/rollover/:id.
+  const editChain = async (patch) => {
+    try { await api.patch(`/api/rollover/${r._id}`, patch); await onChanged() }
+    catch (e) { alert(e.response?.data?.error || e.message) }
+  }
   const remove = async () => {
     if (!confirm('Delete this chain from the record?')) return
     setBusy('delete')
@@ -770,8 +806,41 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
                 total={cfg.steps}
                 live={s.live || (s === live ? live.live : null)}
                 defaultOpen={s === live && r.status === 'active'}
+                onOverride={overrideLeg}
               />
             ))}
+          </div>
+          {/* ── Settings you can change while it runs ────────────────────────────────────
+              The boosted flags decide whether settlement reads the goal timeline before calling
+              a leg lost; without them a paid 1UP or Early Goals leg reads as a bust. */}
+          <div className="toolbar" style={{ gap: 10, marginTop: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
+            <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!cfg.oneUp} onChange={e => editChain({ oneUp: e.target.checked })} />
+              1UP
+            </label>
+            <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!cfg.earlyGoals} onChange={e => editChain({ earlyGoals: e.target.checked })} />
+              Early Goals
+            </label>
+            <span className="muted2">bank</span>
+            <select className="field" style={{ width: 78, padding: '2px 4px', fontSize: 11.5 }}
+              value={cfg.bankPct ?? 0} onChange={e => editChain({ bankPct: Number(e.target.value) })}>
+              {[0, 0.15, 0.3, 0.5].map(v => <option key={v} value={v}>{v ? `${Math.round(v * 100)}%` : 'none'}</option>)}
+            </select>
+            {cfg.shape === 'cover' && cfg.sizeBy === 'target' && (
+              <>
+                <span className="muted2">target</span>
+                <select className="field" style={{ width: 72, padding: '2px 4px', fontSize: 11.5 }}
+                  value={cfg.targetOdds ?? 2} onChange={e => editChain({ targetOdds: Number(e.target.value) })}>
+                  {[1.5, 1.7, 2, 2.5, 3, 4, 5].map(v => <option key={v} value={v}>{v}x</option>)}
+                </select>
+                <span className="muted2">max legs</span>
+                <select className="field" style={{ width: 58, padding: '2px 4px', fontSize: 11.5 }}
+                  value={cfg.maxLegs ?? 4} onChange={e => editChain({ maxLegs: Number(e.target.value) })}>
+                  {[1,2,3,4,5,6,7,8].map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </>
+            )}
           </div>
           {(r.bankroll?.banked > 0 || cfg.bankPct > 0) && (
             <div className="muted2" style={{ fontSize: 11.5, marginTop: 8 }}>
@@ -824,6 +893,10 @@ export default function Rollover() {
   // Fraction of each win's profit taken off the table. Every rollover step that has ever lost
   // here lost on exactly one leg — this decides how much you keep when that happens.
   const [bankPct, setBankPct] = useState(0.3)
+  // Boosted variants you stake by hand on SportyBet. Both are strict supersets of the plain
+  // market, so settlement must check the goal timeline before calling such a leg lost.
+  const [oneUp, setOneUp] = useState(false)
+  const [earlyGoals, setEarlyGoals] = useState(false)
   const [mode, setMode] = useState('human')
   const [slate, setSlate] = useState('main')
   const [aiCheck, setAiCheck] = useState(true)
@@ -894,7 +967,7 @@ export default function Rollover() {
       // that matters lives on the chain, server-side.
       try { if (phone) localStorage.setItem('reckon.phone', phone) } catch { /* private window */ }
       await api.post('/api/rollover', {
-        name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck, bankPct,
+        name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck, bankPct, oneUp, earlyGoals,
         phone: notifyOn && phone ? phone : null,
         ...(shape === 'straight' ? { oddsMin, oddsMax, straightLegs } : { sizeBy, floor, targetOdds, tolerance, minLegProb, maxLegs }),
       })
@@ -1078,6 +1151,23 @@ export default function Rollover() {
               <label className="label">Kickoff window — {windowHours}h (nearest first)
                 <input type="range" min="12" max="168" step="12" value={windowHours} onChange={e => setWindowHours(parseInt(e.target.value, 10))} />
               </label>
+              <label className="label">How you place these on SportyBet</label>
+              <div style={{ display: 'grid', gap: 5, marginTop: -4 }}>
+                <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={oneUp} onChange={e => setOneUp(e.target.checked)} />
+                  I stake result legs as <b>1UP</b> <span className="muted2">— paid once my side goes a goal up</span>
+                </label>
+                <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={earlyGoals} onChange={e => setEarlyGoals(e.target.checked)} />
+                  I stake Overs as <b>Early Goals</b> <span className="muted2">— paid on an early goal</span>
+                </label>
+                {(oneUp || earlyGoals) && (
+                  <div className="muted2" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                    Settlement will read the goal timeline before calling such a leg lost. Without this a paid leg
+                    reads as a bust — it cost a 5.22x winner on 20 September.
+                  </div>
+                )}
+              </div>
               <label className="label">Bank each win — {bankPct > 0 ? `${Math.round(bankPct * 100)}% of the profit` : 'nothing, let it all ride'}
                 <input type="range" min="0" max="0.7" step="0.05" value={bankPct} onChange={e => setBankPct(parseFloat(e.target.value))} />
               </label>
@@ -1269,6 +1359,10 @@ export default function Rollover() {
         /* A build is the one state where something is happening that you cannot see. */
         .ro-spin { width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--accent-dim); border-top-color: var(--accent-2); animation: ro-sp 0.8s linear infinite; }
         @keyframes ro-sp { to { transform: rotate(360deg); } }
+        .ro-leg-fix { display: inline-flex; gap: 3px; margin-left: 6px; opacity: 0; transition: opacity 0.12s; }
+        .ro-leg:hover .ro-leg-fix { opacity: 1; }
+        .btn-xs { padding: 0 5px; font-size: 10.5px; line-height: 16px; min-height: 0; border-radius: 4px; }
+        @media (hover: none) { .ro-leg-fix { opacity: 0.55; } }
         .ro-step-what { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
         .ro-step-stake { font-size: 11.5px; flex-shrink: 0; }
 
