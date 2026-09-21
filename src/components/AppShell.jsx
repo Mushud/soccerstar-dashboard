@@ -34,6 +34,7 @@ const NAV = [
     items: [
       { to: '/?view=backtest', icon: '📈', text: 'Model & Backtest' },
       { to: '/aliases',        icon: '🔗', text: 'Team Aliases' },
+      { to: '/pricing',        icon: '₵',  text: 'Pricing' },
     ],
   },
 ]
