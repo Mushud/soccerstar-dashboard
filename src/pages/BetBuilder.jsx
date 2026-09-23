@@ -1361,6 +1361,26 @@ export default function BetBuilder() {
               {meta?.debug?.noPred > 0 && (
                 <span title="These fixtures have no prediction — run the engine on them first">{meta.debug.noPred} with no prediction</span>
               )}
+              {/* ── The two biggest stages, which were missing ──────────────────────────────
+                  "198 scanned, 46 picks" with no breakdown is unreadable: the gate and the
+                  market check routinely account for most of the drop, and without them the
+                  only visible explanation was SportyBet, which made every thin slate look like
+                  a bookmaker problem. Every one of these numbers was already in the payload. */}
+              {meta?.debug?.failedGate > 0 && (
+                <span title={`Below the ${meta.risk || 'risk'} tier threshold — the model was not confident enough on these`}>
+                  {meta.debug.failedGate} below the risk tier
+                </span>
+              )}
+              {meta?.debug?.noMarkets > 0 && (
+                <span title="No market this app can score and book — usually a fixture with no usable odds">
+                  {meta.debug.noMarkets} with no scoreable market
+                </span>
+              )}
+              {meta?.debug?.failedHistory > 0 && (
+                <span title="The two clubs' own last-10 results argued against every market on the fixture">
+                  {meta.debug.failedHistory} contradicted by history
+                </span>
+              )}
               {!showAll && meta && meta.fixturesScanned > picks.length && (
                 <span>
                   {meta.fixturesScanned - picks.length} filtered out —{' '}
