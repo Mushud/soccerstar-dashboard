@@ -169,11 +169,15 @@ function Leg({ l, live, onOverride }) {
       )}
       {/* Settled: the final score, coloured by what it did to the leg. On a losing step this is
           the whole story, so it is not a muted footnote. */}
-      {live?.state !== 'live' && (live?.sbScore || live?.score) && (
+      {/* `score`, not `sbScore`. The server already decides between the book's number and ours
+          (liveScore in services/rollover.js) and only trusts the book once the book says the
+          match has started — reaching past it for the raw field reinstates the bug where a
+          not-yet-tracked fixture reads 0-0 while it is actually 1-0. */}
+      {live?.state !== 'live' && live?.score && (
         <span className="num" style={{
           fontWeight: won === false ? 800 : 600,
           color: won === true ? 'var(--pos)' : won === false ? 'var(--neg)' : 'var(--tx-3)',
-        }}>{String(live.sbScore || live.score).replace(':', '-')}</span>
+        }}>{String(live.score).replace(':', '-')}</span>
       )}
       <span className="muted2 ro-leg-ko">{kickoff(l.kickoff)}</span>
       {/* Correct it by hand when SportyBet and the app disagree — a 1UP or Early Goals payout,
@@ -242,7 +246,7 @@ function Step({ step, total, live, defaultOpen, onOverride }) {
           )}
           {step.status === 'lost' && live?.legs?.some(x => x.won === false) && (
             <div style={{ fontSize: 11.5, marginBottom: 6, color: 'var(--neg)' }}>
-              Lost on {live.legs.filter(x => x.won === false).map(x => `${x.match} ${String(x.sbScore || x.score || '').replace(':', '-')} (${x.selection})`).join(' · ')}
+              Lost on {live.legs.filter(x => x.won === false).map(x => `${x.match} ${String(x.score || '').replace(':', '-')} (${x.selection})`).join(' · ')}
               {live.legs.some(x => x.won === true) && (
                 <span className="muted2"> — the other {live.legs.filter(x => x.won === true).length} landed.</span>
               )}
