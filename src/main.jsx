@@ -11,6 +11,7 @@ import Tournaments from './pages/Tournaments'
 import Aliases from './pages/Aliases'
 import Rollover from './pages/Rollover'
 import Pricing from './pages/Pricing'
+import Caps from './pages/Caps'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -26,6 +27,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Route path="/tournaments" element={<Tournaments />} />
       <Route path="/aliases" element={<Aliases />} />
       <Route path="/pricing" element={<Pricing />} />
+      <Route path="/caps" element={<Caps />} />
     </Routes>
   </BrowserRouter>
 )
