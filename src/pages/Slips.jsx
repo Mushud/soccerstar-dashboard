@@ -186,11 +186,21 @@ function SlipRow({ s }) {
                       {l.earlySettled && <span style={{ color: 'var(--warn)' }} title="Settled early from the live score"> ⚡</span>}
                     </span>
                   ) : l.live?.status === 'live' ? (
+                    // The minute comes from whichever feed has one. For a tier API-Football does
+                    // not cover live, `elapsed` is null forever and SportyBet's "42:49" is the
+                    // only thing that can say the match is actually running — without it the row
+                    // showed a score with no clock and looked stale.
                     <span style={{ color: 'var(--neg)', fontWeight: 800 }}
-                      title={`Live${l.live.elapsed != null ? ` — ${l.live.elapsed} minutes played` : ''}`}>
+                      title={`Live${l.live.elapsed != null ? ` — ${l.live.elapsed} minutes played`
+                        : l.live.sbClock ? ` — ${l.live.sbClock} on SportyBet's clock` : ''}${
+                        l.live.source === 'book' ? ' · score from SportyBet, our feed does not cover this league live' : ''}`}>
                       <span className="live-dot" />
                       {l.live.goalsHome ?? 0}–{l.live.goalsAway ?? 0}
-                      {l.live.elapsed != null && <span className="muted2" style={{ fontWeight: 600 }}> {l.live.elapsed}'</span>}
+                      {l.live.elapsed != null
+                        ? <span className="muted2" style={{ fontWeight: 600 }}> {l.live.elapsed}'</span>
+                        : l.live.sbClock
+                          ? <span className="muted2" style={{ fontWeight: 600 }}> {String(l.live.sbClock).split(':')[0]}'</span>
+                          : null}
                     </span>
                   ) : l.live?.status === 'finished' && l.live.goalsHome != null ? (
                     // Played but not yet graded — settlement runs on its own cycle, and "2–1,
