@@ -459,6 +459,7 @@ function ChainTable({ chains, onChanged, now }) {
         <thead>
           <tr>
             <th>Chain</th>
+            <th>Owner</th>
             <th className="num">Step</th>
             <th>In play</th>
             <th className="num">Odds</th>
@@ -487,6 +488,23 @@ function ChainTable({ chains, onChanged, now }) {
                     <b>{r.name || `${cfg.shape === 'straight' ? 'Straight' : 'Cover'} × ${cfg.steps}`}</b>
                     <div className="muted2 ro-sub">{r.status} · stake {cfg.stake}</div>
                   </td>
+                  {/* Who created it. Only the unscoped admin list carries `owner` — a customer's
+                      own list never does, because every row there is already theirs. `null` is a
+                      real state (chains made before accounts existed, and anything built from this
+                      page) rather than missing data, so it reads as a dash. */}
+                  <td>
+                    {r.owner
+                      ? <>
+                          <span>{r.owner.name || r.owner.phone || '—'}</span>
+                          <div className="muted2 ro-sub">
+                            {r.owner.name && r.owner.phone ? r.owner.phone : ''}
+                            {r.owner.paid
+                              ? <span style={{ color: 'var(--pos)' }}>{r.owner.name && r.owner.phone ? ' · ' : ''}paid</span>
+                              : <span className="muted2">{r.owner.name && r.owner.phone ? ' · ' : ''}free</span>}
+                          </div>
+                        </>
+                      : <span className="muted2">—</span>}
+                  </td>
                   <td className="num"><b>{won}</b><span className="muted2">/{cfg.steps}</span></td>
                   <td>
                     {live?.code
@@ -510,7 +528,7 @@ function ChainTable({ chains, onChanged, now }) {
                 </tr>
                 {open && (
                   <tr className="ro-row-detail">
-                    <td colSpan={9}>
+                    <td colSpan={10}>
                       <Chain r={r} onChanged={onChanged} now={now} defaultOpen />
                     </td>
                   </tr>
