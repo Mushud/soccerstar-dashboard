@@ -955,7 +955,12 @@ export default function Rollover() {
   }, [formTouched])
   useEffect(() => { load() }, [load])
 
-  const merged = useMemo(() => list.map(r => detail[r._id] || r), [list, detail])
+  // MERGED, not replaced. The detail fetch (getRollover) is richer per chain but it is a different
+  // shape from the list: anything listRollovers attaches for the table only — `owner`, for one —
+  // is absent from it, so overwriting the row dropped the Owner column on exactly the ACTIVE
+  // chains, while completed ones kept theirs. Spreading detail OVER the list row keeps the fresher
+  // per-chain fields winning and preserves whatever only the list knows.
+  const merged = useMemo(() => list.map(r => (detail[r._id] ? { ...r, ...detail[r._id] } : r)), [list, detail])
   // Table by default — with more than one chain running, columns beat a wall of cards. The cards
   // are still a click away and are what a row expands into.
   const [view, setView] = useState(() => { try { return localStorage.getItem('reckon.roView') || 'table' } catch { return 'table' } })
