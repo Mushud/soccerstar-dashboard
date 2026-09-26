@@ -57,38 +57,67 @@ function Table({ title, hint, rows }) {
   )
 }
 
-function Trial({ name, what, trial, keptLabel, restLabel, pick }) {
-  const weeks = [...(trial?.weeks || [])].reverse()
-  const counted = (trial?.weeks || []).filter(w => w.counts && w.passed !== null)
-  const run = (() => { let n = 0; for (const w of [...counted].reverse()) { if (w.passed) n++; else break } return n })()
-  const need = trial?.rule?.PASS_TO_ENABLE ?? 3
+function RuleCard({ rule, onMode, busy }) {
+  const [open, setOpen] = useState(false)
+  const [la, lb] = rule.labels
+  const state = rule.inForce ? 'IN FORCE' : 'off'
+  const why = rule.mode !== 'auto'
+    ? `held ${rule.mode} by hand`
+    : rule.enabled ? 'switched on by its own record' : 'on trial'
+  const s = rule.streak
+  const toGo = !rule.enabled && s ? (s.passed ? Math.max(0, rule.need.on - s.weeks) : rule.need.on) : rule.need.on
+  const latest = rule.weeks.find(w => w.passed != null) || rule.weeks[0]
   return (
-    <div className="card card-pad" style={{ marginBottom: 16 }}>
+    <div className="card card-pad" style={{ marginBottom: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <div className="card-title" style={{ margin: 0 }}>{name}</div>
-        <span className={`pill ${trial?.enabled ? 'pill-pos' : 'pill-info'}`}>{trial?.enabled ? 'ON' : 'off — on trial'}</span>
-        {trial && !trial.enabled && <span className="muted2" style={{ fontSize: 12 }}>{run} of {need} passing weeks in a row · started {day(trial.startedAt)}</span>}
+        <div className="card-title" style={{ margin: 0 }}>{rule.title}</div>
+        <span className={`pill ${rule.inForce ? 'pill-pos' : 'pill-info'}`}>{state}</span>
+        <span className="muted2" style={{ fontSize: 12 }}>{why}</span>
+        <div className="seg" style={{ marginLeft: 'auto' }}>
+          {['auto', 'on', 'off'].map(m => (
+            <button key={m} className={rule.mode === m ? 'on' : ''} disabled={busy} onClick={() => onMode(rule.key, m)}>
+              {m === 'auto' ? 'Auto' : m === 'on' ? 'Force on' : 'Force off'}
+            </button>
+          ))}
+        </div>
       </div>
-      <p className="muted2" style={{ fontSize: 12, margin: '6px 0 10px' }}>{what}</p>
-      {!trial ? <p className="muted" style={{ margin: 0 }}>Not started yet — the first weekly check runs Monday 03:40 UTC.</p> : (
-        <div className="tbl-wrap">
+      <p className="muted" style={{ fontSize: 13, margin: '8px 0 4px' }}>{rule.what}</p>
+      <p className="muted2" style={{ fontSize: 12, margin: '0 0 8px' }}>
+        Passes a week when {rule.passes}. {rule.enabled
+          ? `Switches off after ${rule.need.off} failing weeks in a row.`
+          : `Needs ${toGo} more passing week${toGo === 1 ? '' : 's'} in a row to switch on.`}
+        {' '}Trial started {day(rule.startedAt)}.
+      </p>
+      {latest && (
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13 }}>
+          <span>Latest week ({day(latest.weekStart)}): {latest.passed == null ? <span className="muted2">too few to judge</span>
+            : <span className={`pill ${latest.passed ? 'pill-pos' : 'pill-neg'}`}>{latest.passed ? 'pass' : 'fail'}</span>}
+            {!latest.counts && <span className="muted2"> · before the trial</span>}</span>
+          <span>{la}: <b>{latest.a?.n ?? 0}</b> <span style={{ color: tone(latest.a?.edge) }}>{pp(latest.a?.edge)}</span></span>
+          <span>{lb}: <b>{latest.b?.n ?? 0}</b> <span style={{ color: tone(latest.b?.edge) }}>{pp(latest.b?.edge)}</span></span>
+          {latest.note && <span className="muted2">{latest.note}</span>}
+        </div>
+      )}
+      {rule.weeks.length > 0 && (
+        <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setOpen(o => !o)}>{open ? 'Hide' : 'Show'} every week ({rule.weeks.length})</button>
+      )}
+      {open && (
+        <div className="tbl-wrap" style={{ marginTop: 10 }}>
           <table className="tbl">
-            <thead><tr><th>Week</th><th>{keptLabel}</th><th>vs price</th><th>{restLabel}</th><th>vs price</th><th>Verdict</th></tr></thead>
+            <thead><tr><th>Week</th><th>{la}</th><th>vs price</th><th>{lb}</th><th>vs price</th><th>Verdict</th><th></th></tr></thead>
             <tbody>
-              {weeks.map(w => {
-                const [a, b] = pick(w)
-                return (
-                  <tr key={w.weekStart} style={{ opacity: w.counts ? 1 : 0.55 }}>
-                    <td>{day(w.weekStart)} – {day(w.weekEnd)}{w.counts ? '' : ' · before the trial'}</td>
-                    <td className="num">{a?.n ?? 0}</td>
-                    <td className="num" style={{ color: tone(a?.edge) }}>{pp(a?.edge)}</td>
-                    <td className="num">{b?.n ?? 0}</td>
-                    <td className="num" style={{ color: tone(b?.edge) }}>{pp(b?.edge)}</td>
-                    <td>{w.passed == null ? <span className="muted2">too few to judge</span>
-                      : <span className={`pill ${w.passed ? 'pill-pos' : 'pill-neg'}`}>{w.passed ? 'pass' : 'fail'}</span>}</td>
-                  </tr>
-                )
-              })}
+              {rule.weeks.map(w => (
+                <tr key={w.weekStart} style={{ opacity: w.counts ? 1 : 0.55 }}>
+                  <td>{day(w.weekStart)} – {day(w.weekEnd)}{w.counts ? '' : ' · reference'}</td>
+                  <td className="num">{w.a?.n ?? 0}</td>
+                  <td className="num" style={{ color: tone(w.a?.edge) }}>{pp(w.a?.edge)}</td>
+                  <td className="num">{w.b?.n ?? 0}</td>
+                  <td className="num" style={{ color: tone(w.b?.edge) }}>{pp(w.b?.edge)}</td>
+                  <td>{w.passed == null ? <span className="muted2">too few</span>
+                    : <span className={`pill ${w.passed ? 'pill-pos' : 'pill-neg'}`}>{w.passed ? 'pass' : 'fail'}</span>}</td>
+                  <td className="muted2" style={{ fontSize: 12 }}>{w.note || ''}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
@@ -97,11 +126,47 @@ function Trial({ name, what, trial, keptLabel, restLabel, pick }) {
   )
 }
 
+function Journal({ entries }) {
+  const kindPill = { switch: 'pill-warn', override: 'pill-info', error: 'pill-neg', start: 'pill-info', verdict: '' }
+  return (
+    <div className="card card-pad" style={{ marginBottom: 16 }}>
+      <div className="card-title">Journal</div>
+      <p className="muted2" style={{ fontSize: 12, margin: '4px 0 10px' }}>What the system decided each Monday, and why, newest first. Switches and hand overrides are marked.</p>
+      {entries?.length ? (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {entries.map((e, i) => (
+            <div key={i} style={{ display: 'flex', gap: 10, fontSize: 13, alignItems: 'baseline' }}>
+              <span className="muted2 mono" style={{ fontSize: 11.5, whiteSpace: 'nowrap' }}>{day(e.at)}</span>
+              {e.kind !== 'verdict' && <span className={`pill ${kindPill[e.kind] || ''}`}>{e.kind}</span>}
+              <span>{e.text}</span>
+            </div>
+          ))}
+        </div>
+      ) : <p className="muted" style={{ margin: 0 }}>Nothing yet. The first weekly run is Monday 03:40 UTC.</p>}
+    </div>
+  )
+}
+
+function Alerts({ alerts, onSave }) {
+  const [text, setText] = useState('')
+  useEffect(() => { setText((alerts?.phones || []).join(', ')) }, [alerts])
+  return (
+    <div className="card card-pad" style={{ marginBottom: 24 }}>
+      <div className="card-title">Text me when a rule switches</div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+        <input className="field" style={{ flex: 1, minWidth: 220 }} placeholder="233…, 233…" value={text} onChange={e => setText(e.target.value)} />
+        <button className="btn btn-sm btn-primary" onClick={() => onSave(text)}>Save</button>
+      </div>
+      <p className="muted2" style={{ fontSize: 12, margin: '6px 0 0' }}>Up to five numbers. Only switches are texted, never the weekly verdicts.</p>
+    </div>
+  )
+}
+
 export default function Decisions() {
   const [days, setDays] = useState(14)
   const [clv, setClv] = useState(null)
-  const [league, setLeague] = useState(null)
-  const [agree, setAgree] = useState(null)
+  const [dec, setDec] = useState(null)
+  const [busy, setBusy] = useState(false)
   const [sources, setSources] = useState(null)
   const [err, setErr] = useState(null)
 
@@ -110,10 +175,23 @@ export default function Decisions() {
     api.get(`/api/betbuilder/closing-line?days=${days}`).then(r => setClv(r.data)).catch(e => setErr(e.message))
   }, [days])
   useEffect(() => {
-    api.get('/api/betbuilder/league-trial').then(r => setLeague(r.data.trial)).catch(() => {})
-    api.get('/api/betbuilder/agreement-trial').then(r => setAgree(r.data.trial)).catch(() => {})
+    loadDecisions()
     api.get('/api/betbuilder/odds-sources?hours=48').then(r => setSources(r.data)).catch(() => {})
   }, [])
+
+  function loadDecisions() {
+    return api.get('/api/betbuilder/decisions').then(r => setDec(r.data)).catch(e => setErr(e.message))
+  }
+  async function setMode(key, mode) {
+    setBusy(true)
+    try { await api.put(`/api/betbuilder/decisions/${key}`, { mode }); await loadDecisions() }
+    catch (e) { setErr(e.response?.data?.error || e.message) }
+    setBusy(false)
+  }
+  async function saveAlerts(text) {
+    try { const r = await api.put('/api/betbuilder/decisions-alerts', { phones: text }); setDec(d => ({ ...d, alerts: r.data })) }
+    catch (e) { setErr(e.response?.data?.error || e.message) }
+  }
 
   const o = clv?.overall
   const pin = sources?.books?.find(b => b.book === 'Pinnacle')
@@ -127,6 +205,17 @@ export default function Decisions() {
         Beating the close, sustained, is the most reliable sign of a real edge.
       </p>
 
+      <div className="section-head"><div className="section-title">What the system decided</div></div>
+      <p className="muted2" style={{ fontSize: 12.5, maxWidth: 780, margin: '0 0 12px' }}>
+        Every rule is judged every Monday on the week just settled, whether it is on or off. Three passing weeks in a row switch
+        it on; two failing weeks switch it off. Each one is a preference the build falls back from, so none can starve a chain.
+        Force on or off to overrule it; Auto hands it back.
+      </p>
+      {dec?.rules?.map(r => <RuleCard key={r.key} rule={r} onMode={setMode} busy={busy} />)}
+      <Journal entries={dec?.journal} />
+      <Alerts alerts={dec?.alerts} onSave={saveAlerts} />
+
+      <div className="section-head"><div className="section-title">Are we taking better prices than Pinnacle?</div></div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
         {[7, 14, 30].map(d => (
           <button key={d} className={`btn btn-sm${days === d ? ' btn-primary' : ''}`} onClick={() => setDays(d)}>Last {d} days</button>
@@ -172,13 +261,6 @@ export default function Decisions() {
         rows={clv?.byPrice} />
       <Table title="By where the leg came from" rows={clv?.bySource} />
       <Table title="By market" rows={clv?.byMarket} />
-
-      <Trial name="Strong-agreement preference"
-        what="When the AI and the model strongly agree, the rollover tries to build the ticket from those legs first, and falls back to every leg if that cannot reach the target. Switches on after 3 passing weeks in a row; off after 2 bad ones."
-        trial={agree} keptLabel="Strong legs" restLabel="Other legs" pick={w => [w.strong, w.rest]} />
-      <Trial name="League filter"
-        what="Refuses leagues whose record says they lose. Switches on only if the legs it keeps beat the price, three new weeks running."
-        trial={league} keptLabel="Kept legs" restLabel="Dropped legs" pick={w => [w.kept, w.dropped]} />
 
       <div className="card card-pad" style={{ marginBottom: 16 }}>
         <div className="card-title">Odds sources, last 48 hours</div>
