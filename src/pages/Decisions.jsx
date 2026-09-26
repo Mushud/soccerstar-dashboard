@@ -63,7 +63,8 @@ function RuleCard({ rule, onMode, busy }) {
   const state = rule.inForce ? 'IN FORCE' : 'off'
   const why = rule.mode !== 'auto'
     ? `held ${rule.mode} by hand`
-    : rule.enabled ? 'switched on by its own record' : 'on trial'
+    : rule.enabled ? (rule.defaultOn ? 'on by default — its trial can switch it off' : 'switched on by its own record')
+    : rule.defaultOn ? 'switched off by its own record' : 'on trial'
   const s = rule.streak
   const toGo = !rule.enabled && s ? (s.passed ? Math.max(0, rule.need.on - s.weeks) : rule.need.on) : rule.need.on
   const latest = rule.weeks.find(w => w.passed != null) || rule.weeks[0]
