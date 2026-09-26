@@ -167,11 +167,40 @@ export default function Pricing() {
           })}
 
           <div className="muted" style={{ fontSize: 12, lineHeight: 1.6, maxWidth: 720 }}>
-            A blank line is dropped on save, so you can type freely. Free is fixed at 0 — it is the
-            tier the limits in User.FREE_LIMITS describe.
+            A blank line is dropped on save, so you can type freely. Free is fixed at 0 and switched off:
+            every chain starts with a pass, and a lost first step earns a free chain instead (below).
           </div>
+          <Replays />
         </>
       )}
     </AppShell>
+  )
+}
+
+/** How the lost-first-step offer is running (services/replay.js). */
+function Replays() {
+  const [r, setR] = useState(null)
+  useEffect(() => { api.get('/api/pricing/replays').then(x => setR(x.data)).catch(() => {}) }, [])
+  if (!r) return null
+  const rate = f => (f.n ? `${Math.round((f.won / f.n) * 100)}% of ${f.n}` : '—')
+  return (
+    <div className="card card-pad" style={{ marginTop: 20, maxWidth: 720 }}>
+      <div className="card-title">First step loses? Next chain free</div>
+      <p className="muted2" style={{ fontSize: 12, margin: '4px 0 12px' }}>
+        A chain aimed at up to {r.rule.MAX_STEP_ODDS}x a step whose first step loses earns a free chain — up to {r.rule.MAX_STREAK} in
+        a row without a first-step win, and {r.rule.MAX_HELD} waiting at once. Credits outlive the pass. A free chain cuts step 1
+        without a pass; step 2 onwards needs one.
+      </p>
+      <div className="stat-grid">
+        <div className="stat"><div className="stat-label">Free chains granted</div><div className="stat-value">{r.granted}</div>
+          <div className="stat-foot">{r.perPayingUser ?? '—'} per customer who has paid (expected about 1)</div></div>
+        <div className="stat"><div className="stat-label">Used</div><div className="stat-value">{r.used}</div>
+          <div className="stat-foot">{r.waiting} waiting, held by {r.holders} customer{r.holders === 1 ? '' : 's'}</div></div>
+        <div className="stat"><div className="stat-label">First step landed</div><div className="stat-value" style={{ fontSize: 18 }}>{rate(r.firstSteps.pass)}</div>
+          <div className="stat-foot">paid chains since the change</div></div>
+        <div className="stat"><div className="stat-label">…on free chains</div><div className="stat-value" style={{ fontSize: 18 }}>{rate(r.firstSteps.replay)}</div>
+          <div className="stat-foot">a win here is the moment to sell a pass</div></div>
+      </div>
+    </div>
   )
 }

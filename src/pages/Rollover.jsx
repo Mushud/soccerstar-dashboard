@@ -666,7 +666,7 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
         <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line-soft)' }}>
           <div className="card-head" style={{ marginBottom: 10, gap: 8, flexWrap: 'wrap', alignItems: 'flex-start' }}>
             <div className="muted2" style={{ fontSize: 11.5, lineHeight: 1.5, minWidth: 0 }}>
-              {shapeLine} · {cfg.steps} steps · {cfg.windowHours}h window · {cfg.slate} card · {cfg.mode}
+              {shapeLine} · {cfg.steps} steps · {cfg.pace === 'daily' ? 'one step a day' : `${cfg.windowHours}h window`} · {cfg.slate} card · {cfg.mode}
               {cfg.aiCheck ? ' · AI check' : ''} · started {when(r.startedAt)}
               {cfg.oddsCapped ? <span style={{ color: 'var(--warn)' }}> · window capped from {cfg.oddsCapped}x</span> : null}
             </div>
@@ -837,6 +837,10 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
               a leg lost; without them a paid 1UP or Early Goals leg reads as a bust. */}
           <div className="toolbar" style={{ gap: 10, marginTop: 8, fontSize: 11.5, flexWrap: 'wrap' }}>
             <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={cfg.pace === 'daily'} onChange={e => editChain({ pace: e.target.checked ? 'daily' : 'asap' })} />
+              One step a day
+            </label>
+            <label style={{ display: 'flex', gap: 5, alignItems: 'center', cursor: 'pointer' }}>
               <input type="checkbox" checked={!!cfg.oneUp} onChange={e => editChain({ oneUp: e.target.checked })} />
               1UP
             </label>
@@ -919,6 +923,7 @@ export default function Rollover() {
   // market, so settlement must check the goal timeline before calling such a leg lost.
   const [oneUp, setOneUp] = useState(false)
   const [earlyGoals, setEarlyGoals] = useState(false)
+  const [pace, setPace] = useState('asap')
   const [mode, setMode] = useState('human')
   const [slate, setSlate] = useState('main')
   const [aiCheck, setAiCheck] = useState(true)
@@ -994,7 +999,7 @@ export default function Rollover() {
       // that matters lives on the chain, server-side.
       try { if (phone) localStorage.setItem('reckon.phone', phone) } catch { /* private window */ }
       await api.post('/api/rollover', {
-        name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck, bankPct, oneUp, earlyGoals,
+        name: name || null, shape, steps, stake, windowHours, mode, slate, aiCheck, bankPct, oneUp, earlyGoals, pace,
         phone: notifyOn && phone ? phone : null,
         ...(shape === 'straight' ? { oddsMin, oddsMax, straightLegs } : { sizeBy, floor, targetOdds, tolerance, minLegProb, maxLegs }),
       })
@@ -1175,6 +1180,16 @@ export default function Rollover() {
           <details>
             <summary className="muted" style={{ fontSize: 12, cursor: 'pointer' }}>How each step is built</summary>
             <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+              <label className="label">When each step is cut</label>
+              <div className="seg" style={{ marginTop: -4 }}>
+                <button type="button" className={pace === 'asap' ? 'on' : ''} onClick={() => setPace('asap')}>As soon as possible</button>
+                <button type="button" className={pace === 'daily' ? 'on' : ''} onClick={() => setPace('daily')}>One step a day</button>
+              </div>
+              <p className="muted2" style={{ fontSize: 11.5, margin: '-2px 0 0' }}>
+                {pace === 'daily'
+                  ? 'Cut at 09:30 UTC from every match left that day; the next step waits for the next morning. The window below is not used.'
+                  : 'Nearest matches first: 3h, then 6h, 12h and the window below (capped at 24h by the server).'}
+              </p>
               <label className="label">Kickoff window — {windowHours}h (nearest first)
                 <input type="range" min="12" max="168" step="12" value={windowHours} onChange={e => setWindowHours(parseInt(e.target.value, 10))} />
               </label>

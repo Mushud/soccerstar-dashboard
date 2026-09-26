@@ -162,6 +162,59 @@ function Alerts({ alerts, onSave }) {
   )
 }
 
+function AiModel() {
+  const [d, setD] = useState(null)
+  const [model, setModel] = useState('')
+  const [effort, setEffort] = useState('')
+  const [msg, setMsg] = useState(null)
+  const load = () => api.get('/api/betbuilder/ai-models').then(r => {
+    setD(r.data); setModel(r.data.settings.deep); setEffort(r.data.settings.deepEffort)
+  }).catch(e => setMsg(e.message))
+  useEffect(() => { load() }, [])
+  const save = async () => {
+    try { await api.put('/api/betbuilder/ai-models', { deep: model, deepEffort: effort }); setMsg('Saved — the next rollover build uses it.'); load() }
+    catch (e) { setMsg(e.response?.data?.error || e.message) }
+  }
+  const options = d ? [...new Set([...(d.options || []), d.settings.deep])] : []
+  return (
+    <div className="card card-pad" style={{ marginBottom: 24 }}>
+      <div className="card-title">Deep-analysis model</div>
+      <p className="muted2" style={{ fontSize: 12, margin: '4px 0 10px' }}>
+        The model that reads each leg of a rollover step before it is booked, and how hard it thinks. Changing it
+        re-reads a fixture once on the new model. Below it: how the legs each model passed have landed against their price.
+      </p>
+      {d && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select className="field" value={model} onChange={e => setModel(e.target.value)} style={{ minWidth: 200 }}>
+            {options.map(o => <option key={o} value={o}>{o}{o === d.defaults.deep ? ' (default)' : ''}</option>)}
+          </select>
+          <select className="field" value={effort} onChange={e => setEffort(e.target.value)}>
+            {d.efforts.map(o => <option key={o} value={o}>effort: {o}{o === d.defaults.deepEffort ? ' (default)' : ''}</option>)}
+          </select>
+          <button className="btn btn-sm btn-primary" onClick={save}
+            disabled={model === d.settings.deep && effort === d.settings.deepEffort}>Save</button>
+          {msg && <span className="muted2" style={{ fontSize: 12 }}>{msg}</span>}
+        </div>
+      )}
+      {d?.record?.length > 0 && (
+        <div className="tbl-wrap" style={{ marginTop: 12 }}>
+          <table className="tbl">
+            <thead><tr><th>Model</th><th>Settled legs</th><th>Landed</th><th>vs price</th></tr></thead>
+            <tbody>{d.record.map(r => (
+              <tr key={r.model}>
+                <td className="mono">{r.model === 'unknown' ? 'not recorded (before 26 Sep)' : r.model}</td>
+                <td className="num">{r.n}</td>
+                <td className="num">{pct(r.landed, 0)}</td>
+                <td className="num" style={{ color: tone(r.edge), fontWeight: 650 }}>{pp(r.edge)}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Decisions() {
   const [days, setDays] = useState(14)
   const [clv, setClv] = useState(null)
@@ -214,6 +267,7 @@ export default function Decisions() {
       {dec?.rules?.map(r => <RuleCard key={r.key} rule={r} onMode={setMode} busy={busy} />)}
       <Journal entries={dec?.journal} />
       <Alerts alerts={dec?.alerts} onSave={saveAlerts} />
+      <AiModel />
 
       <div className="section-head"><div className="section-title">Are we taking better prices than Pinnacle?</div></div>
       <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
