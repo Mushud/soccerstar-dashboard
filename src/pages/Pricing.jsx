@@ -93,9 +93,9 @@ export default function Pricing() {
       }
     >
       <p className="muted" style={{ fontSize: 12.5, marginBottom: 14, maxWidth: 720, lineHeight: 1.6 }}>
-        Prices are shown on the landing page exactly as typed here. Nothing takes money yet — mobile
-        money is still to be wired up — so changing a price changes what is advertised, not what
-        anybody is charged. A plan switched off disappears from the page entirely.
+        Prices are shown on the landing page exactly as typed here, and they are what checkout
+        charges — changing a price changes what the next mobile-money payment collects. A plan
+        switched off disappears from the page entirely.
       </p>
 
       {error && <div className="pill pill-neg" style={{ marginBottom: 12 }}>{error}</div>}
@@ -111,6 +111,17 @@ export default function Pricing() {
             </div>
             <div className="muted" style={{ fontSize: 12, paddingBottom: 8 }}>
               Shown before the number, e.g. “{data.currency} 10”.
+            </div>
+          </div>
+
+          <div style={S.card}>
+            <label style={S.label} htmlFor="note">Note under the plans</label>
+            <textarea id="note" rows={2} value={data.note || ''} maxLength={300}
+              style={{ ...S.input, width: '100%', resize: 'vertical', lineHeight: 1.6, fontFamily: 'inherit' }}
+              onChange={e => { setSaved(false); setData(d => ({ ...d, note: e.target.value })) }} />
+            <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+              Shown under the plans on the landing page and on the app's pass screen. Leave it empty to hide it.
+              Say "the Reckon model", never the AI provider's name.
             </div>
           </div>
 
