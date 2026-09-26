@@ -36,6 +36,7 @@ const NAV = [
       { to: '/aliases',        icon: '🔗', text: 'Team Aliases' },
       { to: '/pricing',        icon: '₵',  text: 'Pricing' },
       { to: '/caps',           icon: '⊤',  text: 'Rollover caps' },
+      { to: '/decisions',      icon: '◎',  text: 'Decisions' },
     ],
   },
 ]

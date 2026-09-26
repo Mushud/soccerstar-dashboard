@@ -12,6 +12,7 @@ import Aliases from './pages/Aliases'
 import Rollover from './pages/Rollover'
 import Pricing from './pages/Pricing'
 import Caps from './pages/Caps'
+import Decisions from './pages/Decisions'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -28,6 +29,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Route path="/aliases" element={<Aliases />} />
       <Route path="/pricing" element={<Pricing />} />
       <Route path="/caps" element={<Caps />} />
+      <Route path="/decisions" element={<Decisions />} />
     </Routes>
   </BrowserRouter>
 )
