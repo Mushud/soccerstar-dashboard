@@ -1187,7 +1187,7 @@ export default function Rollover() {
               </div>
               <p className="muted2" style={{ fontSize: 11.5, margin: '-2px 0 0' }}>
                 {pace === 'daily'
-                  ? 'Cut at 09:30 UTC from every match left that day; the next step waits for the next morning. The window below is not used.'
+                  ? 'First step: straight away if created before 16:00 UTC, else 09:30 tomorrow. Later steps: 09:30 UTC the next day, from every match left that day. The window below is not used.'
                   : 'Nearest matches first: 3h, then 6h, 12h and the window below (capped at 24h by the server).'}
               </p>
               <label className="label">Kickoff window — {windowHours}h (nearest first)
