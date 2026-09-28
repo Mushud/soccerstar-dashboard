@@ -256,11 +256,12 @@ function Step({ step, total, live, defaultOpen, onOverride }) {
             <div style={{ display: 'grid', gap: 3 }}>
               {step.legs.map((l, i) => {
                 const lv = live?.legs?.find(x => x.match === l.match && x.market === l.market && x.selection === l.selection)
-                // The index the SERVER will use is the leg's position on the ticket, which is the
-                // order `live.legs` came back in — not this display order.
-                const idx = live?.legs?.indexOf(lv) ?? -1
+                // The leg is named, not numbered. Both lists here are sorted by kickoff and the
+                // ticket is not, so a position sent from this screen landed on a different leg —
+                // on 2026-09-28 a tick meant for Al Kharaitiyat marked Belgium v France won before
+                // it kicked off.
                 return <Leg key={i} l={l} live={lv}
-                  onOverride={onOverride && idx >= 0 ? (won => onOverride(step.n, idx, won)) : null} />
+                  onOverride={onOverride && lv ? (won => onOverride(step.n, { match: l.match, market: l.market, selection: l.selection }, won)) : null} />
               })}
             </div>
           )}
@@ -574,8 +575,8 @@ function Chain({ r, onChanged, now, defaultOpen = false }) {
   }
   // Correct a leg by hand — PATCH /api/rollover/:id/leg. The server re-settles the ticket and
   // moves the chain to wherever that leaves it, reviving a busted one if the step is no longer lost.
-  const overrideLeg = async (step, leg, won) => {
-    try { await api.patch(`/api/rollover/${r._id}/leg`, { step, leg, won }); await onChanged() }
+  const overrideLeg = async (step, which, won) => {
+    try { await api.patch(`/api/rollover/${r._id}/leg`, { step, ...which, won }); await onChanged() }
     catch (e) { alert(e.response?.data?.error || e.message) }
   }
   // Change a setting on a running chain — PATCH /api/rollover/:id.
