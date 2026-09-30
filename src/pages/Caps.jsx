@@ -137,6 +137,57 @@ export default function Caps() {
         recent={rec.recent.straight} allTime={rec.allTime.straight}
         onChange={v => setCaps({ ...caps, straightMaxOdds: v })} />
 
+      {/* ── Blind fixtures ──────────────────────────────────────────────────────────────────
+          Matches where our data has no bookmaker odds, so the model is guessing (lower leagues,
+          cup ties). They are judged at SportyBet's own probability; these two numbers are the
+          rest of that rule, here rather than in .env so they can be changed without a deploy. */}
+      <h3 style={{ marginTop: 28 }}>Spread</h3>
+      <p className="muted2" style={{ fontSize: 12.5, maxWidth: 700, marginTop: 4 }}>
+        How many pending rollover and auto-slate tickets one <b>match</b> may be on, whatever the bet. Last 14 days:
+        a match on one ticket failed 16% of the time, on 3–4 tickets 36%, and those caused 79 of 141 lost
+        tickets — every builder reaches for the same matches. Once a match is full the builder moves on to the
+        next best; it never leaves a step unbuilt because of this.
+      </p>
+      <div className="caps-row">
+        <div className="caps-head">
+          <div>
+            <div className="caps-label">Most tickets one match may be on</div>
+            <div className="muted2" style={{ fontSize: 12 }}>any match, any bet — blind matches use the tighter limit below</div>
+          </div>
+          <input className="caps-input num" type="number" step="1" min="1" max="50"
+            value={caps.matchMaxTickets ?? 2} onChange={e => setCaps({ ...caps, matchMaxTickets: e.target.value })} />
+        </div>
+      </div>
+
+      <h3 style={{ marginTop: 28 }}>Blind matches</h3>
+      <p className="muted2" style={{ fontSize: 12.5, maxWidth: 700, marginTop: 4 }}>
+        A match is <b>blind</b> when our data holds no bookmaker odds for it, so the model is guessing —
+        lower leagues and cup ties. Measured 26–30 Sep: blind legs landed 66% where their price needed 78%,
+        anchored ones 92% against 83%. Blind legs are judged at SportyBet's own probability; these two
+        settings are the rest of that rule.
+      </p>
+      <div className="caps-row">
+        <div className="caps-head">
+          <div>
+            <div className="caps-label">Most tickets one <b>blind</b> match may be on</div>
+            <div className="muted2" style={{ fontSize: 12 }}>whatever the bet — a guessed match should not ride on several chains</div>
+          </div>
+          <input className="caps-input num" type="number" step="1" min="1" max="50"
+            value={caps.blindMaxTickets ?? 1} onChange={e => setCaps({ ...caps, blindMaxTickets: e.target.value })} />
+        </div>
+      </div>
+      <div className="caps-row">
+        <div className="caps-head">
+          <div>
+            <div className="caps-label">Offer SportyBet's favourite as a straight win from</div>
+            <div className="muted2" style={{ fontSize: 12 }}>on a blind match, the book's favourite at this chance or more is put forward as a straight-win leg (percent)</div>
+          </div>
+          <input className="caps-input num" type="number" step="1" min="50" max="95"
+            value={Math.round((caps.blindFavouriteMin ?? 0.6) * 100)}
+            onChange={e => setCaps({ ...caps, blindFavouriteMin: Number(e.target.value) / 100 })} />
+        </div>
+      </div>
+
       <h3 style={{ marginTop: 28 }}>Per market</h3>
       <p className="muted2" style={{ fontSize: 12.5, maxWidth: 700, marginTop: 4 }}>
         Blank means the global ceiling applies. A number here <b>replaces</b> it for that market —
