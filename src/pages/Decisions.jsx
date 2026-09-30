@@ -99,6 +99,19 @@ function RuleCard({ rule, onMode, busy }) {
           {latest.note && <span className="muted2">{latest.note}</span>}
         </div>
       )}
+      {/* The days since the last Monday verdict, scored the same way. Without it the page shows
+          nothing new for a whole week and reads as if the data had stopped. Never counted. */}
+      {rule.soFar && !rule.soFar.error && (
+        <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, marginTop: 8, padding: '8px 10px',
+                      background: 'var(--surface-2, rgba(0,0,0,0.03))', borderRadius: 8 }}>
+          <span>So far since {day(rule.soFar.weekStart)}: {rule.soFar.passed == null ? <span className="muted2">too few to judge yet</span>
+            : <span className={`pill ${rule.soFar.passed ? 'pill-pos' : 'pill-neg'}`}>{rule.soFar.passed ? 'passing' : 'failing'}</span>}
+            <span className="muted2"> · not judged until Monday</span></span>
+          <span>{la}: <b>{rule.soFar.a?.n ?? 0}</b> <span style={{ color: tone(rule.soFar.a?.edge) }}>{pp(rule.soFar.a?.edge)}</span></span>
+          <span>{lb}: <b>{rule.soFar.b?.n ?? 0}</b> <span style={{ color: tone(rule.soFar.b?.edge) }}>{pp(rule.soFar.b?.edge)}</span></span>
+          {rule.soFar.note && <span className="muted2">{rule.soFar.note}</span>}
+        </div>
+      )}
       {rule.weeks.length > 0 && (
         <button className="btn btn-sm" style={{ marginTop: 10 }} onClick={() => setOpen(o => !o)}>{open ? 'Hide' : 'Show'} every week ({rule.weeks.length})</button>
       )}
