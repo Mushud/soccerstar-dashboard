@@ -84,29 +84,39 @@ function RuleCard({ rule, onMode, busy }) {
       </div>
       <p className="muted" style={{ fontSize: 13, margin: '8px 0 4px' }}>{rule.what}</p>
       <p className="muted2" style={{ fontSize: 12, margin: '0 0 8px' }}>
-        Passes a week when {rule.passes}. {rule.enabled
-          ? `Switches off after ${rule.need.off} failing weeks in a row.`
-          : `Needs ${toGo} more passing week${toGo === 1 ? '' : 's'} in a row to switch on.`}
+        {rule.daily ? (
+          <>Judged every morning on the last {rule.judge.windowDays} days: it favours the rule when {rule.passes}.
+          It switches {rule.enabled ? 'off' : 'on'} once that gap is at least {rule.judge.z} standard errors with {rule.judge.minSideLegs}+ legs a side,
+          then holds for {rule.judge.cooldownDays} days{rule.judge.lastSwitchAt ? ` (last switched ${day(rule.judge.lastSwitchAt)})` : ''}.</>
+        ) : (
+          <>Passes a week when {rule.passes}. {rule.enabled
+            ? `Switches off after ${rule.need.off} failing weeks in a row.`
+            : `Needs ${toGo} more passing week${toGo === 1 ? '' : 's'} in a row to switch on.`} Judged on Mondays.</>
+        )}
         {' '}Trial started {day(rule.startedAt)}.
       </p>
       {latest && (
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13 }}>
-          <span>Latest week ({day(latest.weekStart)}): {latest.passed == null ? <span className="muted2">too few to judge</span>
-            : <span className={`pill ${latest.passed ? 'pill-pos' : 'pill-neg'}`}>{latest.passed ? 'pass' : 'fail'}</span>}
-            {!latest.counts && <span className="muted2"> · before the trial</span>}</span>
+          <span>{rule.daily ? `Last 7 days to ${day(latest.weekEnd)}` : `Latest week (${day(latest.weekStart)})`}: {latest.passed == null ? <span className="muted2">too few to judge</span>
+            : <span className={`pill ${latest.passed ? 'pill-pos' : 'pill-neg'}`}>{latest.passed ? (rule.daily ? 'favours it' : 'pass') : (rule.daily ? 'against it' : 'fail')}</span>}
+            {rule.daily && latest.evidence?.z != null && (
+              <span className="muted2"> · {latest.evidence.z} SE{latest.evidence.want == null ? ' — not enough to act on' : ' — enough to act on'}</span>
+            )}
+            {!latest.counts && <span className="muted2"> · window starts before the trial</span>}</span>
           <span>{la}: <b>{latest.a?.n ?? 0}</b> <span style={{ color: tone(latest.a?.edge) }}>{pp(latest.a?.edge)}</span></span>
           <span>{lb}: <b>{latest.b?.n ?? 0}</b> <span style={{ color: tone(latest.b?.edge) }}>{pp(latest.b?.edge)}</span></span>
           {latest.note && <span className="muted2">{latest.note}</span>}
         </div>
       )}
-      {/* The days since the last Monday verdict, scored the same way. Without it the page shows
-          nothing new for a whole week and reads as if the data had stopped. Never counted. */}
+      {/* The same rolling window as of right now — the morning verdict can be up to a day old.
+          Never counted. */}
       {rule.soFar && !rule.soFar.error && (
         <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13, marginTop: 8, padding: '8px 10px',
                       background: 'var(--surface-2, rgba(0,0,0,0.03))', borderRadius: 8 }}>
-          <span>So far since {day(rule.soFar.weekStart)}: {rule.soFar.passed == null ? <span className="muted2">too few to judge yet</span>
-            : <span className={`pill ${rule.soFar.passed ? 'pill-pos' : 'pill-neg'}`}>{rule.soFar.passed ? 'passing' : 'failing'}</span>}
-            <span className="muted2"> · not judged until Monday</span></span>
+          <span>Right now (7 days to now): {rule.soFar.passed == null ? <span className="muted2">too few to judge yet</span>
+            : <span className={`pill ${rule.soFar.passed ? 'pill-pos' : 'pill-neg'}`}>{rule.soFar.passed ? 'favours it' : 'against it'}</span>}
+            {rule.soFar.evidence?.z != null && <span className="muted2"> · {rule.soFar.evidence.z} SE</span>}
+            <span className="muted2"> · next verdict tomorrow 03:40</span></span>
           <span>{la}: <b>{rule.soFar.a?.n ?? 0}</b> <span style={{ color: tone(rule.soFar.a?.edge) }}>{pp(rule.soFar.a?.edge)}</span></span>
           <span>{lb}: <b>{rule.soFar.b?.n ?? 0}</b> <span style={{ color: tone(rule.soFar.b?.edge) }}>{pp(rule.soFar.b?.edge)}</span></span>
           {rule.soFar.note && <span className="muted2">{rule.soFar.note}</span>}
@@ -145,7 +155,7 @@ function Journal({ entries }) {
   return (
     <div className="card card-pad" style={{ marginBottom: 16 }}>
       <div className="card-title">Journal</div>
-      <p className="muted2" style={{ fontSize: 12, margin: '4px 0 10px' }}>What the system decided each Monday, and why, newest first. Switches and hand overrides are marked.</p>
+      <p className="muted2" style={{ fontSize: 12, margin: '4px 0 10px' }}>What the system decided, and why, newest first — every switch, and every morning the evidence turned. Hand overrides are marked.</p>
       {entries?.length ? (
         <div style={{ display: 'grid', gap: 8 }}>
           {entries.map((e, i) => (
@@ -156,7 +166,7 @@ function Journal({ entries }) {
             </div>
           ))}
         </div>
-      ) : <p className="muted" style={{ margin: 0 }}>Nothing yet. The first weekly run is Monday 03:40 UTC.</p>}
+      ) : <p className="muted" style={{ margin: 0 }}>Nothing yet. The rules are judged every morning at 03:40 UTC.</p>}
     </div>
   )
 }
@@ -171,7 +181,7 @@ function Alerts({ alerts, onSave }) {
         <input className="field" style={{ flex: 1, minWidth: 220 }} placeholder="233…, 233…" value={text} onChange={e => setText(e.target.value)} />
         <button className="btn btn-sm btn-primary" onClick={() => onSave(text)}>Save</button>
       </div>
-      <p className="muted2" style={{ fontSize: 12, margin: '6px 0 0' }}>Up to five numbers. Only switches are texted, never the weekly verdicts.</p>
+      <p className="muted2" style={{ fontSize: 12, margin: '6px 0 0' }}>Up to five numbers. Only switches are texted, never the daily verdicts.</p>
     </div>
   )
 }
@@ -274,8 +284,9 @@ export default function Decisions() {
 
       <div className="section-head"><div className="section-title">What the system decided</div></div>
       <p className="muted2" style={{ fontSize: 12.5, maxWidth: 780, margin: '0 0 12px' }}>
-        Every rule is judged every Monday on the week just settled, whether it is on or off. Three passing weeks in a row switch
-        it on; two failing weeks switch it off. Each one is a preference the build falls back from, so none can starve a chain.
+        Every rule is judged every morning on the last 7 days, whether it is on or off, and switches only when the gap is bigger
+        than luck — 1.5 standard errors with 10+ legs a side — then holds 3 days. (The league and strong-agreement rules still
+        judge weekly, on Mondays.) Each one is a preference the build falls back from, so none can starve a chain.
         Force on or off to overrule it; Auto hands it back.
       </p>
       {dec?.rules?.map(r => <RuleCard key={r.key} rule={r} onMode={setMode} busy={busy} />)}
