@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import AiBanner from './AiBanner'
 
 /**
  * Persistent chrome for every screen: a sidebar on desktop, a slide-in drawer plus a bottom
@@ -122,7 +123,7 @@ export default function AppShell({ title, subtitle, actions, children, wide = tr
           {actions}
         </header>
 
-        <main className={`page${wide ? '' : ' page-narrow'}`}>{children}</main>
+        <main className={`page${wide ? '' : ' page-narrow'}`}><AiBanner />{children}</main>
       </div>
 
       <nav className="bottomnav">

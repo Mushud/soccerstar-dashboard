@@ -141,6 +141,24 @@ export default function Caps() {
           Matches where our data has no bookmaker odds, so the model is guessing (lower leagues,
           cup ties). They are judged at SportyBet's own probability; these two numbers are the
           rest of that rule, here rather than in .env so they can be changed without a deploy. */}
+      <h3 style={{ marginTop: 28 }}>When the AI is down</h3>
+      <p className="muted2" style={{ fontSize: 12.5, maxWidth: 700, marginTop: 4 }}>
+        If the AI cannot be reached (out of credit, key refused, outage), a chain's next step either <b>waits</b>{' '}
+        for it or is <b>booked without the AI check</b>. On 3 Oct the account ran out of credit: steps booked
+        unchecked won 9 of 20 (45%) against 29 of 55 (53%) with the AI working. Either way the alert numbers on
+        the Decisions page get a text when it goes down and when it comes back.
+      </p>
+      <div className="caps-row">
+        <div className="caps-head">
+          <div>
+            <div className="caps-label">Hold rollover steps while the AI is down</div>
+            <div className="muted2" style={{ fontSize: 12 }}>on: the step waits and is cut as soon as the AI answers · off: book blind</div>
+          </div>
+          <input type="checkbox" style={{ width: 20, height: 20 }}
+            checked={caps.holdWhenAiDown !== false} onChange={e => setCaps({ ...caps, holdWhenAiDown: e.target.checked })} />
+        </div>
+      </div>
+
       <h3 style={{ marginTop: 28 }}>Spread</h3>
       <p className="muted2" style={{ fontSize: 12.5, maxWidth: 700, marginTop: 4 }}>
         How many pending rollover and auto-slate tickets one <b>match</b> may be on, whatever the bet. Last 14 days:
