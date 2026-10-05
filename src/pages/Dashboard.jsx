@@ -129,14 +129,13 @@ export default function Dashboard() {
     if (showLoader) setLiveLoading(true)
     else setLiveRefreshing(true)
     try {
-      // Sync live from API-Football first, then fetch from DB
-      await api.post('/api/sync/live')
+      // SportyBet's live feed (the server reads it directly — no API-Football quota spent)
       const { data } = await api.get('/api/fixtures/live')
       const fixtures = data.fixtures || []
       setLiveFixtures(fixtures)
 
       const predMap = {}
-      await Promise.all(fixtures.map(async (f) => {
+      await Promise.all(fixtures.filter(f => f.ours !== false).map(async (f) => {
         try {
           const { data: pred } = await api.get(`/api/predictions/${f._id}`)
           predMap[f._id] = pred
@@ -388,14 +387,23 @@ export default function Dashboard() {
                       {f.awayTeamName}
                     </span>
                   </div>
-                  <PredictionCard
-                    fixture={f}
-                    prediction={livePredictions[f._id] || null}
-                    onPredict={() => handleLivePredict(f._id)}
-                    computing={!!liveComputing[f._id]}
-                    flushTop
-                    isLive
-                  />
+                  {f.ours === false ? (
+                    <div className="muted2" style={{
+                      border: '1px solid var(--neg-dim)', borderTop: 'none', borderRadius: '0 0 var(--r-lg) var(--r-lg)',
+                      padding: '8px 16px', fontSize: 12.5,
+                    }}>
+                      Live from SportyBet — not a fixture we hold, so there is no prediction of ours for it.
+                    </div>
+                  ) : (
+                    <PredictionCard
+                      fixture={f}
+                      prediction={livePredictions[f._id] || null}
+                      onPredict={() => handleLivePredict(f._id)}
+                      computing={!!liveComputing[f._id]}
+                      flushTop
+                      isLive
+                    />
+                  )}
                 </div>
               ))}
             </section>
