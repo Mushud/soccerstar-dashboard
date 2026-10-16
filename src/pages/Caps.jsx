@@ -143,20 +143,26 @@ export default function Caps() {
           rest of that rule, here rather than in .env so they can be changed without a deploy. */}
       <h3 style={{ marginTop: 28 }}>When the AI is down</h3>
       <p className="muted2" style={{ fontSize: 12.5, maxWidth: 700, marginTop: 4 }}>
-        If the AI cannot be reached (out of credit, key refused, outage), a chain's next step either <b>waits</b>{' '}
-        for it or is <b>booked without the AI check</b>. On 3 Oct the account ran out of credit: steps booked
-        unchecked won 9 of 20 (45%) against 29 of 55 (53%) with the AI working. Either way the alert numbers on
-        the Decisions page get a text when it goes down and when it comes back.
+        If the AI cannot be reached (out of credit, key refused, outage), a chain's next step does one of three things.
+        Booked unchecked, steps won 10 of 22 (45%) against 54% with the AI working. The AI rarely argues with a
+        Home Win (10 vetoes since 15 Sep, against 126 on Over 1.5), so a Home Win ticket loses least by skipping it.
+        Either way the alert numbers on the Decisions page get a text when it goes down and when it comes back.
       </p>
-      <div className="caps-row">
-        <div className="caps-head">
-          <div>
-            <div className="caps-label">Hold rollover steps while the AI is down</div>
-            <div className="muted2" style={{ fontSize: 12 }}>on: the step waits and is cut as soon as the AI answers · off: book blind</div>
-          </div>
-          <input type="checkbox" style={{ width: 20, height: 20 }}
-            checked={caps.holdWhenAiDown !== false} onChange={e => setCaps({ ...caps, holdWhenAiDown: e.target.checked })} />
-        </div>
+      <div className="caps-row" style={{ display: 'grid', gap: 10 }}>
+        {[
+          ['homeOnly', 'Home Wins only', 'Build without the AI, but book the step only if it is made entirely of Home Wins. Otherwise it waits.'],
+          ['hold', 'Wait', 'The step waits, and is cut as soon as the AI answers.'],
+          ['blind', 'Build blind', 'Build and book as normal, with no AI check.'],
+        ].map(([v, title, text]) => (
+          <label key={v} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer' }}>
+            <input type="radio" name="aiDownMode" checked={(caps.aiDownMode || 'homeOnly') === v}
+              onChange={() => setCaps({ ...caps, aiDownMode: v })} style={{ marginTop: 3 }} />
+            <span>
+              <span className="caps-label">{title}</span>
+              <span className="muted2" style={{ display: 'block', fontSize: 12 }}>{text}</span>
+            </span>
+          </label>
+        ))}
       </div>
 
       <h3 style={{ marginTop: 28 }}>Spread</h3>

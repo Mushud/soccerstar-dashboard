@@ -25,9 +25,11 @@ export default function AiBanner() {
       borderRadius: 8, padding: '10px 14px', margin: '0 0 16px', fontSize: 13, lineHeight: 1.45,
     }}>
       <b>The AI is not answering{since ? ` (since ${since})` : ''}</b> — {h.words}.{' '}
-      {h.holding === false
-        ? 'The hold is switched off at /caps, so rollover steps are being booked unchecked.'
-        : 'Rollover steps are held until it is back.'}
+      {h.mode === 'blind' || h.holding === false
+        ? 'Set to "Build blind" at /caps, so rollover steps are being booked unchecked.'
+        : h.mode === 'homeOnly'
+          ? 'Rollover steps are booked only when they can be made of Home Wins alone; the rest wait until it is back (/caps).'
+          : 'Rollover steps are held until it is back.'}
       {h.lastError && <div style={{ opacity: 0.8, fontSize: 12, marginTop: 4 }}>Anthropic said: {h.lastError}</div>}
     </div>
   )
