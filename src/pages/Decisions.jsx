@@ -82,6 +82,16 @@ function RuleCard({ rule, onMode, busy }) {
           ))}
         </div>
       </div>
+      {rule.recommendation && (() => {
+        // The call in one line, from the rule's last three weeks (recommendationOf in services/decisions.js).
+        const rec = rule.recommendation
+        const tone = rec.action === 'off' ? 'var(--neg)' : rec.action === 'on' || rec.action === 'keep' ? 'var(--pos)' : 'var(--muted)'
+        return (
+          <div style={{ margin: '10px 0 2px', padding: '8px 12px', borderLeft: `3px solid ${tone}`, background: 'var(--surface-2, rgba(0,0,0,0.03))', borderRadius: 4, fontSize: 13 }}>
+            <b style={{ color: tone }}>Recommendation: {rec.say}.</b> <span className="muted">{rec.why}</span>
+          </div>
+        )
+      })()}
       <p className="muted" style={{ fontSize: 13, margin: '8px 0 4px' }}>{rule.what}</p>
       <p className="muted2" style={{ fontSize: 12, margin: '0 0 8px' }}>
         {rule.daily ? (
@@ -190,13 +200,14 @@ function AiModel() {
   const [d, setD] = useState(null)
   const [model, setModel] = useState('')
   const [effort, setEffort] = useState('')
+  const [ahead, setAhead] = useState('')
   const [msg, setMsg] = useState(null)
   const load = () => api.get('/api/betbuilder/ai-models').then(r => {
-    setD(r.data); setModel(r.data.settings.deep); setEffort(r.data.settings.deepEffort)
+    setD(r.data); setModel(r.data.settings.deep); setEffort(r.data.settings.deepEffort); setAhead(String(r.data.settings.prewarmMax ?? ''))
   }).catch(e => setMsg(e.message))
   useEffect(() => { load() }, [])
   const save = async () => {
-    try { await api.put('/api/betbuilder/ai-models', { deep: model, deepEffort: effort }); setMsg('Saved — the next rollover build uses it.'); load() }
+    try { await api.put('/api/betbuilder/ai-models', { deep: model, deepEffort: effort, prewarmMax: Number(ahead) }); setMsg('Saved — the next rollover build uses it.'); load() }
     catch (e) { setMsg(e.response?.data?.error || e.message) }
   }
   const options = d ? [...new Set([...(d.options || []), d.settings.deep])] : []
@@ -215,8 +226,15 @@ function AiModel() {
           <select className="field" value={effort} onChange={e => setEffort(e.target.value)}>
             {d.efforts.map(o => <option key={o} value={o}>effort: {o}{o === d.defaults.deepEffort ? ' (default)' : ''}</option>)}
           </select>
+          {/* The biggest single AI cost — see prewarmMax in services/claude.js. */}
+          <label className="muted2" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            Read ahead
+            <input className="field" type="number" min="0" max="40" step="1" value={ahead}
+              onChange={e => setAhead(e.target.value)} style={{ width: 64 }} />
+            matches every 3h (0 = off)
+          </label>
           <button className="btn btn-sm btn-primary" onClick={save}
-            disabled={model === d.settings.deep && effort === d.settings.deepEffort}>Save</button>
+            disabled={model === d.settings.deep && effort === d.settings.deepEffort && Number(ahead) === d.settings.prewarmMax}>Save</button>
           {msg && <span className="muted2" style={{ fontSize: 12 }}>{msg}</span>}
         </div>
       )}
